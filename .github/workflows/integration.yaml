@@ -1,0 +1,37 @@
+name: integration
+on:
+  schedule:
+    - cron: "0 12 * * 1"  # weekly, Mondays 12:00 UTC
+  workflow_dispatch:
+
+# GITHUB_TOKEN defaults to read-only on new repositories; the failure step
+# below files an issue, so it needs issues:write explicitly.
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  live-endpoints:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[dev,web]'
+      - name: Hit live endpoints
+        run: pytest -m integration -v
+        continue-on-error: false
+
+      - name: Open issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Integration tests failing (${new Date().toISOString().slice(0,10)})`,
+              body: `Live-endpoint integration tests failed. A source schema may have drifted. See: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['integration-failure']
+            });

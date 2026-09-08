@@ -1,0 +1,6 @@
+[
+  {"uuid": "u1", "name": "Senior Backend Engineer", "department": {"id": "Eng", "label": "Engineering"}, "url": "https://ats.rippling.com/acme/jobs/u1", "workLocation": {"label": "Remote (United States)", "id": "r"}},
+  {"uuid": "u2", "name": "Software Engineer", "department": {"id": "Eng", "label": "Engineering"}, "url": "https://ats.rippling.com/acme/jobs/u2", "workLocation": {"label": "San Francisco, CA", "id": "sf"}},
+  {"uuid": "u3", "name": "Backend Engineer", "department": {"id": "Eng", "label": "Engineering"}, "url": "https://ats.rippling.com/acme/jobs/u3", "workLocation": {"label": "Bangalore, India", "id": "blr"}},
+  {"uuid": "u4", "name": "Platform Engineer", "department": {"id": "Eng", "label": "Engineering"}, "url": "https://ats.rippling.com/acme/jobs/u4", "workLocation": {"label": "Hybrid (San Francisco, California, US)", "id": "hyb"}}
+]

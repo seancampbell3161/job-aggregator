@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Job Aggregator</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/htmx.min.js"></script>
+  <script>
+    // Bulk triage selection. Defined once here (not in the swapped-in partial) so
+    // it survives htmx list refreshes; the count updates via delegated change.
+    function bulkToggleAll(box) {
+      document.querySelectorAll('#list input[name=ids]').forEach(function (c) { c.checked = box.checked; });
+      updateBulkCount();
+    }
+    function updateBulkCount() {
+      var n = document.querySelectorAll('#list input[name=ids]:checked').length;
+      var label = document.getElementById('bulk-count');
+      if (label) label.textContent = n ? n + ' selected' : '';
+      var apply = document.getElementById('bulk-apply');
+      if (apply) apply.disabled = n === 0;
+    }
+    document.addEventListener('change', function (e) {
+      if (e.target && e.target.name === 'ids') updateBulkCount();
+    });
+  </script>
+</head>
+<body>
+  <header>
+    <span class="brand">job-aggregator</span>
+    <nav class="topnav">
+      <a href="/">Triage</a>
+      <a href="/board">Board</a>
+      <a href="/pipeline">Pipeline</a>
+      <a href="/analytics">Analytics</a>
+      {% if request.app.state.coach.nav_visible %}<a href="/coach">Coach</a>{% endif %}
+      <a href="/kit">Kit</a>
+      <a href="/builder">Builder</a>
+    </nav>
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+</body>
+</html>

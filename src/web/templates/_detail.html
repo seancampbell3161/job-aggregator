@@ -1,0 +1,31 @@
+{% set statuses = ['new', 'interested', 'applied', 'interviewing', 'offer', 'rejected', 'ghosted', 'dismissed'] %}
+<div class="detail-head">
+  <span class="score s-{{ m.band(score_high, score_low) }}">{{ m.score if m.score is not none else '–' }}</span>
+  <div>
+    <b style="font-size:15px">{{ m.title }}</b><br>
+    <span class="muted">
+      {{ m.company }}{% if m.location_text %} · {{ m.location_text }}{% endif %}
+      {% if m.comp_display %} · {{ m.comp_display }}{% endif %}
+      · {% if m.source == "adzuna" %}<a href="https://www.adzuna.com" target="_blank" rel="noopener">Jobs by Adzuna</a>{% else %}{{ m.source }}{% endif %}{% if m.date_display %} · {{ m.date_display }}{% endif %}
+    </span>
+  </div>
+</div>
+
+<p style="margin-top:12px">
+  <span class="muted" style="font-size:11px">WHY THIS SCORED {{ m.score if m.score is not none else '—' }}</span><br>
+  {{ m.rationale or 'No rationale recorded.' }}
+</p>
+
+<div style="margin-top:10px">
+  <span class="muted" style="font-size:11px">STRETCH AREAS</span><br>
+  {% for g in m.gaps %}<span class="gap">{{ g }}</span>{% else %}<span class="muted">no stretch areas</span>{% endfor %}
+</div>
+
+<div class="status-buttons">
+  {% for s in statuses %}
+  <button class="btn {{ 'primary' if s == m.status else '' }}"
+          hx-post="/status?id={{ m.job_id | urlencode }}&status={{ s }}"
+          hx-target="#detail" hx-swap="innerHTML">{{ s | capitalize }}</button>
+  {% endfor %}
+  <a class="btn primary apply" href="{{ m.apply_href }}" target="_blank" rel="noopener noreferrer">Apply ↗</a>
+</div>

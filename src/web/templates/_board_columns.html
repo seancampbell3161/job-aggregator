@@ -1,0 +1,56 @@
+<div class="board">
+  {% for col in active_columns %}
+  <section class="board-col">
+    <h2 class="board-col-head">{{ col | capitalize }} <span class="count">{{ board.columns[col] | length }}</span></h2>
+    {% for m in board.columns[col] %}
+    <article class="board-card">
+      <div class="board-card-head">
+        <span class="score s-{{ m.band(score_high, score_low) }}">{{ m.score if m.score is not none else '–' }}</span>
+        <b>{{ m.company }}</b>
+        {% if m.is_manual %}<span class="tag-manual" title="added by hand, not polled from a board">manual</span>{% endif %}
+      </div>
+      <div class="muted board-card-title">{{ m.title }}</div>
+      <div class="muted board-since">
+        since {{ m.current_since }}{% if m.is_stale(stale_after_days) %} · <span class="stale">{{ m.staleness_label(stale_after_days) }}</span>{% endif %}{% if m.closed_label() %} · <span class="stale">{{ m.closed_label() }}</span>{% endif %}
+      </div>
+      {% if m.email_suggestion %}
+      <div class="muted board-since">
+        <span class="stale">{{ m.suggestion_label() }}</span>
+        <button class="btn tiny"
+                hx-post="/board/advance?id={{ m.job_id | urlencode }}&status={{ m.email_suggestion.suggested_status }}"
+                hx-target="#board-columns" hx-swap="innerHTML">Confirm</button>
+        <button class="btn tiny"
+                hx-post="/board/dismiss-suggestion?id={{ m.job_id | urlencode }}"
+                hx-target="#board-columns" hx-swap="innerHTML">Dismiss</button>
+      </div>
+      {% endif %}
+      {% if m.stage_timeline %}
+      <div class="board-timeline">{% for s, d in m.stage_timeline %}{{ s | capitalize }} {{ d }}{% if not loop.last %} → {% endif %}{% endfor %}</div>
+      {% endif %}
+      <div class="board-card-actions">
+        {% for s in ['interested','applied','interviewing','offer','rejected','ghosted','dismissed'] %}{% if s != m.status %}
+        <button class="btn tiny"
+                hx-post="/board/advance?id={{ m.job_id | urlencode }}&status={{ s }}"
+                hx-target="#board-columns" hx-swap="innerHTML">{{ s | capitalize }}</button>
+        {% endif %}{% endfor %}
+        <a class="btn tiny apply" href="{{ m.apply_href }}" target="_blank" rel="noopener noreferrer">Apply ↗</a>
+      </div>
+    </article>
+    {% else %}
+    <p class="muted board-empty">—</p>
+    {% endfor %}
+  </section>
+  {% endfor %}
+</div>
+
+<details class="board-archive">
+  <summary>Archive ({{ board.archive | length }})</summary>
+  {% for m in board.archive %}
+  <div class="archive-row">
+    <span class="status-tag s-{{ m.status_css }}">{{ m.status | capitalize }}</span>
+    <b>{{ m.company }}</b> <span class="muted">{{ m.title }} · {{ m.current_since }}</span>
+  </div>
+  {% else %}
+  <p class="muted">No archived applications.</p>
+  {% endfor %}
+</details>

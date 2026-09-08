@@ -1,0 +1,69 @@
+services:
+  poller:
+    build: .
+    command: ["python", "-m", "src.scheduler"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      JOB_AGG_BACKEND: sqlite
+      JOB_AGG_SQLITE_PATH: /data/job_aggregator.db
+      JOB_AGG_TAILORED_DIR: /data/tailored
+      # Local Ollama container by default; set JOB_AGG_OLLAMA_HOST in .env
+      # (e.g. https://ollama.com) to use hosted Ollama Cloud instead.
+      JOB_AGG_OLLAMA_HOST: ${JOB_AGG_OLLAMA_HOST:-http://ollama:11434}
+    volumes:
+      - ./data:/data
+      - ./config.yaml:/app/config.yaml:ro
+      - ./profile.md:/app/profile.md:ro
+      # gap_analysis users: add `- ./resume.md:/app/resume.md:ro` here
+      # (resume.md does not exist by default; see resume.md.example)
+      - ./resume:/app/resume:ro
+      # Nested mount shadows the parent :ro mount for this subdir only, so
+      # template uploads/staging/accept/delete can write here.
+      - ./resume/templates:/app/resume/templates
+
+  web:
+    build: .
+    command: ["python", "-m", "src.web"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      JOB_AGG_BACKEND: sqlite
+      JOB_AGG_SQLITE_PATH: /data/job_aggregator.db
+      JOB_AGG_TAILORED_DIR: /data/tailored
+      JOB_AGG_WEB_HOST: 0.0.0.0
+      # Local Ollama container by default; set JOB_AGG_OLLAMA_HOST in .env
+      # (e.g. https://ollama.com) to use hosted Ollama Cloud instead.
+      JOB_AGG_OLLAMA_HOST: ${JOB_AGG_OLLAMA_HOST:-http://ollama:11434}
+    ports:
+      # WARNING: the web UI has NO authentication. "8000:8000" publishes it on
+      # every interface, so anyone who can route to this host can read your
+      # résumé, applications and apply-kit answers. On a shared or untrusted
+      # network use "127.0.0.1:8000:8000" instead and reach it over Tailscale
+      # or an SSH tunnel. Never port-forward this to the internet.
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+      - ./config.yaml:/app/config.yaml:ro
+      - ./profile.md:/app/profile.md:ro
+      # gap_analysis users: add `- ./resume.md:/app/resume.md:ro` here
+      # (resume.md does not exist by default; see resume.md.example)
+      - ./resume:/app/resume:ro
+      # Nested mount shadows the parent :ro mount for this subdir only, so
+      # template uploads/staging/accept/delete can write here.
+      - ./resume/templates:/app/resume/templates
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    # Opt-in: only starts with `docker compose --profile ollama up`.
+    # Cloud LLM users (anthropic/gemini) never need it.
+    profiles: ["ollama"]
+    volumes:
+      - ollama-models:/root/.ollama
+    # Uncomment to expose the Ollama API on the host:
+    # ports:
+    #   - "11434:11434"
+
+volumes:
+  ollama-models:

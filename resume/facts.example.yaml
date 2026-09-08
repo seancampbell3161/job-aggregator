@@ -1,0 +1,34 @@
+# Apply kit facts — copy to resume/facts.yaml (gitignored) and edit.
+# Free-form: any group, any label. Values are quoted so YAML never
+# reinterprets them (an unquoted No parses as a boolean).
+# The /kit page re-reads this file on every refresh.
+- group: Links
+  facts:
+    - label: GitHub
+      value: "https://github.com/your-handle"
+    - label: LinkedIn
+      value: "https://www.linkedin.com/in/your-handle"
+    - label: Personal site
+      value: "https://example.com"
+- group: Eligibility
+  facts:
+    - label: Work authorization
+      value: "..."
+    - label: Requires sponsorship
+      value: "..."
+    - label: Location
+      value: "Chicago, IL"
+    - label: Willing to relocate
+      value: "No"
+    - label: Earliest start
+      value: "Two weeks from offer"
+- group: EEO
+  facts:
+    - label: Gender
+      value: "..."
+    - label: Race/ethnicity
+      value: "..."
+    - label: Veteran status
+      value: "..."
+    - label: Disability
+      value: "..."

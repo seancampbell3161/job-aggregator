@@ -1,0 +1,401 @@
+{
+ "pageProps": {
+  "ssrHits": [
+   {
+    "id": "avature___mantech___63280",
+    "board_token": "mantech",
+    "source": "avature",
+    "apply_url": "https://careers.mantech.com/en_US/careers/JobDetail/Software-Engineer/63280",
+    "source_and_board_token": "avature_mantech",
+    "job_information": {
+     "title": "Software Engineer",
+     "job_title_raw": "Software Engineer",
+     "description": "MANTECH seeks a motivated, career and customer-oriented Software Engineer to join our team in Fort Meade, MD.\n \nThe Software Engineer will leverage their strong technical background and knowledge to design, develop, and maintain complex software systems while ensuring all functional and performance requirements are met.\n \nResponsibilities include but are not limited to:\nDesigning and coding new so\n\n[description truncated for this test fixture]"
+    },
+    "v5_processed_job_data": {
+     "commitment": [
+      "Full Time"
+     ],
+     "workplace_states": [
+      "Maryland, US"
+     ],
+     "workplace_cities": [
+      "Fort Meade, Maryland, US"
+     ],
+     "workplace_type": "Onsite",
+     "formatted_workplace_location": "Fort Meade, Maryland, United States",
+     "estimated_publish_date": "2026-04-15T12:00:00.000Z",
+     "estimated_publish_date_millis": 1776254400000,
+     "company_name": "ManTech"
+    },
+    "enriched_company_data": {
+     "name": "ManTech"
+    },
+    "requisition_id": "4lyw61taw6a4uy9y",
+    "collapse_key": "3680787a13610aa6b67b94e4a23ff84579f6f070541f47d5354b31f42e9e7e00",
+    "is_expired": false,
+    "objectID": "avature___mantech___63280"
+   },
+   {
+    "id": "workday___paypal-wd1-jobs___software-engineer_r0136084-1",
+    "board_token": "paypal-wd1-jobs",
+    "source": "workday",
+    "apply_url": "https://paypal.wd1.myworkdayjobs.com/jobs/job/San-Jose-California-United-States-of-America/Software-Engineer_R0136084-1",
+    "source_and_board_token": "workday_paypal-wd1-jobs",
+    "job_information": {
+     "title": "Software Engineer",
+     "job_title_raw": "Software Engineer",
+     "description": "<p style=\"text-align:left\"><b>The Company</b></p><p style=\"text-align:inherit\"></p><p style=\"text-align:left\">PayPal has been revolutionizing commerce globally for more than 25 years. Creating innovative experiences that make moving money, selling, and shopping simple, personalized, and secure, PayPal empowers consumers and businesses in approximately 200 markets to join and thrive in the global e\n\n[description truncated for this test fixture]"
+    },
+    "v5_processed_job_data": {
+     "commitment": [
+      "Full Time"
+     ],
+     "workplace_states": [
+      "California, US"
+     ],
+     "workplace_cities": [
+      "San Jose, California, US"
+     ],
+     "workplace_type": "Hybrid",
+     "formatted_workplace_location": "San Jose, California, United States",
+     "estimated_publish_date": "2026-04-14T00:00:00.000Z",
+     "estimated_publish_date_millis": 1776124800000,
+     "company_name": "PayPal"
+    },
+    "enriched_company_data": {
+     "name": "PayPal"
+    },
+    "original_source_id": "workday___paypal-wd1-jobs___software-engineer_r0136084-1",
+    "requisition_id": "uy51o1njdr7qivrf",
+    "collapse_key": "1c24f951799c5b537f149208a89cd40937f5870f94f55fd202966f3882d2a0bd",
+    "is_expired": false,
+    "objectID": "workday___paypal-wd1-jobs___software-engineer_r0136084-1"
+   },
+   {
+    "id": "ashby___rabot___3e30baae-8d69-4dfd-bdca-76bc435fd0f7",
+    "board_token": "rabot",
+    "source": "ashby",
+    "apply_url": "https://jobs.ashbyhq.com/rabot/3e30baae-8d69-4dfd-bdca-76bc435fd0f7",
+    "source_and_board_token": "ashby_rabot",
+    "job_information": {
+     "title": "Software Engineer",
+     "job_title_raw": "Software Engineer",
+     "description": "<h2>About Rabot</h2><p style=\"min-height:1.5em\">Rabot builds vision AI for warehouse packing operations. Cameras watch the pack line, software figures out where things are slow or wrong, and operators get real-time feedback that actually changes how they work. Customers stick around because it measurably improves their output.</p><p style=\"min-height:1.5em\">We're venture-backed with distribution p\n\n[description truncated for this test fixture]"
+    },
+    "v5_processed_job_data": {
+     "commitment": [
+      "Full Time"
+     ],
+     "workplace_states": [
+      "Texas, US"
+     ],
+     "workplace_cities": [
+      "Arlington, Texas, US"
+     ],
+     "workplace_type": "Onsite",
+     "formatted_workplace_location": "Arlington, Texas, United States",
+     "estimated_publish_date": "2026-03-06T10:10:13.843Z",
+     "estimated_publish_date_millis": 1772791813843,
+     "company_name": "Rabot"
+    },
+    "enriched_company_data": {
+     "name": "Rabot"
+    },
+    "original_source_id": "3e30baae-8d69-4dfd-bdca-76bc435fd0f7",
+    "requisition_id": "x4qvnjkk6syxui72",
+    "collapse_key": "bd546e2f55fac20bdaa3dbc3fee2f657acc2b5ce9651724aaf8c8978e4910df9",
+    "is_expired": false,
+    "objectID": "ashby___rabot___3e30baae-8d69-4dfd-bdca-76bc435fd0f7"
+   },
+   {
+    "id": "oraclecloud___ibqbjb.fa.ocs___144241",
+    "board_token": "ibqbjb.fa.ocs",
+    "source": "oraclecloud",
+    "apply_url": "https://ibqbjb.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX/requisitions/job/144241",
+    "source_and_board_token": "oraclecloud_ibqbjb.fa.ocs",
+    "job_information": {
+     "title": "Software Engineer",
+     "job_title_raw": "Software Engineer",
+     "description": "<p>Tridium is the inventor of the Niagara Framework, an IoT software framework that solves the challenges of managing smart devices, in real time, over the Internet. The Niagara Framework is Tridium’s core technology that supports an ecosystem of innovators who deliver powerful IoT solutions across a wide range of industries including energy services, building automation, and industrial automation\n\n[description truncated for this test fixture]"
+    },
+    "v5_processed_job_data": {
+     "commitment": [
+      "Full Time"
+     ],
+     "workplace_states": [
+      "Virginia, US"
+     ],
+     "workplace_cities": [
+      "Richmond, Virginia, US"
+     ],
+     "workplace_type": "Hybrid",
+     "formatted_workplace_location": "Richmond, Virginia, United States",
+     "estimated_publish_date": "2026-03-26T22:30:43.000Z",
+     "estimated_publish_date_millis": 1774564243000,
+     "company_name": "Honeywell"
+    },
+    "enriched_company_data": {
+     "name": "Honeywell"
+    },
+    "requisition_id": "3s8t2b0edxr9logv",
+    "collapse_key": "78cda89da1ea24b6c16e211781d014c71ec77ab045bce656ec7e0b7ebecae1bf",
+    "is_expired": false,
+    "objectID": "oraclecloud___ibqbjb.fa.ocs___144241"
+   },
+   {
+    "id": "grnhse___pilothq___8516101002",
+    "board_token": "pilothq",
+    "source": "grnhse",
+    "apply_url": "https://job-boards.greenhouse.io/pilothq/jobs/8516101002",
+    "source_and_board_token": "grnhse_pilothq",
+    "job_information": {
+     "title": "Software Engineer",
+     "job_title_raw": "Software Engineer",
+     "description": "<h2><strong>The Role</strong></h2>\n<p>Pilot is hiring a Software Engineer to join our Bookkeeping Automation team.</p>\n<p>This team builds the systems and tooling that power high-quality bookkeeping, including secure and reliable agentic workflows, integrations with third-party systems, and the infrastructure needed to operate them effectively in production. We focus on improving the accuracy, eff\n\n[description truncated for this test fixture]"
+    },
+    "v5_processed_job_data": {
+     "commitment": [
+      "Full Time"
+     ],
+     "workplace_states": [
+      "California, US"
+     ],
+     "workplace_cities": [
+      "San Francisco, California, US"
+     ],
+     "workplace_type": "Hybrid",
+     "formatted_workplace_location": "San Francisco, California, United States",
+     "estimated_publish_date": "2026-04-23T20:36:02.000Z",
+     "estimated_publish_date_millis": 1776976562000,
+     "company_name": "Pilot.com"
+    },
+    "enriched_company_data": {
+     "name": "Pilot"
+    },
+    "requisition_id": "ilvret89l2heni04",
+    "collapse_key": "69932fab5552fade32db99272aeea3f48c04aaf4f632261af97a90411367ce4f",
+    "is_expired": false,
+    "objectID": "grnhse___pilothq___8516101002"
+   },
+   {
+    "id": "icims2___careers-gdms___72386",
+    "board_token": "careers-gdms",
+    "source": "icims2",
+    "apply_url": "https://careers-gdms.icims.com/jobs/72386/software-engineer---intern/job?in_iframe=1",
+    "source_and_board_token": "icims2_careers-gdms",
+    "job_information": {
+     "title": "Software Engineer - Intern",
+     "job_title_raw": "Software Engineer - Intern",
+     "description": "<div class=\"iCIMS_Expandable_Container\">\n<div class=\"iCIMS_Expandable_Text\">\n<p style=\"margin: 0px;\"><span style=\"font-size: 10pt;\">Candidates should demonstrate a thorough understanding of engineering technology.  Engineering Interns must be enrolled in an accredited degree program in Computer Engineering, Systems Engineering, Software Engineering, Electrical Engineering, Mechanical Engineering o\n\n[description truncated for this test fixture]"
+    },
+    "v5_processed_job_data": {
+     "commitment": [
+      "Internship"
+     ],
+     "workplace_states": [
+      "Indiana, US"
+     ],
+     "workplace_cities": [
+      "Fort Wayne, Indiana, US"
+     ],
+     "workplace_type": "Onsite",
+     "formatted_workplace_location": "Fort Wayne, Indiana, United States",
+     "estimated_publish_date": "2026-04-30T04:00:00.000Z",
+     "estimated_publish_date_millis": 1777521600000,
+     "company_name": "General Dynamics Mission Systems, Inc."
+    },
+    "requisition_id": "v45qod5smlijb3s8",
+    "collapse_key": "807dd99a48dbb8dcc386f266e0ec8e64f7fff5bc6537ae56569ef17497ab4023",
+    "is_expired": false,
+    "enriched_company_data": {
+     "name": "General Dynamics Mission Systems"
+    },
+    "objectID": "icims2___careers-gdms___72386"
+   },
+   {
+    "id": "icims2___careers-gdms___72380",
+    "board_token": "careers-gdms",
+    "source": "icims2",
+    "apply_url": "https://careers-gdms.icims.com/jobs/72380/software-engineer-%e2%80%93-entry-level---intern-conversion/job?in_iframe=1",
+    "source_and_board_token": "icims2_careers-gdms",
+    "job_information": {
+     "title": "Software Engineer – Entry Level - Intern Conversion",
+     "job_title_raw": "Software Engineer – Entry Level - Intern Conversion",
+     "description": "<div class=\"iCIMS_Expandable_Container\">\n<div class=\"iCIMS_Expandable_Text\">\n<p style=\"margin: 0px;\"><span style=\"font-size: 10pt;\">Requires a Bachelor’s degree in Software Engineering, or a related Science, Engineering or Mathematics field. Agile experience preferred.</span></p><p style=\"margin: 0px;\"> </p><p style=\"margin: 0px;\"><span style=\"font-size: 10pt;\"><strong>CLEARANCE REQUIREMENTS:</str\n\n[description truncated for this test fixture]"
+    },
+    "v5_processed_job_data": {
+     "commitment": [
+      "Internship",
+      "Full Time"
+     ],
+     "workplace_states": [
+      "Arizona, US"
+     ],
+     "workplace_cities": [
+      "Scottsdale, Arizona, US"
+     ],
+     "workplace_type": "Onsite",
+     "formatted_workplace_location": "Scottsdale, Arizona, United States",
+     "estimated_publish_date": "2026-04-30T04:00:00.000Z",
+     "estimated_publish_date_millis": 1777521600000,
+     "company_name": "General Dynamics Mission Systems, Inc."
+    },
+    "requisition_id": "hdsssjwkqda64ft0",
+    "collapse_key": "807dd99a48dbb8dcc386f266e0ec8e64f7fff5bc6537ae56569ef17497ab4023",
+    "is_expired": false,
+    "enriched_company_data": {
+     "name": "General Dynamics Mission Systems"
+    },
+    "objectID": "icims2___careers-gdms___72380"
+   },
+   {
+    "id": "taleo_rss___phg.tbe_phg03_G5F8UG_37___4275",
+    "board_token": "phg.tbe_phg03_G5F8UG_37",
+    "source": "taleo_rss",
+    "apply_url": "https://phg.tbe.taleo.net/phg03/ats/careers/requisition.jsp?org=G5F8UG&cws=37&rid=4275",
+    "source_and_board_token": "taleo_rss_phg.tbe_phg03_G5F8UG_37",
+    "job_information": {
+     "title": "Software Engineer",
+     "job_title_raw": "Software Engineer",
+     "description": "<h2>Spectra Tech is seeking a Software Engineer for Oak Ridge, TN. </h2><p> </p><p class=\"MsoNormal\" style=\"line-height:normal;margin-bottom:0.0in;\"><span style=\"font-family:Verdana , sans-serif;font-size:10.0pt;\"><span><strong>Essential Job Functions:</strong></span></span> </p><p class=\"MsoNormal\" style=\"line-height:normal;margin-bottom:0.0in;\"> </p><p class=\"MsoNormal\" style=\"line-height:normal\n\n[description truncated for this test fixture]"
+    },
+    "v5_processed_job_data": {
+     "commitment": [
+      "Full Time"
+     ],
+     "workplace_states": [
+      "Tennessee, US"
+     ],
+     "workplace_cities": [
+      "Oak Ridge, Tennessee, US"
+     ],
+     "workplace_type": "Onsite",
+     "formatted_workplace_location": "Oak Ridge, Tennessee, United States",
+     "estimated_publish_date": "2026-04-07T20:04:21.000Z",
+     "estimated_publish_date_millis": 1775592261000,
+     "company_name": "Spectra Tech"
+    },
+    "enriched_company_data": {
+     "name": "Spectra Tech"
+    },
+    "requisition_id": "ye8aa7dan7ns4cy4",
+    "collapse_key": "759d938a3c4ddef2aa989735ed81631243bcb76c647f736c120abfb022916a5d",
+    "is_expired": false,
+    "objectID": "taleo_rss___phg.tbe_phg03_G5F8UG_37___4275"
+   },
+   {
+    "id": "workable___texas_sports_academy___0435aafd-63f7-443f-9b19-c5812850fde2",
+    "board_token": "texas_sports_academy",
+    "source": "workable",
+    "apply_url": "https://jobs.workable.com/view/1w9FY2ARpNSA4rXzJ3KFgG/full-stack-developer-(ai-augmented)-in-austin-at-texas-sports-academy",
+    "source_and_board_token": "workable_texas_sports_academy",
+    "job_information": {
+     "title": "Full-Stack Developer (AI-Augmented)",
+     "job_title_raw": "Full-Stack Developer (AI-Augmented)",
+     "description": "<p>Texas Sports Academy is seeking a talented and passionate Full-Stack Developer (AI-Augmented) to join our innovative tech team. As a leader in the sports training industry, we leverage cutting-edge technology to enhance athletic performance, offering customizable solutions for athletes and coaches. In this role, you will be responsible for the design, development, and maintenance of our compreh\n\n[description truncated for this test fixture]"
+    },
+    "v5_processed_job_data": {
+     "commitment": [
+      "Contract"
+     ],
+     "workplace_states": [
+      "Texas, US"
+     ],
+     "workplace_cities": [
+      "Austin, Texas, US"
+     ],
+     "workplace_type": "Onsite",
+     "formatted_workplace_location": "Austin, Texas, United States",
+     "estimated_publish_date": "2026-04-03T07:23:15.539Z",
+     "estimated_publish_date_millis": 1775200995539,
+     "company_name": "Texas Sports Academy"
+    },
+    "enriched_company_data": {
+     "name": "Texas Sports Academy"
+    },
+    "requisition_id": "jf3xe34nx71tb2gy",
+    "collapse_key": "c5e83154f7c5db1a15e1fd3afda48817a1d1e33855557af0a584a978e683311d",
+    "is_expired": false,
+    "objectID": "workable___texas_sports_academy___0435aafd-63f7-443f-9b19-c5812850fde2"
+   },
+   {
+    "id": "workable___texas_sports_academy___df7ed0cc-4215-4ca7-875b-1ec39cce45f5",
+    "board_token": "texas_sports_academy",
+    "source": "workable",
+    "apply_url": "https://jobs.workable.com/view/tAGduzVtyLD5Lhujur4Ci4/remote-senior-ai-engineer---llm-systems-%26-rag-optimization-in-united-states-at-texas-sports-academy",
+    "source_and_board_token": "workable_texas_sports_academy",
+    "job_information": {
+     "title": "Senior AI Engineer - LLM Systems & RAG Optimization",
+     "job_title_raw": "Senior AI Engineer - LLM Systems & RAG Optimization",
+     "description": "<p>Texas Sports Academy is on the lookout for a Senior AI Engineer specializing in LLM (Large Language Model) Systems and RAG (Retrieval-Augmented Generation) Optimization. As we continue to push the boundaries of sports technology, your role will be pivotal in developing and optimizing AI-driven solutions that enhance our offerings for athletes and coaches. You will be responsible for designing, \n\n[description truncated for this test fixture]"
+    },
+    "v5_processed_job_data": {
+     "commitment": [
+      "Contract"
+     ],
+     "workplace_states": [],
+     "workplace_cities": [],
+     "workplace_type": "Remote",
+     "formatted_workplace_location": "United States",
+     "estimated_publish_date": "2026-04-03T07:23:12.723Z",
+     "estimated_publish_date_millis": 1775200992723,
+     "company_name": "Texas Sports Academy"
+    },
+    "enriched_company_data": {
+     "name": "Texas Sports Academy"
+    },
+    "requisition_id": "1j5axic61wyieyuj",
+    "collapse_key": "c5e83154f7c5db1a15e1fd3afda48817a1d1e33855557af0a584a978e683311d",
+    "is_expired": false,
+    "objectID": "workable___texas_sports_academy___df7ed0cc-4215-4ca7-875b-1ec39cce45f5"
+   }
+  ],
+  "ssrPage": 0,
+  "ssrTotalCount": 10,
+  "ssrCompanyCount": 10002,
+  "ssrPageSize": 10,
+  "ssrIsLastPage": true,
+  "ssrError": null,
+  "ssrCompanyTitle": null,
+  "ssrCollections": null,
+  "isHomepage": false,
+  "initialSearchState": {
+   "searchQuery": "software engineer",
+   "locations": [
+    {
+     "formatted_address": "United States",
+     "types": [
+      "country"
+     ],
+     "geometry": {
+      "location": {
+       "lat": 37.7749,
+       "lon": -122.4194
+      }
+     },
+     "id": "user_country",
+     "address_components": [
+      {
+       "long_name": "United States",
+       "short_name": "US",
+       "types": [
+        "country"
+       ]
+      }
+     ],
+     "options": {
+      "flexible_regions": [
+       "anywhere_in_continent",
+       "anywhere_in_world"
+      ]
+     }
+    }
+   ]
+  },
+  "ssrTimings": {
+   "esLatencyMs": 1141
+  }
+ },
+ "__N_SSP": true
+}

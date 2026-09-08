@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workzag-jobs>
+  <position>
+    <id>1869590</id>
+    <subcompany>Everphone GmbH</subcompany>
+    <office>Berlin</office>
+    <department>Engineering</department>
+    <name>Senior Backend Engineer (m/w/d)</name>
+    <jobDescriptions>
+      <jobDescription>
+        <name>About the role</name>
+        <value><![CDATA[<p>Build our <strong>Python</strong> platform.</p>]]></value>
+      </jobDescription>
+      <jobDescription>
+        <name>Your profile</name>
+        <value><![CDATA[<ul><li>5+ years Python and AWS</li></ul>]]></value>
+      </jobDescription>
+    </jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-time</schedule>
+    <yearsOfExperience>2-5</yearsOfExperience>
+    <keywords>Python,AWS</keywords>
+    <occupation>software_engineering</occupation>
+    <occupationCategory>it_software_development</occupationCategory>
+    <createdAt>2024-12-09T16:05:37+00:00</createdAt>
+  </position>
+  <position>
+    <id>2019718</id>
+    <subcompany></subcompany>
+    <office>Remote</office>
+    <department>Data</department>
+    <name>Data Engineer</name>
+    <jobDescriptions></jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <schedule>full-time</schedule>
+  </position>
+</workzag-jobs>

@@ -1,0 +1,109 @@
+{% macro fam_row(f, now_ms, dim=False) -%}
+<div class="fam-row sev-{{ 'hi' if f.count >= 100 else ('mid' if f.count >= 25 else 'lo') }}{{ ' dim' if dim else '' }}">
+  <span class="fam-name">{{ f.family }}</span>
+  <span class="fam-count">{{ f.count }}×</span>
+  <span class="muted">{{ f.connectors }} board{{ '' if f.connectors == 1 else 's' }}</span>
+  <span class="fam-type" title="dominant error type">{{ f.top_type }}</span>
+  <span class="muted fam-ago">{{ f.last_ms | ago(now_ms) }}</span>
+</div>
+{%- endmacro %}
+{% if activity is none %}
+  <div class="panel"><h3>Cycle stats &amp; fetch failures</h3>
+    <p class="muted">unavailable — could not read cycle telemetry (AWS: CloudWatch Logs creds / log group; local: the SQLite events store).</p></div>
+  <span id="last-cycle" class="v muted" hx-swap-oob="true">unknown</span>
+  <div id="tier-freshness" class="tier-strip" hx-swap-oob="true">
+    <span class="muted" style="font-size:12px">tier freshness unavailable</span>
+  </div>
+{% else %}
+  <div id="tier-freshness" class="tier-strip" hx-swap-oob="true">
+    {% for tier, h in tier_health.items() %}
+      <span class="tier-chip {{ 'bad' if h.stale else ('warn' if (not h.ok) or h.degraded else 'ok') }}">
+        <b>{{ tier }}</b> {{ h.ago }}
+        {%- if h.stale %} · stalled ⚠{% elif not h.ok %} · failing ⚠{% elif h.degraded %} · LLM⚠{% else %} ✓{% endif %}
+      </span>
+    {% else %}
+      <span class="muted" style="font-size:12px">no tier cycles in window</span>
+    {% endfor %}
+  </div>
+  <div class="panel">
+    <h3>Cycle stats &amp; fetch failures <span class="muted">(last {{ activity.window_days }}d)</span></h3>
+    {% if activity.tiers %}
+    <table>
+      <tr><th>tier</th><th>cycles</th><th>avg fetched</th><th>avg matched</th><th>avg notified</th><th>avg ms</th></tr>
+      {% for t in activity.tiers %}
+      <tr><td>{{ t.tier }}</td><td>{{ t.cycles }}</td><td>{{ "%.0f"|format(t.avg_fetched) }}</td>
+          <td>{{ "%.1f"|format(t.avg_matched) }}</td><td>{{ "%.1f"|format(t.avg_notified) }}</td>
+          <td>{{ "%.0f"|format(t.avg_duration_ms) }}</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="muted">No cycles in window.</p>{% endif %}
+    {# Layer 1 — headline: total + the error-type mix (only ~7 types; this is the story). #}
+    <p class="tally" style="margin-top:9px">
+      <span class="muted">fetch failures ({{ activity.failures_total }}) by type:</span>
+      {% for t in activity.failures_by_type %}<span class="bad{{ ' dim' if t.last_ms < dim_before_ms else '' }}">{{ t.name }} ×{{ t.count }}</span> <span class="muted">{{ t.last_ms | ago(now_ms) }}</span>{% if not loop.last %} · {% endif %}{% else %}<span class="muted">none</span>{% endfor %}
+    </p>
+    {# Layer 2 — triage: fetch failures rolled up by connector family, severity-graded.
+       Families whose newest failure is within the dim window (24h) are "active" and
+       shown here; older bursts collapse into the stale disclosure so a days-old spike
+       (e.g. a past workable 429 storm) stops dominating the view. #}
+    {% if activity.failures_by_family %}
+    {% set fam_active = activity.failures_by_family | selectattr('last_ms', 'ge', dim_before_ms) | list %}
+    {% set fam_stale = activity.failures_by_family | rejectattr('last_ms', 'ge', dim_before_ms) | list %}
+    <div class="fam-list">
+      {% for f in fam_active %}{{ fam_row(f, now_ms) }}
+      {% else %}<p class="muted" style="margin:6px 0">no fetch failures in the last 24h ✓</p>{% endfor %}
+    </div>
+    {% if fam_stale %}
+    <details class="fam-stale">
+      <summary class="muted">stale · {{ fam_stale | length }} famil{{ 'y' if fam_stale | length == 1 else 'ies' }} &gt;24h old</summary>
+      <div class="fam-list">
+        {% for f in fam_stale %}{{ fam_row(f, now_ms, dim=True) }}{% endfor %}
+      </div>
+    </details>
+    {% endif %}
+    {% endif %}
+    {# Layer 3 — full detail: the complete per-connector wall, collapsed for debugging.
+       Guarded on its own data so it survives even if the family rollup is empty. #}
+    {% if activity.failures_by_connector %}
+    <details class="fam-detail">
+      <summary class="muted">all connectors ({{ activity.failures_by_connector | length }})</summary>
+      <p class="tally">
+        {% for t in activity.failures_by_connector %}<span class="bad{{ ' dim' if t.last_ms < dim_before_ms else '' }}">{{ t.name }} ×{{ t.count }}</span> <span class="muted">{{ t.last_ms | ago(now_ms) }}</span>{% if not loop.last %} · {% endif %}{% endfor %}
+      </p>
+    </details>
+    {% endif %}
+    <p class="tally" style="margin-top:9px">
+      <span class="muted">LLM failures ({{ activity.llm_failures_total }})
+        {% if activity.llm_degraded_cycles %}over {{ activity.llm_degraded_cycles }} degraded cycle{{ 's' if activity.llm_degraded_cycles != 1 else '' }}{% endif %} by stage:</span>
+      {% for s in activity.llm_failures_by_stage %}
+        <span class="muted">{{ s.stage }}:</span>{% for name, n in s.by_type %} <span class="warn">{{ name }} ×{{ n }}</span>{% if not loop.last %},{% endif %}{% endfor %}{% if s.last_ms %} <span class="muted">{{ s.last_ms | ago(now_ms) }}</span>{% endif %}{% if not loop.last %} · {% endif %}
+      {% else %}<span class="muted">none</span>{% endfor %}
+    </p>
+    {% if activity.recent %}
+    <details open>
+      <summary class="muted">recent cycles ({{ activity.recent | length }})</summary>
+      <table class="wide">
+        <tr><th>when</th><th>tier</th><th>fetched</th><th>new</th><th>matched</th><th>notified</th><th>ms</th><th>status</th></tr>
+        {% for r in activity.recent %}
+        <tr>
+          <td class="muted">{{ r.ts_ms | ago(now_ms) }}</td>
+          <td>{{ r.tier }}</td>
+          <td>{{ r.fetched }}</td>
+          <td>{{ r.new_count if r.new_count is not none else '–' }}</td>
+          <td>{{ r.matched }}</td>
+          <td>{{ r.notified }}</td>
+          <td>{{ r.duration_ms }}</td>
+          <td>{% if r.ok %}<span class="ok">✓</span>{% else %}<span class="bad" title="{{ r.failures | map('join', ':') | join(', ') }}">⚠ {{ r.failures | length }}</span>{% endif %}{% if r.degraded %} <span class="warn">LLM⚠</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </details>
+    {% endif %}
+  </div>
+  <span id="last-cycle" class="v {{ heartbeat.css if heartbeat else 'muted' }}" hx-swap-oob="true">
+    {{ heartbeat.label if heartbeat else 'no cycles' }}
+  </span>
+{% endif %}
+{% if local_mode %}
+<span id="last-success" class="v {{ 'ok' if last_success_ago else 'muted' }}" hx-swap-oob="true">{{ last_success_ago or 'never' }}</span>
+{% endif %}

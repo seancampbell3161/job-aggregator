@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Rejection audit</h2>
+{% if not available %}
+<div class="panel"><p class="muted">Audit trail unavailable — the rejected-postings store only exists on the local SQLite runtime.</p></div>
+{% else %}
+{% if tally is not none %}
+<div class="strip">
+  <div class="stat"><span class="muted">rejected /{{ tally.window_days }}d</span><br><span class="v">{{ tally.total }}</span></div>
+  {% for g, c in tally.by_gate %}
+  <div class="stat"><span class="muted"><a href="/audit?gate={{ g }}&amp;days={{ days }}">{{ g }}</a></span><br><span class="v">{{ c }}</span></div>
+  {% endfor %}
+</div>
+{% endif %}
+<form method="get" action="/audit" class="panel">
+  <select name="gate">
+    <option value="">all gates</option>
+    {% for g in gates %}<option value="{{ g }}" {% if gate == g %}selected{% endif %}>{{ g }}</option>{% endfor %}
+  </select>
+  <input type="text" name="q" value="{{ q }}" placeholder="title or company">
+  <input type="number" name="days" value="{{ days }}" min="1" max="90">
+  <label><input type="checkbox" name="judged" value="true" {% if judged %}checked{% endif %}> show judged</label>
+  <button type="submit">Filter</button>
+</form>
+{% if rows is none %}
+<div class="panel"><p class="muted">Audit rows unavailable.</p></div>
+{% else %}
+<table>
+  <thead><tr><th>seen</th><th>title</th><th>company</th><th>source</th><th>why rejected</th><th></th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+  <tr>
+    <td class="muted">{{ r.date_display }}</td>
+    <td>{% if r.title %}<a href="{{ r.apply_href }}" target="_blank" rel="noopener">{{ r.title }}</a>{% else %}<span class="muted">(no details recorded)</span>{% endif %}</td>
+    <td>{{ r.company }}</td>
+    <td class="muted">{{ r.source }}</td>
+    <td>{{ r.reason }}</td>
+    <td>
+      {% if r.verdict %}
+        <span class="muted">{{ r.verdict }}</span>
+      {% else %}
+        {% if r.can_rescue %}
+        <form method="post" action="/audit/rescue?id={{ r.job_id | urlencode }}" style="display:inline"><button type="submit">Rescue</button></form>
+        {% endif %}
+        <form method="post" action="/audit/confirm?id={{ r.job_id | urlencode }}" style="display:inline"><button type="submit">Correctly rejected</button></form>
+      {% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="muted">Nothing rejected in this window.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endif %}
+{% endblock %}

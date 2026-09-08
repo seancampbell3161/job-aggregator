@@ -1,0 +1,38 @@
+{
+  "jobs": [
+    {
+      "id": 4567890,
+      "title": "Senior Backend Engineer",
+      "absolute_url": "https://boards.greenhouse.io/stripe/jobs/4567890",
+      "first_published": "2026-01-30T18:00:00-04:00",
+      "updated_at": "2026-04-30T18:00:00-04:00",
+      "location": {"name": "Remote, United States"},
+      "offices": [{"id": 65234, "name": "US", "location": null, "child_ids": [], "parent_id": 673}],
+      "content": "&lt;p&gt;Build payments infra in Python and Go.&lt;/p&gt;",
+      "departments": [{"name": "Engineering"}],
+      "metadata": [
+        {"name": "Compensation Range", "value": "$180,000 - $240,000"}
+      ]
+    },
+    {
+      "id": 4567891,
+      "title": "Office Manager",
+      "absolute_url": "https://boards.greenhouse.io/stripe/jobs/4567891",
+      "updated_at": "2026-04-30T18:00:00-04:00",
+      "location": {"name": "San Francisco, CA"},
+      "content": "&lt;p&gt;Run the office.&lt;/p&gt;",
+      "departments": [{"name": "Operations"}]
+    },
+    {
+      "id": 4567892,
+      "title": "Backend Engineer, Expansion",
+      "absolute_url": "https://boards.greenhouse.io/stripe/jobs/4567892",
+      "first_published": "2026-05-04T22:13:01-04:00",
+      "updated_at": "2026-05-04T22:13:01-04:00",
+      "location": {"name": "N/A"},
+      "offices": [{"id": 87006, "name": "Canada Locations", "location": null, "child_ids": [], "parent_id": 673}],
+      "content": "&lt;p&gt;Expansion role.&lt;/p&gt;",
+      "departments": [{"name": "Engineering"}]
+    }
+  ]
+}

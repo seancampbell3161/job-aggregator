@@ -1,0 +1,35 @@
+{
+  "job-count": 2,
+  "jobs": [
+    {
+      "id": 1234567,
+      "url": "https://remotive.com/remote-jobs/software-dev/senior-backend-engineer-1234567",
+      "title": "Senior Backend Engineer",
+      "company_name": "Acme Corp",
+      "company_logo": "https://remotive.com/job/1234567/logo",
+      "category": "Software Development",
+      "tags": ["python", "go", "postgresql", "kubernetes"],
+      "job_type": "full_time",
+      "publication_date": "2026-04-28T12:00:00",
+      "candidate_required_location": "USA, Canada",
+      "salary": "$150,000 - $200,000",
+      "description": "<p>We are looking for a <strong>Senior Backend Engineer</strong> to join our team.</p><p>You will work with Python and Go.</p>",
+      "company_logo_url": "https://remotive.com/job/1234567/logo"
+    },
+    {
+      "id": 7654321,
+      "url": "https://remotive.com/remote-jobs/software-dev/junior-frontend-engineer-7654321",
+      "title": "Junior Frontend Engineer",
+      "company_name": "Beta Inc",
+      "company_logo": "https://remotive.com/job/7654321/logo",
+      "category": "Software Development",
+      "tags": ["javascript", "react", "css"],
+      "job_type": "full_time",
+      "publication_date": "2026-04-27T09:30:00",
+      "candidate_required_location": "Worldwide",
+      "salary": "",
+      "description": "<p>Join our <em>frontend</em> team building user interfaces with React.</p>",
+      "company_logo_url": "https://remotive.com/job/7654321/logo"
+    }
+  ]
+}

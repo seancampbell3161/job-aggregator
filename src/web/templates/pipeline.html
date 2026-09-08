@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="strip">
+  <div class="stat"><span class="muted">last cycle</span><br><span id="last-cycle" class="v muted">…</span></div>
+  {% if health is not none %}
+  <div class="stat"><span class="muted">connectors</span><br><span class="v">{{ health.ok + health.failed + health.quarantined }}</span></div>
+  <div class="stat"><span class="muted">failed</span><br><span class="v warn">{{ health.failed }}</span></div>
+  <div class="stat"><span class="muted">quarantined</span><br><span class="v bad">{{ health.quarantined }}</span></div>
+  {% endif %}
+  {% if analytics is not none %}
+  <div class="stat"><span class="muted">matches /{{ analytics.window_days }}d</span><br><span class="v">{{ analytics.recent }}</span></div>
+  {% endif %}
+  {% if local_mode %}
+  <div class="stat"><span class="muted">last success</span><br><span id="last-success" class="v {{ 'ok' if last_success_ago else 'muted' }}">{{ last_success_ago or 'never' }}</span></div>
+  {% endif %}
+  {% if rejected_7d is not none %}
+  <div class="stat"><span class="muted">rejected /7d</span><br><span class="v"><a href="/audit">{{ rejected_7d }}</a></span></div>
+  {% endif %}
+</div>
+
+<!-- Per-tier freshness: OOB-populated by /pipeline/cycles. Glanceable so a silently
+     dead tier (e.g. ats stalls while slow keeps ticking) can't hide in a table cell. -->
+<div id="tier-freshness" class="tier-strip">
+  <span class="muted" style="font-size:12px">checking tier freshness…</span>
+</div>
+
+<div class="ops-grid">
+  {% include "_ops_health.html" %}
+  <div class="ops-col">
+    {% include "_ops_analytics.html" %}
+    <div id="cycles" hx-get="/pipeline/cycles" hx-trigger="load, every 60s" hx-swap="innerHTML">
+      <div class="panel"><h3>Cycle stats &amp; fetch failures</h3><p class="muted">Loading from CloudWatch…</p></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

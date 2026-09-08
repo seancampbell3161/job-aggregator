@@ -1,0 +1,102 @@
+{# Pipeline panel: triage split, progression funnel, current standing, rate
+   meters. Every number and width is precomputed in src/web/funnel.py
+   (build_pipeline); this template only places validated values. #}
+{% set p = summary.pipeline %}
+<div class="pipeline">
+  {% if p.triage %}
+  <div class="pl-block">
+    <div class="pl-eyebrow">Triage · {{ p.triage.total }} matches</div>
+    <div class="pl-bar" role="img" aria-label="Triage of {{ p.triage.total }} matches:
+         {%- for s in p.triage.segments %} {{ s.label }} {{ s.count }}, {{ s.share }}
+         {%- if not loop.last %};{% endif %}{% endfor %}">
+      {% for s in p.triage.segments %}
+      <span class="pl-seg pl-{{ s.id }}" style="flex-grow: {{ s.count }}"
+            title="{{ s.label }}: {{ s.count }} ({{ s.share }})"></span>
+      {% endfor %}
+    </div>
+    <ul class="pl-key">
+      {% for s in p.triage.segments %}
+      <li><i class="pl-dot pl-{{ s.id }}"></i>{{ s.label }}
+        <b>{{ s.count }}</b> <span class="muted">{{ s.share }}</span></li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if p.steps %}
+  <div class="pl-block">
+    <div class="pl-eyebrow">How far they got <span class="pl-note">· % of previous stage</span></div>
+    <div class="pl-steps">
+      {% for s in p.steps %}
+      <span class="pl-step-name">{{ s.label }}</span>
+      <span class="pl-track"><span class="pl-fill pl-{{ s.id }}"
+            style="width: {{ s.width_pct }}%"></span></span>
+      <span class="pl-step-n">{{ s.count }}</span>
+      <span class="pl-step-pct muted"
+            {% if s.conversion_note %}title="{{ s.conversion_note }}"{% endif %}>
+        {{- s.conversion or "" -}}
+      </span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if p.standing %}
+  <div class="pl-block">
+    <div class="pl-eyebrow">Where those {{ p.live }} stand now</div>
+    <div class="pl-bar" role="img" aria-label="Current status of {{ p.live }} jobs:
+         {%- for s in p.standing %} {{ s.label }} {{ s.count }}, {{ s.share }}
+         {%- if not loop.last %};{% endif %}{% endfor %}">
+      {% for s in p.standing %}
+      <span class="pl-seg pl-{{ s.id }}" style="flex-grow: {{ s.count }}"
+            title="{{ s.label }}: {{ s.count }} ({{ s.share }})"></span>
+      {% endfor %}
+    </div>
+    <ul class="pl-key">
+      {% for s in p.standing %}
+      <li><i class="pl-dot pl-{{ s.id }}"></i>{{ s.label }}
+        <b>{{ s.count }}</b> <span class="muted">{{ s.share }}</span></li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if not p.triage %}
+  <p class="muted">No matches yet.</p>
+  {% elif not p.steps %}
+  <p class="muted">Nothing past triage yet.</p>
+  {% endif %}
+
+  {% if p.flows %}
+  {# Stage-level exit detail — which stage each exit left from, the one thing the
+     bars fold away (Withdrawn 5 is 3 from Interested, 1 Applied, 1 Interviewing). #}
+  <details class="pl-flows">
+    <summary>table view</summary>
+    <table>
+      <tr><th>from</th><th>to</th><th>jobs</th></tr>
+      {% for f in p.flows %}
+      <tr><td>{{ f.source }}</td><td>{{ f.target }}</td><td>{{ f.count }}</td></tr>
+      {% endfor %}
+    </table>
+  </details>
+  {% endif %}
+
+  <div class="rate-tiles">
+    {% for r in summary.rates %}
+    <div class="rate-tile">
+      <svg viewBox="0 0 72 72" class="ring" role="img" aria-label="{{ r.label }}: {{ r.display }}">
+        <circle class="ring-track" cx="36" cy="36" r="30"/>
+        {% if r.dash %}
+        <circle class="ring-fill" cx="36" cy="36" r="30"
+                stroke-dasharray="{{ r.dash }} 188.5" transform="rotate(-90 36 36)"/>
+        {% endif %}
+        <text x="36" y="41" text-anchor="middle" class="ring-value">{{ r.display }}</text>
+      </svg>
+      <div>
+        <div class="rate-label">{{ r.label }}</div>
+        <div class="rate-caption muted">{{ r.caption }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>

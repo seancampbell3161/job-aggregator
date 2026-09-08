@@ -1,0 +1,284 @@
+# tests/web/test_coach.py
+from datetime import datetime, timezone
+
+import pytest
+
+from src.coach import CoachCard, CoachResult
+from src.models import NormalizedPosting
+from src.sqlite_db import connect
+from src.state_sqlite import (
+    SqliteCoachRunsStore,
+    SqliteRejectedPostingsStore,
+    SqliteSeenJobsStore,
+)
+
+_CARD = CoachCard(category="filters", title="Widen titles",
+                  evidence="0 of 12 staff", action="add staff", impact="high")
+
+
+class _FakeEngine:
+    def __init__(self, result: CoachResult):
+        self._result = result
+        self.calls = 0
+
+    async def recommend(self, snapshot) -> CoachResult:
+        self.calls += 1
+        self.last_snapshot = snapshot
+        return self._result
+
+
+def _posting(job_id, title="Backend Engineer", company="Acme"):
+    return NormalizedPosting(
+        job_id=job_id, title=title, company=company, location_text="Remote (US)",
+        location_tags=frozenset({"remote", "us"}), seniority="mid",
+        stack=frozenset({"python"}), comp_min=None, comp_max=None,
+        apply_url=f"https://apply/{job_id}", description="Ship Python services.",
+        posted_at=datetime(2026, 7, 1, tzinfo=timezone.utc), source="greenhouse:acme",
+    )
+
+
+@pytest.fixture
+def stores_trio():
+    conn = connect(":memory:")
+    seen = SqliteSeenJobsStore(conn)
+    rejected = SqliteRejectedPostingsStore(conn)
+    coach_store = SqliteCoachRunsStore(conn)
+    seen.claim_for_notify("greenhouse:acme:1", score=8, posting=_posting("greenhouse:acme:1"))
+    seen.set_status("greenhouse:acme:1", "applied")
+    rejected.record(_posting("greenhouse:acme:2", title="Office Manager"), rejected_by="role")
+    return seen, rejected, coach_store
+
+
+def _provider(stores_trio, engine=None, store=True):
+    from src.web.coach import CoachProvider
+    seen, rejected, coach_store = stores_trio
+    return CoachProvider(
+        store=coach_store if store else None, seen=seen, rejected=rejected,
+        engine=engine, provider_name="fake", model_name="fake-1",
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_persists_ok_run(stores_trio):
+    engine = _FakeEngine(CoachResult(cards=[_CARD], is_fallback=False))
+    prov = _provider(stores_trio, engine=engine)
+    run = await prov.run()
+    assert run["status"] == "ok"
+    assert run["cards"][0]["title"] == "Widen titles"
+    assert run["provider"] == "fake" and run["model"] == "fake-1"
+    assert prov.latest()["run_id"] == run["run_id"]
+    # the engine saw a real snapshot: 1 match, applied
+    assert engine.last_snapshot.meta["applied_count"] == 1
+    assert engine.last_snapshot.aggregates["audit"]["rejected_by_gate"] == {"role": 1}
+
+
+@pytest.mark.asyncio
+async def test_run_persists_error_run_on_fallback(stores_trio):
+    engine = _FakeEngine(CoachResult(cards=[], is_fallback=True, error_type="ConnectError"))
+    prov = _provider(stores_trio, engine=engine)
+    run = await prov.run()
+    assert run["status"] == "error" and run["error"] == "ConnectError"
+    assert run["cards"] == []
+
+
+@pytest.mark.asyncio
+async def test_run_without_engine_or_store_returns_none(stores_trio):
+    prov = _provider(stores_trio, engine=None)
+    assert prov.can_run is False
+    assert await prov.run() is None
+    prov2 = _provider(stores_trio, engine=_FakeEngine(CoachResult([], False)), store=False)
+    assert prov2.available is False and await prov2.run() is None
+
+
+@pytest.mark.asyncio
+async def test_inflight_guard_blocks_second_run(stores_trio):
+    engine = _FakeEngine(CoachResult(cards=[_CARD], is_fallback=False))
+    prov = _provider(stores_trio, engine=engine)
+    prov._inflight = True
+    assert await prov.run() is None
+    assert engine.calls == 0
+    prov._inflight = False
+    assert (await prov.run())["status"] == "ok"
+
+
+def test_accessors_fail_soft(stores_trio):
+    class _Boom:
+        def latest(self): raise RuntimeError("boom")
+        def list_runs(self, *, limit=20): raise RuntimeError("boom")
+        def get(self, run_id): raise RuntimeError("boom")
+    from src.web.coach import CoachProvider
+    prov = CoachProvider(store=_Boom())
+    assert prov.latest() is None
+    assert prov.runs() == []
+    assert prov.get("x") is None
+
+
+def test_nav_visible_logic(stores_trio):
+    from src.web.coach import CoachProvider
+    _, _, coach_store = stores_trio
+    assert CoachProvider(store=coach_store).nav_visible is True
+    assert CoachProvider(store=None).nav_visible is False          # DynamoDB
+    assert CoachProvider(store=coach_store, enabled=False).nav_visible is False
+
+
+@pytest.mark.asyncio
+async def test_run_with_cfg_degrades_on_unreadable_files(stores_trio, tmp_path):
+    from src.config import AppConfig
+    bad_profile = tmp_path / "profile.md"
+    bad_profile.write_bytes(b"\xff\xfe not utf-8 \xe9")
+    cfg = AppConfig.model_validate({
+        "filters": {"titles": ["engineer"], "seniority_allow": ["senior"],
+                    "location": {}, "comp_floor_usd": 0, "stack_any_of": []},
+        "quiet_hours": {"timezone": "UTC", "start": "22:00", "end": "07:00"},
+        "sources": {},
+        "schedules": {"ats_minutes": 30, "slow_minutes": 360},
+        "secrets": {"ntfy_topic_url": "https://ntfy.sh/x", "discord_webhook_url": ""},
+        "relevance": {"enabled": True, "provider": "ollama", "model": "m",
+                      "profile_path": str(bad_profile)},
+        "tailoring": {"content_path": str(tmp_path / "missing-content.json")},
+    })
+    engine = _FakeEngine(CoachResult(cards=[_CARD], is_fallback=False))
+    from src.web.coach import CoachProvider
+    seen, rejected, coach_store = stores_trio
+    prov = CoachProvider(store=coach_store, seen=seen, rejected=rejected,
+                         engine=engine, cfg=cfg, provider_name="fake", model_name="fake-1")
+    run = await prov.run()
+    assert run is not None and run["status"] == "ok"
+    snap = engine.last_snapshot
+    assert snap.profile is None                    # bad encoding degraded, didn't block
+    assert snap.resume_bank is None                # missing content.json degraded
+    assert snap.config["filters"]["titles"] == ["engineer"]  # config block still built
+    assert snap.meta["applied_count"] == 1
+
+
+from fastapi.testclient import TestClient
+
+from src.state_sqlite import (
+    SqliteConnectorHealthStore,
+    SqliteDiscoveredSlugsStore,
+    SqliteOpsAlertStateStore,
+    SqlitePipelineEventsStore,
+    SqliteSourceStateStore,
+)
+from src.stores import Stores
+from src.web.app import create_app
+from src.web.repo import TriageRepo
+
+
+@pytest.fixture
+def coach_client(tmp_path, monkeypatch):
+    monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
+    conn = connect(":memory:")
+    seen = SqliteSeenJobsStore(conn)
+    rejected = SqliteRejectedPostingsStore(conn)
+    coach_store = SqliteCoachRunsStore(conn)
+    stores = Stores(
+        seen=seen, source_state=SqliteSourceStateStore(conn),
+        discovered=SqliteDiscoveredSlugsStore(conn),
+        health=SqliteConnectorHealthStore(conn),
+        events=SqlitePipelineEventsStore(conn),
+        rejected=rejected, alert_state=SqliteOpsAlertStateStore(conn),
+        coach=coach_store,
+    )
+    seen.claim_for_notify("greenhouse:acme:1", score=8, posting=_posting("greenhouse:acme:1"))
+    seen.set_status("greenhouse:acme:1", "applied")
+    from src.web.coach import CoachProvider
+    engine = _FakeEngine(CoachResult(cards=[_CARD], is_fallback=False))
+    prov = CoachProvider(store=coach_store, seen=seen, rejected=rejected,
+                         engine=engine, provider_name="fake", model_name="fake-1")
+    app = create_app(repo=TriageRepo(seen), stores=stores, coach=prov)
+    return TestClient(app), prov, engine
+
+
+def test_coach_page_renders_empty_state(coach_client):
+    client, _, _ = coach_client
+    r = client.get("/coach")
+    assert r.status_code == 200
+    assert "No recommendations yet" in r.text
+    assert "Generate recommendations" in r.text
+
+
+def test_coach_nav_link_present(coach_client):
+    client, _, _ = coach_client
+    assert 'href="/coach"' in client.get("/").text
+
+
+def test_post_run_returns_cards_fragment_and_persists(coach_client):
+    client, prov, engine = coach_client
+    r = client.post("/coach/run")
+    assert r.status_code == 200
+    assert "Widen titles" in r.text
+    assert "filters" in r.text and "impact: high" in r.text
+    assert engine.calls == 1
+    assert prov.latest()["status"] == "ok"
+    # page now shows the run + past-runs list
+    page = client.get("/coach").text
+    assert "Widen titles" in page and "Past runs" in page
+
+
+def test_post_run_busy_returns_fragment_without_calling_engine(coach_client):
+    client, prov, engine = coach_client
+    prov._inflight = True
+    r = client.post("/coach/run")
+    assert r.status_code == 200
+    assert "already in progress" in r.text
+    assert engine.calls == 0
+    prov._inflight = False
+
+
+def test_past_run_view(coach_client):
+    client, prov, _ = coach_client
+    client.post("/coach/run")
+    run_id = prov.latest()["run_id"]
+    r = client.get(f"/coach/runs/{run_id}")
+    assert r.status_code == 200 and "Widen titles" in r.text
+    assert client.get("/coach/runs/nope").status_code == 404
+
+
+def test_error_run_renders_failure(coach_client):
+    client, prov, engine = coach_client
+    engine._result = CoachResult(cards=[], is_fallback=True, error_type="ConnectError")
+    client.post("/coach/run")
+    assert "Last run failed" in client.get("/coach").text
+
+
+def test_low_sample_banner(coach_client):
+    client, _, _ = coach_client
+    client.post("/coach/run")
+    assert "Small sample" in client.get("/coach").text  # 1 application < 10
+
+
+def test_unavailable_store_renders_explainer(tmp_path, monkeypatch):
+    monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
+    conn = connect(":memory:")
+    seen = SqliteSeenJobsStore(conn)
+    stores = Stores(
+        seen=seen, source_state=SqliteSourceStateStore(conn),
+        discovered=SqliteDiscoveredSlugsStore(conn),
+        health=SqliteConnectorHealthStore(conn),
+    )
+    from src.web.coach import CoachProvider
+    app = create_app(repo=TriageRepo(seen), stores=stores, coach=CoachProvider(store=None))
+    client = TestClient(app)
+    r = client.get("/coach")
+    assert r.status_code == 200 and "unavailable" in r.text
+    assert client.post("/coach/run").status_code == 409
+    assert 'href="/coach"' not in client.get("/").text  # nav hidden
+
+
+def test_engineless_provider_explains_not_configured(tmp_path, monkeypatch):
+    monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "t2"))
+    conn = connect(":memory:")
+    seen = SqliteSeenJobsStore(conn)
+    coach_store = SqliteCoachRunsStore(conn)
+    stores = Stores(
+        seen=seen, source_state=SqliteSourceStateStore(conn),
+        discovered=SqliteDiscoveredSlugsStore(conn),
+        health=SqliteConnectorHealthStore(conn), coach=coach_store,
+    )
+    from src.web.coach import CoachProvider
+    app = create_app(repo=TriageRepo(seen), stores=stores,
+                     coach=CoachProvider(store=coach_store, seen=seen))
+    client = TestClient(app)
+    r = client.get("/coach")
+    assert r.status_code == 200 and "not configured" in r.text

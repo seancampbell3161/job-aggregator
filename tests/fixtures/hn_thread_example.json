@@ -1,0 +1,44 @@
+{
+  "user": {"id": "whoishiring", "submitted": [50000001, 49999999]},
+  "thread": {
+    "id": 50000001,
+    "type": "story",
+    "title": "Ask HN: Who is hiring? (April 2026)",
+    "kids": [50000010, 50000011, 50000012, 50000013, 50000014]
+  },
+  "comments": [
+    {
+      "id": 50000010,
+      "type": "comment",
+      "by": "stripe-recruiter",
+      "time": 1745000000,
+      "text": "Stripe | Senior Backend Engineer | Remote (US) | Full-time | https://stripe.com/jobs/4567890\n<p>We are hiring engineers to build payments infrastructure in Python and Go. Stack: Python, Go, React.</p>"
+    },
+    {
+      "id": 50000011,
+      "type": "comment",
+      "by": "office-hire",
+      "time": 1745000100,
+      "text": "Acme Co | Office Manager | San Francisco, CA | Onsite\n<p>Run our office.</p>"
+    },
+    {
+      "id": 50000012,
+      "type": "comment",
+      "deleted": true
+    },
+    {
+      "id": 50000013,
+      "type": "comment",
+      "by": "rambler",
+      "time": 1745000200,
+      "text": "Just chiming in to ask whether anyone has thoughts on remote-first culture, very interested to hear how teams handle async work."
+    },
+    {
+      "id": 50000014,
+      "type": "comment",
+      "by": "fragment",
+      "time": 1745000300,
+      "text": "<p></p>"
+    }
+  ]
+}

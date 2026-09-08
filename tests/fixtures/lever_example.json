@@ -1,0 +1,11 @@
+[
+  {
+    "id": "abc-123",
+    "text": "Software Engineer, Backend",
+    "hostedUrl": "https://jobs.lever.co/example/abc-123",
+    "createdAt": 1735689600000,
+    "categories": {"location": "Remote - US", "commitment": "Full-time", "team": "Platform"},
+    "descriptionPlain": "We use Go, Python, and React.",
+    "salaryRange": {"min": 150000, "max": 200000, "currency": "USD"}
+  }
+]

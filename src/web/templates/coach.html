@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Coach</h2>
+{% if not enabled %}
+<div class="panel"><p class="muted">Coach is disabled — set coach.enabled: true in config.yaml.</p></div>
+{% elif not available %}
+<div class="panel"><p class="muted">Coach is unavailable — run history needs the local SQLite runtime.</p></div>
+{% else %}
+{% if viewing_past %}
+<p class="muted"><a href="/coach">&larr; back to latest</a></p>
+{% elif can_run %}
+<form hx-post="/coach/run" hx-target="#coach-run" hx-swap="outerHTML" hx-disabled-elt="find button">
+  <button type="submit">Generate recommendations</button>
+  <span class="htmx-indicator muted"> analyzing your data — this can take a minute…</span>
+</form>
+{% else %}
+<div class="panel"><p class="muted">Coach LLM is not configured — the provider follows relevance unless coach.provider is set, and it needs its API key (or a local Ollama host).</p></div>
+{% endif %}
+{% include "_coach_run.html" %}
+{% if runs %}
+<h3>Past runs</h3>
+<ul class="muted">
+  {% for r in runs %}
+  <li><a href="/coach/runs/{{ r.run_id }}">{{ r.created_at[:16] }}</a> — {{ r.status }} ({{ r.provider }}/{{ r.model }})</li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endif %}
+{% endblock %}

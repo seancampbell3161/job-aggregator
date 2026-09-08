@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: 'Play'; src: url('fonts/Play.ttf'); font-weight: 400; }
+  @font-face { font-family: 'Play'; src: url('fonts/Play-Bold.ttf'); font-weight: 700; }
+  @page { size: letter; margin: 0.6in 0.7in; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { font-family: 'Play', sans-serif; font-size: 10.5pt; line-height: 1.3; color: #111111; }
+  .name { font-size: 20pt; font-weight: 700; line-height: 1.1; margin-bottom: 2px; }
+  .contact { font-size: 10pt; margin-bottom: 14px; }
+  .contact .sep { padding: 0 5px; }
+  .section { margin-bottom: 11px; }
+  .section-title { font-size: 12pt; font-weight: 700; margin-bottom: 5px; }
+  .entry-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
+  .entry-title { font-weight: 700; }
+  .entry-title .at { font-weight: 400; }
+  .entry-dates { font-size: 9.5pt; white-space: nowrap; padding-left: 12px; }
+  ul.bullets { list-style: disc; margin: 0 0 8px 18px; }
+  ul.bullets li { margin-bottom: 2.5px; }
+  .edu-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
+</style>
+</head>
+<body>
+  <div class="name">{{ doc.name }}</div>
+  <div class="contact">{% for item in doc.contact_items %}{% if not loop.first %}<span class="sep">|</span>{% endif %}{{ item }}{% endfor %}</div>
+
+  {% if doc.education %}
+  <div class="section">
+    <div class="section-title">Education &amp; Certificates</div>
+    {% for ed in doc.education %}
+    <div class="edu-row"><div><strong>{{ ed.degree }}</strong> from {{ ed.institution }}</div>{% if ed.dates %}<div class="entry-dates">{{ ed.dates }}</div>{% endif %}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="section">
+    <div class="section-title">Work History</div>
+    {% for e in doc.experiences %}
+    <div class="entry-head">
+      <div class="entry-title">{{ e.role }}{% if e.company %}<span class="at"> at {{ e.company }}</span>{% endif %}</div>
+      {% if e.dates %}<div class="entry-dates">{{ e.dates }}</div>{% endif %}
+    </div>
+    <ul class="bullets">{% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+    {% endfor %}
+  </div>
+
+  {% if doc.projects %}
+  <div class="section">
+    <div class="section-title">Projects</div>
+    {% for p in doc.projects %}
+    <div class="entry-head">
+      <div class="entry-title">{{ p.name }}{% if p.subtitle %}<span class="at"> — {{ p.subtitle }}</span>{% endif %}</div>
+      {% if p.dates %}<div class="entry-dates">{{ p.dates }}</div>{% endif %}
+    </div>
+    <ul class="bullets">{% for b in p.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+    {% endfor %}
+  </div>
+  {% endif %}
+</body>
+</html>

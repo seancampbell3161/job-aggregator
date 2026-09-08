@@ -1,0 +1,46 @@
+{
+  "offers": [
+    {
+      "id": 2429738,
+      "title": "Senior Backend Engineer",
+      "slug": "senior-backend-engineer",
+      "status": "published",
+      "company_name": "Sendcloud",
+      "department": "Engineering",
+      "city": "Amsterdam",
+      "country": "Netherlands",
+      "country_code": "NL",
+      "location": "Amsterdam, Noord-Holland, Netherlands",
+      "remote": false,
+      "hybrid": true,
+      "on_site": false,
+      "created_at": "2025-12-21 10:19:52 UTC",
+      "published_at": "2025-12-22 09:00:00 UTC",
+      "careers_url": "https://sendcloud.recruitee.com/o/senior-backend-engineer",
+      "careers_apply_url": "https://sendcloud.recruitee.com/o/senior-backend-engineer/c/new",
+      "description": "<p>Build our <strong>Python</strong> platform.</p>",
+      "requirements": "<ul><li>5+ years Python</li></ul>"
+    },
+    {
+      "id": 2429739,
+      "title": "Staff Platform Engineer",
+      "slug": "staff-platform-engineer",
+      "status": "published",
+      "company_name": "Sendcloud",
+      "department": null,
+      "city": null,
+      "country": null,
+      "country_code": null,
+      "location": null,
+      "remote": true,
+      "hybrid": false,
+      "on_site": false,
+      "created_at": "2026-01-05 08:00:00 UTC",
+      "published_at": null,
+      "careers_url": "https://sendcloud.recruitee.com/o/staff-platform-engineer",
+      "careers_apply_url": "https://sendcloud.recruitee.com/o/staff-platform-engineer/c/new",
+      "description": "<p>Remote across Europe.</p>",
+      "requirements": ""
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+# Keep the Docker build context small. The image needs:
+# pyproject.toml, README.md, LICENSE (both read at build time by the packaging
+# metadata), src/, config.yaml, profile.md, resume/ — everything below is excluded.
+.venv
+.git
+.github
+data
+tailored
+tmp
+build
+tests
+docs
+scripts
+!scripts/seeds
+# ^ scripts/ is excluded (CLI tooling, not needed at runtime) except seeds/,
+# which the discovery tier's board sweep reads from inside the image.
+**/__pycache__
+*.pyc
+*.egg-info
+.DS_Store
+**/.DS_Store
+.pytest_cache
+infra
+resume.md
+resume/baseline.html
+resume/facts.yaml

@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+{% if summary is none %}
+  <div class="panel"><h3>Match analytics</h3>
+    <p class="muted">unavailable — could not read seen_jobs.</p></div>
+{% else %}
+<div class="strip">
+  <div class="stat"><span class="muted">matches</span><br><span class="v">{{ summary.total }}</span></div>
+  <div class="stat"><span class="muted">gaps window</span><br><span class="v">{{ summary.window_days }}d</span></div>
+</div>
+
+<div class="panel">
+  <h3>Pipeline</h3>
+  {% include "_pipeline.html" %}
+</div>
+
+<div class="panel">
+  <h3>Matches over time</h3>
+  {% if summary.by_week %}
+    {% set wmax = summary.by_week | map(attribute='count') | max %}
+    <div class="bars">
+      {% for b in summary.by_week %}
+        <div class="b s-vol" style="height: {{ (100 * b.count / wmax) if wmax else 0 }}%"
+             title="week of {{ b.label }}: {{ b.count }}"></div>
+      {% endfor %}
+    </div>
+    <div class="barlabels">{% for b in summary.by_week %}<span>{{ b.label[5:] }}</span>{% endfor %}</div>
+  {% else %}
+    <p class="muted">No matches yet.</p>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <h3>Where matches come from</h3>
+  {% if summary.by_company or summary.by_ats %}
+  <div class="cols">
+    <table>
+      <tr><th>company</th><th>matches</th></tr>
+      {% for name, n in summary.by_company %}<tr><td>{{ name }}</td><td>{{ n }}</td></tr>{% endfor %}
+    </table>
+    <table>
+      <tr><th>ATS</th><th>matches</th></tr>
+      {% for name, n in summary.by_ats %}<tr><td>{{ name }}</td><td>{{ n }}</td></tr>{% endfor %}
+    </table>
+  </div>
+  {% else %}
+    <p class="muted">No matches yet.</p>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <h3>Stretch skills <span class="muted">(last {{ summary.window_days }}d)</span></h3>
+  {% if summary.gaps %}
+    <table>
+      <tr><th>skill</th><th>matches</th></tr>
+      {% for name, n in summary.gaps %}
+      <tr><td>{{ name }}</td><td>{{ n }} of {{ summary.gaps_total }}</td></tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <p class="muted">No stretch-skills recorded yet — enable <code>gap_analysis</code> to populate this.</p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,291 @@
+from __future__ import annotations
+
+import os
+from datetime import datetime
+from pathlib import Path
+from typing import Literal
+from urllib.parse import parse_qs
+
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+from src.state import VALID_STATUSES
+from src.stores import Stores, build_stores
+from src.web.analytics import MatchAnalytics, register_analytics_routes
+from src.web.board import BoardProvider, register_board_routes
+from src.web.coach import CoachProvider, register_coach_routes
+from src.web.ops import OpsProvider, register_ops_routes
+from src.web.repo import TriageRepo
+
+_HERE = Path(__file__).parent
+
+# The page-size choices the triage list offers. A request's page_size is honored
+# only if it's one of these — anything else (blank, or a hand-crafted giant
+# value) falls back to the app-configured default, so the slice stays bounded.
+ALLOWED_PAGE_SIZES = (10, 25, 50)
+
+
+def create_app(
+    repo: TriageRepo | None = None,
+    *,
+    score_high: int = 7,
+    score_low: int = 4,
+    stale_after_days: int = 10,
+    ops: OpsProvider | None = None,
+    match_analytics: MatchAnalytics | None = None,
+    board: BoardProvider | None = None,
+    coach: CoachProvider | None = None,
+    stores: Stores | None = None,
+    kit_facts_path: str = "resume/facts.yaml",
+    page_size: int = 10,
+) -> FastAPI:
+    app = FastAPI(title="Job Triage")
+    stores = stores if stores is not None else build_stores()
+    app.state.stores = stores
+    local_mode = os.environ.get("JOB_AGG_BACKEND", "sqlite") != "dynamodb"
+    app.state.repo = repo if repo is not None else TriageRepo(stores.seen)
+    app.state.board = board if board is not None else BoardProvider(app.state.repo)
+    app.state.ops = ops if ops is not None else OpsProvider(
+        discovered=stores.discovered, seen=stores.seen, health=stores.health,
+        events=stores.events,
+        log_group=os.environ.get("JOB_AGG_LOG_GROUP", "/aws/lambda/job-aggregator"),
+        region=os.environ.get("AWS_REGION", "us-east-1"),
+        local_mode=local_mode,
+    )
+    app.state.match_analytics = (
+        match_analytics if match_analytics is not None else MatchAnalytics(seen=stores.seen)
+    )
+    from src.web.audit import AuditProvider, register_audit_routes
+    app.state.audit = AuditProvider(rejected=stores.rejected, seen=stores.seen)
+    app.state.coach = coach if coach is not None else CoachProvider(
+        store=stores.coach, seen=stores.seen, rejected=stores.rejected,
+    )
+    from src.web.builder import BuilderProvider, register_builder_routes
+    app.state.builder = BuilderProvider(store=stores.builder)
+    app.state.score_high = score_high
+    app.state.score_low = score_low
+    app.state.stale_after_days = stale_after_days
+    app.state.kit_facts_path = kit_facts_path
+    app.state.page_size = page_size
+    templates = Jinja2Templates(directory=str(_HERE / "templates"))
+    from src.web.cloudwatch import format_ago
+    templates.env.filters["ago"] = format_ago
+    app.state.templates = templates
+    app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
+    _register_routes(app)
+    register_ops_routes(app)
+    register_analytics_routes(app)
+    register_board_routes(app)
+    register_audit_routes(app)
+    register_coach_routes(app)
+
+    from src.web.kit import register_kit_routes
+    register_kit_routes(app)
+    register_builder_routes(app)
+
+    from src.web.tailor import register_tailor_routes
+
+    tailored_dir = os.environ.get("JOB_AGG_TAILORED_DIR", "tailored")
+    os.makedirs(tailored_dir, exist_ok=True)
+    app.mount("/tailored", StaticFiles(directory=tailored_dir), name="tailored")
+
+    app.state.tailor_boot = None
+    app.state.audit_llm = (None, None)
+    try:
+        from src.config import load_config
+        cfg = load_config(os.environ.get("JOB_AGG_CONFIG_PATH", "config.yaml"))
+        from src.handler import _build_gap_analyzer, _build_relevance_scorer
+        app.state.audit_llm = (_build_relevance_scorer(cfg), _build_gap_analyzer(cfg))
+        if coach is None:
+            from src.handler import _build_coach
+            app.state.coach = CoachProvider(
+                store=stores.coach, seen=stores.seen, rejected=stores.rejected,
+                engine=_build_coach(cfg), cfg=cfg,
+                provider_name=cfg.coach.provider or cfg.relevance.provider,
+                model_name=cfg.coach.model or cfg.relevance.model,
+                enabled=cfg.coach.enabled,
+            )
+
+        def _builder_content():
+            from src.tailor.content import load_content
+            try:
+                return load_content(cfg.tailoring.content_path)
+            except Exception:  # noqa: BLE001 — previews fall back to the example
+                return load_content("resume/content.example.json")
+        from src.tailor.render.docx_import import build_docx_importer
+        app.state.builder = BuilderProvider(store=stores.builder, content_loader=_builder_content,
+                                            importer=build_docx_importer(cfg))
+        if cfg.tailoring.enabled:
+            from src.tailor import build_tailor_engine
+            from src.tailor.content import load_content
+            app.state.tailor_boot = (build_tailor_engine(cfg), load_content(cfg.tailoring.content_path))
+    except Exception as exc:  # noqa: BLE001 — tailoring is optional; UI must still boot
+        log_app = __import__("logging").getLogger(__name__)
+        log_app.warning("tailor_boot_skipped", extra={"error": str(exc)})
+
+    register_tailor_routes(app)
+
+    from src.web.watchdog import register_watchdog
+    register_watchdog(app)
+    return app
+
+
+def _ctx(request: Request, **extra) -> dict:
+    return {
+        "score_high": request.app.state.score_high,
+        "score_low": request.app.state.score_low,
+        "stale_after_days": request.app.state.stale_after_days,
+        **extra,
+    }
+
+
+def _render_list(
+    request: Request,
+    *,
+    q: str = "",
+    status: list[str] | None = None,
+    min_score: str = "",
+    has_gaps: bool = False,
+    workplace: list[str] | None = None,
+    sort: str = "score",
+    page: int = 1,
+    page_size: int = 0,
+) -> HTMLResponse:
+    """Filter/sort/paginate the matches and render the `_list.html` partial.
+    Shared by GET /jobs (query params) and POST /bulk-status (form body) so both
+    produce an identical list view."""
+    statuses = set(status) if status else None
+    # Empty selection (every workplace box unchecked) → no constraint, matching how
+    # the status filter fails open; a non-empty subset filters to those buckets.
+    workplace_set = set(workplace) if workplace else None
+    # The inbox's <input type="number"> serializes an empty box as min_score="" —
+    # which FastAPI would reject (422) for an int param. Parse it here so a blank
+    # field means "no floor".
+    try:
+        min_score_val = int(min_score) if min_score.strip() else None
+    except ValueError:
+        min_score_val = None
+    matches = request.app.state.repo.list(
+        statuses=statuses, min_score=min_score_val, has_gaps=has_gaps,
+        workplace=workplace_set, query=q, sort=sort,
+    )
+    size = page_size if page_size in ALLOWED_PAGE_SIZES else request.app.state.page_size
+    total = len(matches)
+    total_pages = max(1, -(-total // size))  # ceil div
+    page = min(max(page, 1), total_pages)     # clamp into range
+    start = (page - 1) * size
+    window = matches[start : start + size]
+    return request.app.state.templates.TemplateResponse(
+        request, "_list.html",
+        _ctx(
+            request, matches=window, page=page, total_pages=total_pages,
+            total=total, page_start=start, page_size=size,
+        ),
+    )
+
+
+def _register_routes(app: FastAPI) -> None:
+    @app.get("/", response_class=HTMLResponse)
+    def inbox(request: Request):
+        return request.app.state.templates.TemplateResponse(request, "inbox.html", _ctx(request))
+
+    @app.get("/jobs", response_class=HTMLResponse)
+    def jobs(
+        request: Request,
+        q: str = "",
+        status: list[str] = Query(default=[]),
+        min_score: str = "",
+        has_gaps: bool = False,
+        workplace: list[str] = Query(default=[]),
+        sort: Literal["score", "newest"] = "score",
+        # Filter changes submit the form without a page param, so they naturally
+        # reset to page 1; only the pager's Prev/Next carry an explicit page.
+        page: int = 1,
+        # 0 = unset → the app default; the per-page <select> sends 10/25/50.
+        page_size: int = 0,
+    ):
+        return _render_list(
+            request, q=q, status=status, min_score=min_score, has_gaps=has_gaps,
+            workplace=workplace, sort=sort, page=page, page_size=page_size,
+        )
+
+    @app.get("/jobs/new-count", response_class=HTMLResponse)
+    def jobs_new_count(request: Request, since: str = ""):
+        """Badge fragment for the triage refresh button: '<span>N new</span>'
+        when notified rows landed after `since`, else an empty body. Fail-soft:
+        an unparseable watermark or store error renders as 'nothing new' — this
+        is polled page chrome, not a data API. The watermark is re-serialized
+        through fromisoformat so the JS toISOString 'Z' form compares cleanly
+        against the store's '+00:00' first_seen strings."""
+        try:
+            watermark = datetime.fromisoformat(since.replace("Z", "+00:00")).isoformat()
+            n = sum(1 for m in request.app.state.repo.list() if m.first_seen > watermark)
+        except Exception:  # noqa: BLE001
+            return HTMLResponse("")
+        return HTMLResponse(f'<span class="new-badge">{n} new</span>' if n else "")
+
+    @app.post("/bulk-status", response_class=HTMLResponse)
+    async def bulk_status(request: Request):
+        """Apply one status to many rows at once, then re-render the list in place
+        (dismissed rows drop out of the default view). Reads the urlencoded body
+        by hand so the route needs no python-multipart dependency — the same
+        reason /status takes its params in the query string."""
+        form = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)
+
+        def first(key: str, default: str = "") -> str:
+            vals = form.get(key)
+            return vals[0] if vals else default
+
+        def as_int(key: str, default: int) -> int:
+            try:
+                return int(first(key, str(default)))
+            except ValueError:
+                return default
+
+        to_status = first("to_status", "dismissed")
+        if to_status not in VALID_STATUSES:
+            raise HTTPException(status_code=400, detail=f"invalid status: {to_status}")
+        repo = request.app.state.repo
+        clear = getattr(request.app.state.stores.seen, "update_email_suggestion", None)
+        for job_id in form.get("ids", []):
+            repo.set_status(job_id, to_status)  # missing/expired rows are no-ops
+            if clear:
+                clear(job_id, suggestion=None)
+        return _render_list(
+            request, q=first("q"), status=form.get("status", []),
+            min_score=first("min_score"), has_gaps=first("has_gaps") == "true",
+            workplace=form.get("workplace", []),
+            sort=first("sort", "score"), page=as_int("page", 1),
+            page_size=as_int("page_size", 0),
+        )
+
+    @app.get("/detail", response_class=HTMLResponse)
+    def detail(request: Request, id: str):
+        m = request.app.state.repo.get(id)
+        templates = request.app.state.templates
+        if m is None:
+            return templates.TemplateResponse(
+                request, "_expired.html", _ctx(request), headers={"HX-Trigger": "refreshList"}
+            )
+        return templates.TemplateResponse(request, "_detail.html", _ctx(request, m=m))
+
+    @app.post("/status", response_class=HTMLResponse)
+    def set_status(request: Request, id: str, status: str):
+        if status not in VALID_STATUSES:
+            raise HTTPException(status_code=400, detail=f"invalid status: {status}")
+        repo = request.app.state.repo
+        templates = request.app.state.templates
+        repo.set_status(id, status)  # False (vanished row) handled by the get below
+        clear = getattr(request.app.state.stores.seen, "update_email_suggestion", None)
+        if clear:
+            clear(id, suggestion=None)
+        m = repo.get(id)
+        if m is None:
+            return templates.TemplateResponse(
+                request, "_expired.html", _ctx(request), headers={"HX-Trigger": "refreshList"}
+            )
+        return templates.TemplateResponse(
+            request, "_detail.html", _ctx(request, m=m), headers={"HX-Trigger": "refreshList"}
+        )

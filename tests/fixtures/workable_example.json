@@ -1,0 +1,15 @@
+{
+  "results": [
+    {
+      "id": "WK-1",
+      "shortcode": "ABCD1234",
+      "title": "Backend Engineer",
+      "url": "https://apply.workable.com/example/j/ABCD1234/",
+      "application_url": "https://apply.workable.com/example/j/ABCD1234/apply/",
+      "created_at": "2026-04-30T12:00:00Z",
+      "location": {"city": "Remote", "country": "United States", "workplace": "remote"},
+      "department": "Engineering",
+      "description": "<p>Python and Go.</p>"
+    }
+  ]
+}

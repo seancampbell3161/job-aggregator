@@ -1,0 +1,31 @@
+<div class="panel">
+  <h3>Connector health</h3>
+  {% if health is none %}
+    <p class="muted">unavailable — could not read discovered_slugs.</p>
+  {% else %}
+    <p><span class="v ok">{{ health.ok }}</span> ok ·
+       <span class="v warn">{{ health.failed }}</span> failed ·
+       <span class="v bad">{{ health.quarantined }}</span> quarantined</p>
+    <p class="muted" style="font-size:11px">
+      discovery negative-cache: {{ health.no_match }} slugs matched no ATS (not polled)
+    </p>
+    {% if health.suppressed %}
+    <p class="muted" style="font-size:11px">
+      auto-suppressed (dead 404/410, re-probed daily): {{ health.suppressed | length }}
+      — {{ health.suppressed | join(', ') }}
+    </p>
+    {% endif %}
+    {% if health.unhealthy %}
+    <table class="wide">
+      <tr><th>connector</th><th>status</th><th>fails</th><th>postings</th><th>last ok</th></tr>
+      {% for r in health.unhealthy %}
+      <tr><td>{{ r.connector_name }}</td><td>{{ r.validation_status }}</td>
+          <td>{{ r.consecutive_failures }}</td><td>{{ r.last_posting_count }}</td>
+          <td class="muted">{{ (r.last_validated_at or '')[:10] }}</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p class="muted">All tracked connectors healthy.</p>
+    {% endif %}
+  {% endif %}
+</div>

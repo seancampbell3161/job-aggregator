@@ -1,0 +1,15 @@
+{
+  "jobs": [
+    {
+      "id": "ashby-1",
+      "title": "Senior Software Engineer",
+      "jobUrl": "https://jobs.ashbyhq.com/example/ashby-1",
+      "location": "Remote (US)",
+      "isRemote": true,
+      "publishedAt": "2026-04-30T10:00:00.000Z",
+      "department": "Engineering",
+      "descriptionPlain": "Python + React shop.",
+      "compensation": {"compensationTierSummary": "$170K – $220K"}
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+<div id="coach-run">
+  {% if busy %}
+  <div class="panel"><p class="muted">A run is already in progress — refresh shortly.</p></div>
+  {% endif %}
+  {% if run is none %}
+  <div class="panel"><p class="muted">No recommendations yet — generate your first run.</p></div>
+  {% elif run.status == "error" %}
+  <div class="panel"><p class="muted">Last run failed ({{ run.error or "LLM error" }}) — try again.</p></div>
+  {% else %}
+  {% if run.snapshot and run.snapshot.meta and run.snapshot.meta.low_sample %}
+  <div class="panel"><p class="muted">Small sample: only {{ run.snapshot.meta.applied_count }} application{{ "" if run.snapshot.meta.applied_count == 1 else "s" }} so far — treat this advice as low-confidence.</p></div>
+  {% endif %}
+  <p class="muted">Generated {{ run.created_at[:16] }} by {{ run.provider }}/{{ run.model }}</p>
+  {% for c in run.cards %}
+  <div class="panel">
+    <p><strong>{{ c.title }}</strong> <span class="muted">[{{ c.category }} &middot; impact: {{ c.impact }}]</span></p>
+    <p class="muted">{{ c.evidence }}</p>
+    <p>&rarr; {{ c.action }}</p>
+  </div>
+  {% endfor %}
+  {% endif %}
+</div>

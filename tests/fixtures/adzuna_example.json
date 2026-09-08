@@ -1,0 +1,30 @@
+{
+  "count": 2,
+  "results": [
+    {
+      "id": 5001,
+      "title": "Staff Software Engineer",
+      "description": "We are hiring a <strong>Staff Software Engineer</strong> to lead our platform team. You will own reliability and mentor engineers...",
+      "redirect_url": "https://www.adzuna.com/land/ad/5001?se=abc",
+      "created": "2026-07-17T20:04:16Z",
+      "company": {"display_name": "Acme Robotics"},
+      "location": {"display_name": "Austin, TX", "area": ["US", "Texas", "Austin"]},
+      "salary_min": 180000.0,
+      "salary_max": 220000.0,
+      "salary_is_predicted": "0",
+      "contract_time": "full_time",
+      "contract_type": "permanent"
+    },
+    {
+      "id": 5002,
+      "title": "Platform Engineer",
+      "description": "Growing staffing agency seeks a platform engineer for a direct-hire client role...",
+      "redirect_url": "https://www.adzuna.com/land/ad/5002?se=def",
+      "created": "2026-07-17T08:00:00Z",
+      "company": {"display_name": "TalentBridge Staffing"},
+      "location": {"display_name": "Remote"},
+      "salary_min": 150000.0,
+      "salary_is_predicted": "1"
+    }
+  ]
+}

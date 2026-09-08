@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:tt="https://teamtailor.com/locations">
+  <channel>
+    <title>Tibber</title>
+    <description>Open jobs</description>
+    <link>https://tibber.teamtailor.com/jobs</link>
+    <item>
+      <title>Senior AI Platform Engineer</title>
+      <description><![CDATA[<p>Build our <strong>Python</strong> ML platform.</p>]]></description>
+      <pubDate>Tue, 30 Jun 2026 21:40:44 +0200</pubDate>
+      <link>https://jobs.tibber.com/jobs/7997072-senior-ai-platform-engineer</link>
+      <remoteStatus>hybrid</remoteStatus>
+      <guid>2b1eb6b1-25e0-47f9-bacb-f921ab07b2b5</guid>
+      <tt:locations>
+        <tt:location name="Amsterdam" address="Keizersgracht 121" zip="1015 CJ" city="Amsterdam" country="Netherlands"/>
+        <tt:location name="Berlin" address="Strelitzer Str." zip="10115" city="Berlin" country="Germany"/>
+      </tt:locations>
+      <tt:department>Engineering</tt:department>
+      <tt:role>Backend Engineer</tt:role>
+    </item>
+    <item>
+      <title>Backend Engineer</title>
+      <description><![CDATA[<p>Fully remote role.</p>]]></description>
+      <link>https://jobs.tibber.com/jobs/8000001-backend-engineer</link>
+      <remoteStatus>fully</remoteStatus>
+      <guid>aaaa-bbbb-cccc</guid>
+      <tt:locations></tt:locations>
+      <tt:department>Engineering</tt:department>
+    </item>
+  </channel>
+</rss>

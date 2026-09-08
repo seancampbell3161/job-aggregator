@@ -1,0 +1,76 @@
+# Starter config — copy me, then personalize:
+#   cp config.example.yaml config.yaml
+#   cp profile.example.md profile.md
+# config.yaml is gitignored (it's yours); `git pull` never touches it.
+# Every flag and its default is documented in docs/CONFIG.md. Sections omitted
+# here (discovery, gap_analysis, tailoring, board, audit, ops_notify, gmail,
+# kit, …) run entirely on their documented defaults.
+
+filters:
+  titles:                       # posting title must contain one of these (case-insensitive)
+  - software engineer
+  - software developer
+  - backend engineer
+  - backend developer
+  - fullstack engineer
+  - full stack engineer
+  seniority_allow:              # junior | mid | senior | staff
+  - mid
+  - senior
+  location:
+    allowed_countries: [US]     # ISO 3166-1 alpha-2; remote postings must be reachable from one of these
+    remote_policy: allowed_countries   # "anywhere" disables the remote geo gate
+    allowed_cities:             # commutable cities for on-site/hybrid postings
+    - chicago
+    - denver
+    allow_unknown: true         # postings with unparseable locations pass through
+  comp_floor_usd: 100000
+  stack_any_of:
+  - python
+  - typescript
+quiet_hours:                    # push notifications are queued during this window
+  timezone: America/Chicago
+  start: "22:00"
+  end: "07:00"
+sources:
+  # Starter set of public boards (slugs verified live 2026-07-14). Add your own:
+  #   ./scripts/add_company.sh greenhouse <slug>
+  # Slug-hunting guide + all ATS families: GETTING_STARTED.md §3d.
+  greenhouse:
+  - stripe
+  - databricks
+  lever:
+  - spotify
+  ashby:
+  - linear
+  - notion
+  # Adzuna job-search API (slow tier, opt-in): off-ATS discovery — small
+  # companies and staffing agencies that don't run a major ATS. Needs the
+  # JOB_AGG_ADZUNA_* env vars (free self-service keys: developer.adzuna.com).
+  # Flags: docs/CONFIG.md#sources. Free tier is 2,500 calls/month — the
+  # default daily_call_budget (60) keeps you safely under it.
+  #adzuna:
+  #  enabled: true
+  #  countries: [us]
+  #  queries:
+  #  - staff software engineer
+  #  - platform engineer
+schedules:
+  ats_minutes: 10               # fast tier: direct ATS APIs
+  slow_minutes: 15              # slow tier: aggregators
+relevance:
+  enabled: true
+  provider: anthropic           # or: ollama, gemini — set the matching key in .env (docs/CONFIG.md → secrets)
+  model: claude-haiku-4-5       # ollama: gpt-oss:120b · gemini: gemini-2.0-flash
+  score_high: 7                 # >= this gets a "strong fit" marker in the notification
+  score_low: 4                  # <= this is suppressed entirely (no notification)
+  profile_path: profile.md
+  timeout_seconds: 20
+
+# How the poller identifies itself over HTTP. The default is honest and is what
+# you should normally run:
+#   job-aggregator/<version> (+https://github.com/seancampbell3161/job-aggregator)
+# Override only if a board rejects the default outright; if you do, you own
+# whether the value you send is consistent with that site's terms of use.
+# http:
+#   user_agent: ""

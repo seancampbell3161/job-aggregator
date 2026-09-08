@@ -1,0 +1,17 @@
+# Your Name — Résumé (template)
+
+Copy this file to `resume.md` (gitignored) and fill it in with your real
+experience. The gap analyzer compares job postings against this text to surface
+hard skills a role wants that your résumé doesn't evidence. It never affects the
+relevance score — only the "Stretch areas" annotation and the weekly digest.
+
+## Summary
+Senior software engineer, ...
+
+## Skills
+Languages: C#, .NET, Go, Python, TypeScript
+Infra: PostgreSQL, SQL Server, ...
+
+## Experience
+### Company — Title (20XX–present)
+- ...

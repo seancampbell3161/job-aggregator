@@ -1,0 +1,45 @@
+{
+  "name": "Jane Example",
+  "contact": { "phone": "(555) 010-0000", "email": "jane@example.com",
+               "website": "janeexample.com", "github": "github.com/jane" },
+  "skills": [
+    { "name": "C#/.NET", "category": "Languages" },
+    { "name": "Go", "category": "Languages" },
+    { "name": "Angular", "category": "Frontend" },
+    { "name": "React", "category": "Frontend" }
+  ],
+  "experiences": [
+    { "id": "exp-acme", "company": "Acme Corp", "role": "Senior Software Engineer",
+      "start": "2021-03", "end": "present",
+      "bullets": [
+        { "id": "exp-acme-b1",
+          "text": "Rebuilt the billing pipeline, cutting invoice latency 40% (3.1s to 1.8s).",
+          "tags": ["backend", ".net", "metric"], "metric_bearing": true,
+          "evidence_refs": ["JIRA-1234"] },
+        { "id": "exp-acme-b2",
+          "text": "Led the Angular rewrite of the customer portal with a team of three.",
+          "tags": ["frontend", "leadership"] },
+        { "id": "exp-acme-b3",
+          "text": "Introduced containerized integration tests, catching regressions before merge.",
+          "tags": ["ci-cd", "testing"] }
+      ] }
+  ],
+  "projects": [
+    { "id": "proj-foo", "name": "Foo", "subtitle": "Go + React", "dates": "2024 – Present",
+      "bullets": [
+        { "id": "proj-foo-b1", "text": "An open-source CLI for X serving 2k users." },
+        { "id": "proj-foo-b2", "text": "Postgres-backed sync engine with retries and idempotency." }
+      ] },
+    { "id": "proj-bar", "name": "Bar", "subtitle": "Personal SaaS — Go microservices",
+      "dates": "2023 – Present",
+      "bullets": [
+        { "id": "proj-bar-b1", "text": "Four microservices behind a React frontend; owned design through deploy." }
+      ] }
+  ],
+  "education": [
+    { "degree": "B.S. Computer Science", "institution": "State University", "dates": "2016 – 2020" }
+  ],
+  "volunteer": [
+    { "role": "Mentor", "org": "Local Code Club", "dates": "2022 – Present" }
+  ]
+}

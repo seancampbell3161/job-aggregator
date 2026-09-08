@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block content %}
+<form id="filters" hx-get="/jobs" hx-target="#list" hx-swap="innerHTML"
+      hx-trigger="change, keyup delay:300ms from:input[name=q]" hx-include="this">
+  <input type="search" name="q" placeholder="search title / company…">
+  <label><input type="checkbox" name="status" value="new" checked> New</label>
+  <label><input type="checkbox" name="status" value="interested" checked> Interested</label>
+  <label><input type="checkbox" name="status" value="applied" checked> Applied</label>
+  <label><input type="checkbox" name="status" value="interviewing" checked> Interviewing</label>
+  <label><input type="checkbox" name="status" value="dismissed"> Dismissed</label>
+  <label>score ≥ <input type="number" name="min_score" min="0" max="10" style="width:3.2em"></label>
+  <label><input type="checkbox" name="has_gaps" value="true"> has gaps</label>
+  <span class="wp-filter">workplace
+    <label><input type="checkbox" name="workplace" value="remote" checked> remote</label>
+    <label><input type="checkbox" name="workplace" value="hybrid" checked> hybrid</label>
+    <label><input type="checkbox" name="workplace" value="onsite" checked> onsite</label>
+    <label><input type="checkbox" name="workplace" value="unknown" checked> unknown</label>
+  </span>
+  <label>sort
+    <select name="sort">
+      <option value="score">score</option>
+      <option value="newest">newest</option>
+    </select>
+  </label>
+  <label>per page
+    <select name="page_size">
+      <option value="10" selected>10</option>
+      <option value="25">25</option>
+      <option value="50">50</option>
+    </select>
+  </label>
+  <button id="refresh" class="btn" type="button" title="re-fetch the list with current filters"
+          onclick="triageRefresh()">↻ Refresh<span id="new-badge"></span></button>
+</form>
+<input type="hidden" id="since" value="">
+<span hx-get="/jobs/new-count" hx-trigger="every 60s" hx-include="#since"
+      hx-target="#new-badge" hx-swap="innerHTML"></span>
+<script>
+/* Filter persistence (localStorage) + new-items watermark. Runs during parse:
+   after the form exists, before htmx initializes — so the restored values are
+   already in the DOM when the #list load trigger fires. The q box is
+   deliberately session-only (a forgotten stale search hides the whole inbox). */
+(function () {
+  var KEY = "triage.filters.v1";
+  var form = document.getElementById("filters");
+  document.getElementById("since").value = new Date().toISOString();
+  document.getElementById("since").name = "since";
+  var saved = null;
+  try { saved = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { saved = null; }
+  if (saved && typeof saved === "object") {
+    form.querySelectorAll('input[name=status]').forEach(function (cb) {
+      if (Array.isArray(saved.status)) cb.checked = saved.status.indexOf(cb.value) !== -1;
+    });
+    form.querySelectorAll('input[name=workplace]').forEach(function (cb) {
+      if (Array.isArray(saved.workplace)) cb.checked = saved.workplace.indexOf(cb.value) !== -1;
+    });
+    if (typeof saved.min_score === "string") form.querySelector('[name=min_score]').value = saved.min_score;
+    form.querySelector('[name=has_gaps]').checked = saved.has_gaps === true;
+    if (typeof saved.sort === "string") form.querySelector('[name=sort]').value = saved.sort;
+    if (typeof saved.page_size === "string") form.querySelector('[name=page_size]').value = saved.page_size;
+  }
+  form.addEventListener("change", function () {
+    var state = {
+      status: Array.prototype.map.call(
+        form.querySelectorAll('input[name=status]:checked'), function (cb) { return cb.value; }),
+      workplace: Array.prototype.map.call(
+        form.querySelectorAll('input[name=workplace]:checked'), function (cb) { return cb.value; }),
+      min_score: form.querySelector('[name=min_score]').value,
+      has_gaps: form.querySelector('[name=has_gaps]').checked,
+      sort: form.querySelector('[name=sort]').value,
+      page_size: form.querySelector('[name=page_size]').value,
+    };
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* private mode: skip */ }
+  });
+})();
+function triageRefresh() {
+  document.getElementById("since").value = new Date().toISOString();
+  document.getElementById("new-badge").innerHTML = "";
+  htmx.trigger(document.body, "refreshList");
+}
+</script>
+
+<div class="panes">
+  <div id="list" hx-get="/jobs" hx-include="#filters" hx-trigger="load, refreshList from:body" hx-swap="innerHTML">
+    <p class="muted" style="padding:11px">Loading…</p>
+  </div>
+  <div id="detail"><p class="muted">Select a match to see details.</p></div>
+</div>
+{% endblock %}

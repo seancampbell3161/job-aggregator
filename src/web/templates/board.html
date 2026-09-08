@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="page-title">Application board</h1>
+{% if board.error %}<p class="muted">Board data is temporarily unavailable.</p>{% endif %}
+
+{# Hand-entered opportunities (recruiter DM, referral, word of mouth). Plain
+   form post + 303 redirect, so no htmx and no JS: after a successful add the
+   browser re-GETs /board with an empty, collapsed form. Reopens itself when a
+   validation message needs showing. #}
+<details class="add-job"{% if add_error %} open{% endif %}>
+  <summary>+ Add a job manually</summary>
+  <form class="add-job-form" method="post" action="/board/add">
+    {% if add_error %}<p class="add-error">{{ add_error }}</p>{% endif %}
+    <div class="add-row">
+      <label class="grow">Company
+        <input name="company" required autocomplete="off" value="{{ add_form.get('company', '') }}"></label>
+      <label class="grow">Title
+        <input name="title" required autocomplete="off" value="{{ add_form.get('title', '') }}"></label>
+      <label>Stage
+        <select name="status">
+          {% for s in addable_statuses %}
+          <option value="{{ s }}"{% if add_form.get('status', addable_statuses[0]) == s %} selected{% endif %}>{{ s | capitalize }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+    <div class="add-row">
+      <label class="grow">Link
+        <input name="apply_url" type="url" placeholder="https://…" value="{{ add_form.get('apply_url', '') }}"></label>
+      <label class="grow">Location
+        <input name="location_text" placeholder="Remote (US)" value="{{ add_form.get('location_text', '') }}"></label>
+      <label>Comp min
+        <input name="comp_min" class="narrow" placeholder="180k" value="{{ add_form.get('comp_min', '') }}"></label>
+      <label>Comp max
+        <input name="comp_max" class="narrow" placeholder="220k" value="{{ add_form.get('comp_max', '') }}"></label>
+      <label>Where from
+        <input name="channel" placeholder="recruiter" value="{{ add_form.get('channel', '') }}"></label>
+    </div>
+    <label class="add-wide">Job description / notes
+      <textarea name="description" rows="4"
+                placeholder="Paste the description so tailoring and gap analysis have something to work with.">{{ add_form.get('description', '') }}</textarea></label>
+    <div class="add-actions">
+      <button class="btn primary" type="submit">Add to board</button>
+      <span class="muted">Tracked in analytics like any other match — no relevance score, since nothing scored it.</span>
+    </div>
+  </form>
+</details>
+
+<div id="board-columns">
+  {% include "_board_columns.html" %}
+</div>
+{% endblock %}

@@ -1,0 +1,54 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install WeasyPrint native libraries
+        # WeasyPrint imports fine without these but raises OSError from cffi at
+        # first use, which tests/conftest.py turns into a skip of every PDF test.
+        # Install them explicitly so the render tests actually run in CI.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 libcairo2 libgdk-pixbuf-2.0-0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify uv.lock is in sync with pyproject.toml
+        # Fails the build if the lockfile drifts from pyproject (e.g. a version
+        # bump that forgot to re-lock). Cheap metadata-only resolve; no install.
+        run: |
+          pip install uv
+          uv lock --check
+      - run: pip install -e '.[dev,web,render]'
+      - name: Verify WeasyPrint is usable
+        # Fail loudly here rather than letting the render tests skip silently.
+        run: python -c "import weasyprint; print(weasyprint.__version__)"
+      - run: pytest -v
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.5"
+      - name: Stub Lambda zip for validation
+        run: |
+          mkdir -p build
+          (cd build && echo placeholder > x && zip -q lambda.zip x && rm x)
+      - name: terraform fmt
+        run: terraform -chdir=infra fmt -check -recursive
+      - name: terraform validate (main)
+        run: |
+          terraform -chdir=infra init -backend=false -input=false
+          terraform -chdir=infra validate
+      - name: terraform validate (bootstrap)
+        run: |
+          terraform -chdir=infra/bootstrap init -backend=false -input=false
+          terraform -chdir=infra/bootstrap validate

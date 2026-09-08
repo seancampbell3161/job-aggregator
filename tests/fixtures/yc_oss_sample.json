@@ -1,0 +1,10 @@
+[
+  {"name": "Stripe", "slug": "stripe", "status": "Public", "team_size": 8000, "website": "https://stripe.com"},
+  {"name": "Modal Labs", "slug": "modal", "status": "Active", "team_size": 35, "website": "https://modal.com"},
+  {"name": "Acme Co", "slug": "acme-co", "status": "Active", "team_size": 12, "website": "https://acme.example"},
+  {"name": "Tinyship", "slug": "tinyship", "status": "Active", "team_size": 3, "website": "https://tinyship.example"},
+  {"name": "Bygone Labs", "slug": "bygone", "status": "Inactive", "team_size": 0, "website": null},
+  {"name": "Eaten Up", "slug": "eatenup", "status": "Acquired", "team_size": 50, "website": "https://eatenup.example"},
+  {"name": "MissingTeamSize", "slug": "missing", "status": "Active", "website": "https://missing.example"},
+  {"name": "Period.Co", "slug": "period-co", "status": "Active", "team_size": 25}
+]

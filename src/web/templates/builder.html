@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="page-title">Resume Builder</h1>
+
+<section class="panel">
+  <h3>Settings</h3>
+  {% if saved %}<p class="ok">Settings saved.</p>{% endif %}
+  {% if error %}<p class="bad">{{ error }}</p>{% endif %}
+  <form method="post" action="/builder/settings" class="builder-settings">
+    <label>Max bullets per experience
+      <input type="number" min="1" name="max_bullets_per_experience"
+             value="{{ settings.max_bullets_per_experience or '' }}" placeholder="no cap"></label>
+    <label>Max bullets per project
+      <input type="number" min="1" name="max_bullets_per_project"
+             value="{{ settings.max_bullets_per_project or '' }}" placeholder="no cap"></label>
+    <label>Min bullets per entry
+      <input type="number" min="1" name="min_bullets_per_entry"
+             value="{{ settings.min_bullets_per_entry }}"></label>
+    <label>Max pages
+      <input type="number" min="1" name="max_pages" value="{{ settings.max_pages }}"></label>
+    <label>Page size
+      <select name="page_size">
+        <option value="" {% if not settings.page_size %}selected{% endif %}>template default</option>
+        <option value="letter" {% if settings.page_size == 'letter' %}selected{% endif %}>US Letter</option>
+        <option value="a4" {% if settings.page_size == 'a4' %}selected{% endif %}>A4</option>
+      </select></label>
+    <label>Margins (CSS, e.g. 0.5in 0.58in)
+      <input type="text" name="margins" value="{{ settings.margins or '' }}"
+             placeholder="template default"></label>
+    <button type="submit" class="btn primary">Save settings</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h3>Templates</h3>
+  <div id="gallery">{% include "_builder_gallery.html" %}</div>
+</section>
+{% endblock %}

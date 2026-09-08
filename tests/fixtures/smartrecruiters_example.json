@@ -1,0 +1,329 @@
+{
+    "offset": 0,
+    "limit": 3,
+    "totalFound": 1055,
+    "content": [
+        {
+            "id": "744000124237599",
+            "name": "Director FP&A",
+            "uuid": "4eed2345-8022-488a-9d50-13d9545ea50a",
+            "jobAdId": "066ff183-d08d-4ab3-b792-5f25cf7c5e8c",
+            "defaultJobAd": true,
+            "refNumber": "JR0077899",
+            "company": {
+                "identifier": "DeliveryHero",
+                "name": "Delivery Hero"
+            },
+            "releasedDate": "2026-05-02T12:21:30.011Z",
+            "location": {
+                "city": "Berlin",
+                "country": "de",
+                "remote": false,
+                "hybrid": false,
+                "fullLocation": "Berlin, , Germany"
+            },
+            "industry": {
+                "id": "internet",
+                "label": "Internet"
+            },
+            "department": {},
+            "function": {
+                "id": "finance",
+                "label": "Finance"
+            },
+            "typeOfEmployment": {
+                "id": "permanent",
+                "label": "Full-time"
+            },
+            "experienceLevel": {
+                "id": "director",
+                "label": "Director"
+            },
+            "customField": [
+                {
+                    "fieldId": "6564ae9ddd552072c3a97453",
+                    "fieldLabel": "Time Type",
+                    "valueId": "421938a4e1d40118e396324490147300",
+                    "valueLabel": "Full time"
+                },
+                {
+                    "fieldId": "655ce69d695b8c5663cf1f55",
+                    "fieldLabel": "Brands",
+                    "valueId": "default",
+                    "valueLabel": "Delivery Hero"
+                },
+                {
+                    "fieldId": "6564ad6b1cf48c421e22419d",
+                    "fieldLabel": "Job Family",
+                    "valueId": "75439315e97510009129b2c1fdd60000",
+                    "valueLabel": "Finance Insights"
+                },
+                {
+                    "fieldId": "6564ad3fee5f2f5b84045448",
+                    "fieldLabel": "Job Family Group",
+                    "valueId": "ef2e8d3982de0154ceac3dccd1160d00",
+                    "valueLabel": "Finance"
+                },
+                {
+                    "fieldId": "6564aa853d74d30a33089d2a",
+                    "fieldLabel": "Supervisory Organization",
+                    "valueId": "fc4703a3d80510014e640e7c6b700000",
+                    "valueLabel": "Pandora Finance Insights - HIE13751"
+                },
+                {
+                    "fieldId": "COUNTRY",
+                    "fieldLabel": "Country/Region",
+                    "valueId": "de",
+                    "valueLabel": "Germany"
+                },
+                {
+                    "fieldId": "6564ad09560ccd2ba9e90d24",
+                    "fieldLabel": "Management Level",
+                    "valueId": "ef2e8d3982de01d2a9ceb844d2162900",
+                    "valueLabel": "M3"
+                },
+                {
+                    "fieldId": "6564ae71dd552072c3a97452",
+                    "fieldLabel": "Worker Sub-Type",
+                    "valueId": "ef2e8d3982de0123e1696445d2164400",
+                    "valueLabel": "Permanent"
+                },
+                {
+                    "fieldId": "6564abc0d641ff6fc90ebd6d",
+                    "fieldLabel": "Primary Location",
+                    "valueId": "dd8bd6e8ef5e01f0b31a22394e012004",
+                    "valueLabel": "Berlin - Oranienburger Stra\u00dfe"
+                },
+                {
+                    "fieldId": "6564ada8e5ee8c3d9bec3405",
+                    "fieldLabel": "Job Profile",
+                    "valueId": "a2e7316c822c1000946c42411f110000",
+                    "valueLabel": "FP&A - M3"
+                }
+            ],
+            "visibility": "PUBLIC",
+            "ref": "https://api.smartrecruiters.com/v1/companies/deliveryhero/postings/744000124237599",
+            "language": {
+                "code": "en",
+                "label": "English",
+                "labelNative": "English (US)"
+            }
+        },
+        {
+            "id": "744000124231209",
+            "name": "Associate, Account Management (South Luzon-Cavite)",
+            "uuid": "59a78cfb-49b6-45a8-8bcc-8d19b1588192",
+            "jobAdId": "8f14241e-8e1b-43ee-9c15-bae1dc8aeeba",
+            "defaultJobAd": true,
+            "refNumber": "JR0077451",
+            "company": {
+                "identifier": "DeliveryHero",
+                "name": "Delivery Hero"
+            },
+            "releasedDate": "2026-05-02T06:03:40.954Z",
+            "location": {
+                "city": "Cavite",
+                "region": "Calabarzon",
+                "country": "ph",
+                "remote": false,
+                "hybrid": true,
+                "latitude": "14.4815142",
+                "longitude": "120.9083275",
+                "fullLocation": "Cavite, Calabarzon, Philippines"
+            },
+            "industry": {
+                "id": "internet",
+                "label": "Internet"
+            },
+            "department": {},
+            "function": {
+                "id": "sales",
+                "label": "Sales"
+            },
+            "typeOfEmployment": {
+                "id": "permanent",
+                "label": "Full-time"
+            },
+            "experienceLevel": {
+                "id": "associate",
+                "label": "Associate"
+            },
+            "customField": [
+                {
+                    "fieldId": "6564ae9ddd552072c3a97453",
+                    "fieldLabel": "Time Type",
+                    "valueId": "421938a4e1d40118e396324490147300",
+                    "valueLabel": "Full time"
+                },
+                {
+                    "fieldId": "655ce69d695b8c5663cf1f55",
+                    "fieldLabel": "Brands",
+                    "valueId": "foodpanda",
+                    "valueLabel": "foodpanda"
+                },
+                {
+                    "fieldId": "6564ad6b1cf48c421e22419d",
+                    "fieldLabel": "Job Family",
+                    "valueId": "75439315e9751000915150c1ccdc0000",
+                    "valueLabel": "Sales Account Management"
+                },
+                {
+                    "fieldId": "6564ad3fee5f2f5b84045448",
+                    "fieldLabel": "Job Family Group",
+                    "valueId": "75439315e97510004b9c1be43b920000",
+                    "valueLabel": "Sales"
+                },
+                {
+                    "fieldId": "6564aa853d74d30a33089d2a",
+                    "fieldLabel": "Supervisory Organization",
+                    "valueId": "6aef22ec9dfa011e5cdf3d895501f9d3",
+                    "valueLabel": "Account Management Luzon 1 - FPPH - HIE04463"
+                },
+                {
+                    "fieldId": "COUNTRY",
+                    "fieldLabel": "Country/Region",
+                    "valueId": "ph",
+                    "valueLabel": "Philippines"
+                },
+                {
+                    "fieldId": "6564ad09560ccd2ba9e90d24",
+                    "fieldLabel": "Management Level",
+                    "valueId": "ef2e8d3982de01acdf1d1c45d2163900",
+                    "valueLabel": "IC1"
+                },
+                {
+                    "fieldId": "6564ae71dd552072c3a97452",
+                    "fieldLabel": "Worker Sub-Type",
+                    "valueId": "ef2e8d3982de0123e1696445d2164400",
+                    "valueLabel": "Permanent"
+                },
+                {
+                    "fieldId": "6564abc0d641ff6fc90ebd6d",
+                    "fieldLabel": "Primary Location",
+                    "valueId": "0e35b289617310014b445a0e41af0000",
+                    "valueLabel": "PH - Remote"
+                },
+                {
+                    "fieldId": "6564ada8e5ee8c3d9bec3405",
+                    "fieldLabel": "Job Profile",
+                    "valueId": "0b9bd6d5dac71000949f9145f4ba0000",
+                    "valueLabel": "Mid-Size Account Management - IC1"
+                }
+            ],
+            "visibility": "PUBLIC",
+            "ref": "https://api.smartrecruiters.com/v1/companies/deliveryhero/postings/744000124231209",
+            "language": {
+                "code": "en",
+                "label": "English",
+                "labelNative": "English (US)"
+            }
+        },
+        {
+            "id": "744000124135254",
+            "name": "Data Internship (They/She/He)",
+            "uuid": "b76bb25b-bfb7-4b2a-a005-9775eb80fe29",
+            "jobAdId": "09db8ded-4ee4-4e40-aacd-0c175e498221",
+            "defaultJobAd": false,
+            "refNumber": "JR0074983",
+            "company": {
+                "identifier": "DeliveryHero",
+                "name": "Delivery Hero"
+            },
+            "releasedDate": "2026-05-01T14:36:44.037Z",
+            "location": {
+                "city": "Barcelona",
+                "country": "es",
+                "remote": false,
+                "hybrid": true,
+                "hybridDescription": "3 days in office / 2 days WFH",
+                "fullLocation": "Barcelona, , Spain"
+            },
+            "industry": {
+                "id": "internet",
+                "label": "Internet"
+            },
+            "department": {},
+            "function": {
+                "id": "general_business",
+                "label": "General Business"
+            },
+            "typeOfEmployment": {
+                "id": "intern",
+                "label": "Intern"
+            },
+            "experienceLevel": {
+                "id": "entry_level",
+                "label": "Entry Level"
+            },
+            "customField": [
+                {
+                    "fieldId": "6564ae9ddd552072c3a97453",
+                    "fieldLabel": "Time Type",
+                    "valueId": "421938a4e1d40118e396324490147300",
+                    "valueLabel": "Full time"
+                },
+                {
+                    "fieldId": "655ce69d695b8c5663cf1f55",
+                    "fieldLabel": "Brands",
+                    "valueId": "Glovo",
+                    "valueLabel": "Glovo"
+                },
+                {
+                    "fieldId": "6564ad6b1cf48c421e22419d",
+                    "fieldLabel": "Job Family",
+                    "valueId": "8e75396823f60164891ab1ffda01cce1",
+                    "valueLabel": "All Departments"
+                },
+                {
+                    "fieldId": "6564ad3fee5f2f5b84045448",
+                    "fieldLabel": "Job Family Group",
+                    "valueId": "74446f87526f012ce3b6b5f847240e1e",
+                    "valueLabel": "Internships & Support"
+                },
+                {
+                    "fieldId": "6564aa853d74d30a33089d2a",
+                    "fieldLabel": "Supervisory Organization",
+                    "valueId": "7f50ed7330381001a03a1ecd6e550000",
+                    "valueLabel": "Data - Candidate Pool - Evergreen Pipelines - HIE16709"
+                },
+                {
+                    "fieldId": "COUNTRY",
+                    "fieldLabel": "Country/Region",
+                    "valueId": "es",
+                    "valueLabel": "Spain"
+                },
+                {
+                    "fieldId": "6564ad09560ccd2ba9e90d24",
+                    "fieldLabel": "Management Level",
+                    "valueId": "ef2e8d3982de0110bf594345d2163f00",
+                    "valueLabel": "S1"
+                },
+                {
+                    "fieldId": "6564ae71dd552072c3a97452",
+                    "fieldLabel": "Worker Sub-Type",
+                    "valueId": "ef2e8d3982de017767d15645d2164200",
+                    "valueLabel": "Intern (Fixed Term) (Trainee)"
+                },
+                {
+                    "fieldId": "6564abc0d641ff6fc90ebd6d",
+                    "fieldLabel": "Primary Location",
+                    "valueId": "5abc96616cc11000ae713ac737c70000",
+                    "valueLabel": "Barcelona - Yellow Park"
+                },
+                {
+                    "fieldId": "6564ada8e5ee8c3d9bec3405",
+                    "fieldLabel": "Job Profile",
+                    "valueId": "0b9bd6d5dac71000947253f13df90000",
+                    "valueLabel": "Intern - S1"
+                }
+            ],
+            "visibility": "PUBLIC",
+            "ref": "https://api.smartrecruiters.com/v1/companies/deliveryhero/postings/744000124135254",
+            "language": {
+                "code": "en",
+                "label": "English",
+                "labelNative": "English (US)"
+            }
+        }
+    ]
+}

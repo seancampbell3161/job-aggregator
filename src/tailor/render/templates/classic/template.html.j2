@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: 'Gelasio'; src: url('fonts/Gelasio.ttf'); font-weight: 400 700; font-style: normal; }
+  @font-face { font-family: 'Gelasio'; src: url('fonts/Gelasio-Italic.ttf'); font-weight: 400 700; font-style: italic; }
+  @page { size: letter; margin: 0.5in 0.58in; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { font-family: Georgia, 'Gelasio', serif; font-size: 10pt; line-height: 1.28; color: #333333; }
+  .name { font-size: 24pt; font-weight: 700; color: #1a1a1a; letter-spacing: 0.2px; line-height: 1.05; margin-bottom: 5px; }
+  .contact { font-size: 10pt; color: #333333; margin-bottom: 14px; }
+  .contact .sep { color: #0f766e; }
+  .section { margin-bottom: 7.5px; }
+  .section-title { font-size: 9.5pt; font-weight: 700; color: #0f766e; text-transform: uppercase; letter-spacing: 1.6px; border-bottom: 1px solid #0f766e; padding-bottom: 2px; margin-bottom: 6px; }
+  .skill-row { display: flex; margin-bottom: 2px; }
+  .skill-label { flex: 0 0 1.42in; font-weight: 700; color: #1a1a1a; }
+  .skill-value { flex: 1; color: #333333; }
+  .entry-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
+  .entry-title { color: #1a1a1a; }
+  .entry-title .role { font-weight: 700; }
+  .entry-dates { font-size: 9pt; color: #555555; white-space: nowrap; padding-left: 12px; }
+  ul.bullets { list-style: none; }
+  ul.bullets li { position: relative; padding-left: 14px; margin-bottom: 3px; }
+  ul.bullets li::before { content: "•"; position: absolute; left: 1px; top: -0.5px; color: #5fa39c; font-size: 11pt; line-height: 1.28; }
+  .two-col { display: flex; gap: 0.5in; }
+  .two-col > .section { flex: 1; margin-bottom: 0; }
+  .sub { color: #333333; }
+  .sub-meta { font-size: 9pt; color: #555555; }
+</style>
+</head>
+<body>
+  <div class="name">{{ doc.name }}</div>
+  <div class="contact">{% for item in doc.contact_items %}{% if not loop.first %} <span class="sep">&middot;</span> {% endif %}{{ item }}{% endfor %}</div>
+
+  <div class="section">
+    <div class="section-title">Skills</div>
+    {% for row in doc.skill_rows %}
+    <div class="skill-row"><div class="skill-label">{{ row.label }}</div><div class="skill-value">{{ row.tokens | join(", ") }}</div></div>
+    {% endfor %}
+  </div>
+
+  <div class="section">
+    <div class="section-title">Experience</div>
+    {% for e in doc.experiences %}
+    <div class="entry-head">
+      <div class="entry-title"><span class="role">{{ e.role }}</span>{% if e.company %} &middot; {{ e.company }}{% endif %}</div>
+      {% if e.dates %}<div class="entry-dates">{{ e.dates }}</div>{% endif %}
+    </div>
+    <ul class="bullets">{% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+    {% endfor %}
+  </div>
+
+  {% if doc.projects %}
+  <div class="section">
+    <div class="section-title">Projects</div>
+    {% for p in doc.projects %}
+    <div class="entry-head">
+      <div class="entry-title"><span class="role">{{ p.name }}</span>{% if p.subtitle %} &middot; {{ p.subtitle }}{% endif %}</div>
+      {% if p.dates %}<div class="entry-dates">{{ p.dates }}</div>{% endif %}
+    </div>
+    <ul class="bullets">{% for b in p.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if doc.education or doc.volunteer %}
+  <div class="two-col">
+    {% if doc.education %}
+    <div class="section">
+      <div class="section-title">Education</div>
+      {% for ed in doc.education %}
+      <div class="sub"><strong>{{ ed.degree }}</strong></div>
+      <div class="sub-meta">{{ ed.institution }}</div>
+      {% if ed.dates %}<div class="sub-meta">{{ ed.dates }}</div>{% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if doc.volunteer %}
+    <div class="section">
+      <div class="section-title">Volunteer</div>
+      {% for v in doc.volunteer %}
+      <div class="sub"><strong>{{ v.role }}</strong> &middot; {{ v.org }}</div>
+      {% if v.dates %}<div class="sub-meta">{{ v.dates }}</div>{% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+</body>
+</html>
