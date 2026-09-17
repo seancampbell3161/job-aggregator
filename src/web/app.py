@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -39,6 +40,17 @@ ALLOWED_PAGE_SIZES = (10, 25, 50)
 SETUP_EXEMPT_PREFIXES = ("/setup", "/static", "/tailored", "/tailor")
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    from src.web.watchdog import start_watchdog
+    app.state.watchdog_task = start_watchdog(app)
+    try:
+        yield
+    finally:
+        if app.state.watchdog_task is not None:
+            app.state.watchdog_task.cancel()
+
+
 def create_app(
     repo: TriageRepo | None = None,
     *,
@@ -50,7 +62,7 @@ def create_app(
     service: ConfigService | None = None,
     page_size: int = 10,
 ) -> FastAPI:
-    app = FastAPI(title="Job Triage")
+    app = FastAPI(title="Job Triage", lifespan=_lifespan)
     stores = stores if stores is not None else build_stores()
     app.state.stores = stores
     app.state.service = service if service is not None else ConfigService(stores.settings)
@@ -127,8 +139,6 @@ def create_app(
 
     register_tailor_routes(app)
 
-    from src.web.watchdog import register_watchdog
-    register_watchdog(app)
     return app
 
 
