@@ -1,7 +1,6 @@
 # tests/web/test_watchdog.py
 import httpx
 import pytest
-from tests.auth_helpers import signed_in_client
 
 from src.ops_alerts import OpsThresholds
 from src.sqlite_db import connect
@@ -9,6 +8,7 @@ from src.state_sqlite import _now_ms
 from src.web.app import create_app
 from src.web.repo import TriageRepo
 from src.web.watchdog import check_once, watchdog_pass
+from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import make_service
 from tests.sqlite_helpers import sqlite_stores
 

@@ -162,10 +162,9 @@ async def test_run_snapshot_includes_saved_documents(stores_trio):
     assert engine.last_snapshot.resume_bank is not None
 
 
-from tests.auth_helpers import signed_in_client
-
 from src.web.app import create_app
 from src.web.repo import TriageRepo
+from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import configured_stores
 
 

@@ -41,7 +41,8 @@ def test_image_defaults_templates_into_data():
 
 
 def test_docs_no_longer_say_the_ui_has_no_authentication():
-    for name in ("docker-compose.yml", "README.md", "GETTING_STARTED.md"):
+    for name in ("docker-compose.yml", "README.md", "GETTING_STARTED.md",
+                 "SECURITY.md", "TROUBLESHOOTING.md"):
         assert "no authentication" not in (REPO / name).read_text().lower(), name
 
 

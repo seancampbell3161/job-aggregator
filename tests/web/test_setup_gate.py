@@ -1,13 +1,12 @@
 """The not-set-up gate, per-request snapshots, and the degraded banner."""
 from datetime import datetime, timezone
 
-from tests.auth_helpers import signed_in_client
-
 from src.models import NormalizedPosting
 from src.settings.service import ConfigService
 from src.settings.store import SqliteSettingsStore
 from src.sqlite_db import connect
 from src.web.app import create_app
+from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import configured_stores, make_service
 from tests.sqlite_helpers import sqlite_stores
 

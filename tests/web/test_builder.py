@@ -1,6 +1,5 @@
-from tests.auth_helpers import signed_in_client
-
 from src.web.app import create_app
+from tests.auth_helpers import signed_in_client
 from tests.conftest import requires_weasyprint
 from tests.settings_helpers import WEB_TEST_SETTINGS, make_service
 

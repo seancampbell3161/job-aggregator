@@ -4,7 +4,6 @@ import time
 from datetime import datetime, timezone
 
 import pytest
-from tests.auth_helpers import signed_in_client
 
 from src.models import NormalizedPosting
 from src.sqlite_db import connect
@@ -13,6 +12,7 @@ from src.web.analytics import MatchAnalytics, MatchAnalyticsSummary, WeekBucket
 from src.web.app import create_app
 from src.web.funnel import build_funnel, build_pipeline, pipeline_rates
 from src.web.repo import TriageRepo
+from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import WEB_TEST_SETTINGS, configured_stores, make_service
 
 

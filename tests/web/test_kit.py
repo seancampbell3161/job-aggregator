@@ -65,11 +65,10 @@ def test_parse_facts_invalid_yaml_raises_facts_error():
         parse_facts("- group: [unclosed\n")
 
 
-from tests.auth_helpers import signed_in_client
-
 from src.sqlite_db import connect
 from src.web.app import create_app
 from src.web.repo import TriageRepo
+from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import configured_stores
 
 

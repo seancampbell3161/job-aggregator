@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 
 import pytest
-from tests.auth_helpers import signed_in_client
 from freezegun import freeze_time
 
 from src.models import NormalizedPosting
@@ -9,6 +8,7 @@ from src.sqlite_db import connect
 from src.web.app import create_app
 from src.web.board import ACTIVE_COLUMNS, Board, BoardProvider
 from src.web.repo import TriageMatch, TriageRepo
+from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import configured_stores
 
 
