@@ -33,10 +33,17 @@ The script mechanically turns tickets into `achievements`; curate `metrics`
 (the numbers worth claiming) by hand afterwards.
 
 ## CLI
-    JOB_AGG_OLLAMA_API_KEY=<key> .venv/bin/python -m src.tailor --jd path/to/jd.txt --job-id some-id
+    JOB_AGG_OLLAMA_API_KEY=<key> JOB_AGG_OLLAMA_HOST=https://ollama.com \
+        .venv/bin/python -m src.tailor --jd path/to/jd.txt --job-id some-id
 
 Reads settings plus the imported content/evidence from the app DB. Writes
 `tailored/<job-id>/{content.json,cover_letter.md,fit.md}` (gitignored).
+
+Tailoring calls Ollama at `relevance.ollama_host`. Its default,
+`http://ollama:11434`, only resolves inside Docker Compose, so for hosted Ollama
+Cloud either set `relevance.ollama_host: https://ollama.com` in `config.yaml` and
+import, or export `JOB_AGG_OLLAMA_HOST=https://ollama.com` for the command (as
+above).
 
 ## Rendering a PDF
 The CLI also writes a single-page `tailored/<job-id>/resume.pdf` that reproduces

@@ -509,8 +509,13 @@ pip install -e '.[dev,web,render]'
 pytest                        # ~40 s; PDF tests skip if WeasyPrint's native libs are missing
 
 python -m src.settings import .              # loads config.yaml + profile.md into ./data/job_aggregator.db
-JOB_AGG_OLLAMA_API_KEY=ol-... python -m src.handler --tier ats --dry-run
+JOB_AGG_OLLAMA_API_KEY=ol-... JOB_AGG_OLLAMA_HOST=https://ollama.com python -m src.handler --tier ats --dry-run
 ```
+
+`relevance.ollama_host` defaults to `http://ollama:11434`, which only resolves
+inside Docker Compose. For hosted Ollama Cloud, set
+`relevance.ollama_host: https://ollama.com` in `config.yaml` and import, or export
+`JOB_AGG_OLLAMA_HOST=https://ollama.com` for the command (as above).
 
 No ntfy/Discord secrets are needed for a dry-run. `--dry-run` skips state writes
 and notifications, logging `would_notify` (with score + rationale) for each

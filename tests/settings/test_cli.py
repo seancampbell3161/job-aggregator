@@ -106,6 +106,26 @@ def test_import_env_secrets_prints_names_not_values(capsys):
     assert "gmail_address" in out
     assert "me@example.com" not in out
     assert svc.secret_source("gmail_address") == "env"  # env still wins while set
+    assert "JOB_AGG_OLLAMA_HOST" not in out  # the note only appears when it's set
+
+
+def test_import_env_secrets_notes_that_the_ollama_host_is_not_copied(capsys):
+    svc = make_service({}, env={"JOB_AGG_OLLAMA_HOST": "https://ollama.com"})
+    assert main(["import-env-secrets"], service=svc) == 0
+    out = capsys.readouterr().out
+    assert ("JOB_AGG_OLLAMA_HOST is not a secret and is not copied — keep it in .env, "
+            "or set relevance.ollama_host in config.yaml and import.") in out
+    assert svc.ollama_host() == ("https://ollama.com", "env")
+
+
+def test_status_shows_the_ollama_host_and_its_origin(capsys):
+    assert main(["status"], service=make_service()) == 0
+    assert "ollama host: http://ollama:11434 (default)" in capsys.readouterr().out
+    assert main(["status"], service=make_service(env={"JOB_AGG_OLLAMA_HOST": "https://ollama.com"})) == 0
+    assert "ollama host: https://ollama.com (env JOB_AGG_OLLAMA_HOST)" in capsys.readouterr().out
+    svc = make_service({"relevance": {"ollama_host": "http://gpu-box:11434"}})
+    assert main(["status"], service=svc) == 0
+    assert "ollama host: http://gpu-box:11434 (settings)" in capsys.readouterr().out
 
 
 def test_history_and_status_survive_a_corrupt_settings_row(capsys):

@@ -15,6 +15,13 @@ Store the Ollama API key: `docker compose run --rm -it web python -m src.setting
 set-secret ollama_api_key` (or `JOB_AGG_OLLAMA_API_KEY` in `.env` +
 `docker compose up -d --force-recreate`).
 
+Point the app at hosted Ollama Cloud: `relevance.ollama_host` defaults to
+`http://ollama:11434`, the opt-in local Ollama service, which only resolves inside
+Docker Compose. For Ollama Cloud, set `relevance.ollama_host: https://ollama.com`
+in `config.yaml` and import, or export `JOB_AGG_OLLAMA_HOST=https://ollama.com`
+for the command you run. `python -m src.settings status` prints the host in
+effect and where it comes from.
+
 ## 1. Run a calibration pass
 
 `--calibrate` scores a sample of currently-matched postings (the full keyword-
@@ -34,6 +41,7 @@ the eventual production change — see step 3):
 relevance:
   provider: ollama
   model: gpt-oss:120b
+  ollama_host: https://ollama.com   # hosted Ollama Cloud
 ```
 
 **B. Or calibrate against a copy of the database** without touching live settings:
@@ -49,6 +57,7 @@ Then run:
 
 ```
 export JOB_AGG_OLLAMA_API_KEY=ol-...
+export JOB_AGG_OLLAMA_HOST=https://ollama.com   # unless relevance.ollama_host is already set to it
 
 .venv/bin/python -m src.handler --tier ats --calibrate 2>&1 | grep calibration_
 ```
@@ -79,6 +88,7 @@ relevance:
   enabled: true
   provider: ollama          # the flip
   model: gpt-oss:120b       # NOTE: gpt-oss:20b is currently broken on Cloud (empty content)
+  ollama_host: https://ollama.com
   score_high: 7
   score_low: <your tuned value>
   ...

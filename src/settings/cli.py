@@ -12,7 +12,7 @@ from typing import Callable
 
 from src.config import SLUG_SOURCE_FAMILIES
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
-from src.settings.service import SECRET_NAMES, ConfigService, secret_env_var
+from src.settings.service import OLLAMA_HOST_ENV, SECRET_NAMES, ConfigService, secret_env_var
 from src.settings.sources import append_slug_sources
 from src.settings.transfer import ImportFailed, export_dir, import_dir
 
@@ -78,10 +78,13 @@ def _cmd_import_env_secrets(service: ConfigService, args: argparse.Namespace) ->
     names = service.import_env_secrets()
     if not names:
         print("no non-empty JOB_AGG_* secrets in the environment")
-        return 0
-    print("stored: " + ", ".join(names))
-    print("env vars still take precedence while set — remove them from .env "
-          "to manage these values in the database")
+    else:
+        print("stored: " + ", ".join(names))
+        print("env vars still take precedence while set — remove them from .env "
+              "to manage these values in the database")
+    if service.ollama_host()[1] == "env":
+        print(f"note: {OLLAMA_HOST_ENV} is not a secret and is not copied — keep it in .env, "
+              "or set relevance.ollama_host in config.yaml and import.")
     return 0
 
 
@@ -145,6 +148,8 @@ def _cmd_status(service: ConfigService, args: argparse.Namespace) -> int:
                   f"running on version {snap.version_id}")
             for error in snap.degraded.errors:
                 print(f"  {error['loc'] or '(document)'}: {error['msg']}")
+    host, origin = service.ollama_host()
+    print(f"ollama host: {host} ({f'env {OLLAMA_HOST_ENV}' if origin == 'env' else origin})")
     print("secrets:")
     for name in SECRET_NAMES:
         print(f"  {name:<26} {service.secret_source(name)}")

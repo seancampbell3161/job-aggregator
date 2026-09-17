@@ -19,7 +19,7 @@ from typing import Callable, Literal, Mapping, Sequence
 
 from pydantic import ValidationError
 
-from src.config import AppConfig, Secrets
+from src.config import AppConfig, RelevanceConfig, Secrets
 from src.settings.documents import DOCUMENT_KINDS, Documents, validate_document
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.migrations import MIGRATIONS, SCHEMA_VERSION, Migration, migrate
@@ -32,6 +32,7 @@ SOURCES = frozenset({"import", "cli", "ui", "wizard", "llm_draft", "restore"})
 SECRET_NAMES: tuple[str, ...] = tuple(Secrets.model_fields)
 OLLAMA_HOST_ENV = "JOB_AGG_OLLAMA_HOST"
 SecretSource = Literal["env", "stored", "unset"]
+OllamaHostOrigin = Literal["env", "settings", "default"]
 
 
 def secret_env_var(name: str) -> str:
@@ -206,6 +207,18 @@ class ConfigService:
         if host:
             update["relevance"] = cfg.relevance.model_copy(update={"ollama_host": host})
         return cfg.model_copy(update=update)
+
+    def ollama_host(self) -> tuple[str, OllamaHostOrigin]:
+        """The Ollama host LLM clients use, and where it comes from: a
+        non-empty JOB_AGG_OLLAMA_HOST, else the settings in effect, else (not
+        set up) the model default."""
+        host = self._env.get(OLLAMA_HOST_ENV, "")
+        if host:
+            return host, "env"
+        snap = self.snapshot()
+        if snap is not None:
+            return snap.cfg.relevance.ollama_host, "settings"
+        return RelevanceConfig().ollama_host, "default"
 
     # -- secrets -----------------------------------------------------------------
 

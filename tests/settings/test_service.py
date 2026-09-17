@@ -407,3 +407,20 @@ def test_empty_ollama_host_env_is_ignored():
     svc, _ = _svc({"JOB_AGG_OLLAMA_HOST": ""})
     svc.save_settings({}, source="cli")
     assert svc.snapshot().cfg.relevance.ollama_host == "http://ollama:11434"
+
+
+def test_ollama_host_reports_the_effective_value_and_its_origin():
+    not_set_up, _ = _svc()
+    assert not_set_up.ollama_host() == ("http://ollama:11434", "default")
+    env_before_setup, _ = _svc({"JOB_AGG_OLLAMA_HOST": "https://ollama.com"})
+    assert env_before_setup.ollama_host() == ("https://ollama.com", "env")
+
+    svc, _ = _svc({"JOB_AGG_OLLAMA_HOST": ""})
+    svc.save_settings({"relevance": {"ollama_host": "http://box:11434"}}, source="cli")
+    assert svc.ollama_host() == ("http://box:11434", "settings")
+    svc.save_settings({}, source="cli")
+    assert svc.ollama_host() == ("http://ollama:11434", "settings")  # in effect via settings
+
+    overridden, _ = _svc({"JOB_AGG_OLLAMA_HOST": "https://ollama.com"})
+    overridden.save_settings({"relevance": {"ollama_host": "http://box:11434"}}, source="cli")
+    assert overridden.ollama_host() == ("https://ollama.com", "env")
