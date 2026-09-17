@@ -36,8 +36,8 @@ def _parse_bullets(items: list, *, seen: set[str], ctx: str) -> list[Bullet]:
     return bullets
 
 
-def load_content(path: Path | str) -> ResumeContent:
-    raw = json.loads(Path(path).read_text())
+def parse_content(text: str) -> ResumeContent:
+    raw = json.loads(text)
     if not isinstance(raw, dict):
         raise ValueError("content.json: top level must be a JSON object")
 
@@ -82,3 +82,7 @@ def load_content(path: Path | str) -> ResumeContent:
         skills=skills, experiences=experiences, projects=projects,
         education=education, volunteer=volunteer,
     )
+
+
+def load_content(path: Path | str) -> ResumeContent:
+    return parse_content(Path(path).read_text())

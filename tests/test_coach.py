@@ -361,7 +361,10 @@ def test_build_coach_disabled_returns_none():
 
 def test_build_coach_missing_key_returns_none():
     # provider follows relevance (ollama, cloud host) but no ollama_api_key is set
-    cfg = AppConfig.model_validate(_raw_config())
+    cfg = AppConfig.model_validate(_raw_config(
+        relevance={"enabled": True, "provider": "ollama", "model": "gpt-oss:120b",
+                   "ollama_host": "https://ollama.com"},
+    ))
     assert _build_coach(cfg) is None
 
 
@@ -370,9 +373,8 @@ def test_build_coach_missing_anthropic_key_returns_none():
     assert _build_coach(cfg) is None
 
 
-def test_build_coach_local_ollama_needs_no_key(monkeypatch):
+def test_build_coach_local_ollama_needs_no_key():
     pytest.importorskip("ollama")
-    monkeypatch.setenv("JOB_AGG_OLLAMA_HOST", "http://localhost:11434")
     cfg = AppConfig.model_validate(_raw_config())
     engine = _build_coach(cfg)
     assert engine is not None

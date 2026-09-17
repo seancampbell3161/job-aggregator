@@ -15,9 +15,9 @@ COPY src/ /app/src/
 RUN pip install --no-cache-dir "/app[web,render,headless]"
 RUN python -m playwright install --with-deps chromium
 
-# Résumé assets are copied so the image also runs standalone; config.yaml and
-# profile.md are personal (untracked) and only bind-mounted at runtime — a bare
-# `docker run` without mounts fails at startup with copy instructions.
+# Résumé examples, fonts, and built-in assets ship in the image. Personal
+# settings, documents, and secrets live in the app database under /data; a
+# fresh container boots into "not set up" until `python -m src.settings import`.
 COPY resume/ /app/resume/
 # Enterprise-board discovery's seed CSV — load_seeds(DEFAULT_SEEDS) reads this
 # at /app/scripts/seeds/enterprise_companies.csv every discovery cycle; without
@@ -25,7 +25,8 @@ COPY resume/ /app/resume/
 COPY scripts/seeds/ /app/scripts/seeds/
 
 ENV JOB_AGG_SQLITE_PATH=/data/job_aggregator.db \
-    JOB_AGG_TAILORED_DIR=/data/tailored
+    JOB_AGG_TAILORED_DIR=/data/tailored \
+    JOB_AGG_TEMPLATES_DIR=/data/templates
 
 # Default command is the web UI; compose overrides for the poller.
 CMD ["python", "-m", "src.web"]

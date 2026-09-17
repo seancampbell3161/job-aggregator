@@ -220,3 +220,14 @@ async def test_ntfy_no_attribution_for_other_sources():
             route = respx.post("https://ntfy.sh/test").respond(200)
             await sink.send(client, PAYLOAD)
     assert "Adzuna" not in route.calls.last.request.content.decode()
+
+
+@freeze_time("2026-04-30 09:00:00", tz_offset=0)  # 02:00 PT — inside QH's window
+@pytest.mark.asyncio
+async def test_ntfy_without_quiet_hours_never_lowers_priority():
+    sink = NtfySink(topic_url="https://ntfy.sh/test", quiet_hours=None)
+    async with httpx.AsyncClient() as client:
+        with respx.mock:
+            route = respx.post("https://ntfy.sh/test").respond(200)
+            await sink.send(client, PAYLOAD)
+        assert route.calls.last.request.headers["Priority"] == "default"

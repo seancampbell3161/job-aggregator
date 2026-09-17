@@ -122,47 +122,58 @@ def test_nav_visible_logic(stores_trio):
 
 
 @pytest.mark.asyncio
-async def test_run_with_cfg_degrades_on_unreadable_files(stores_trio, tmp_path):
+async def test_run_degrades_on_missing_or_unparseable_documents(stores_trio):
     from src.config import AppConfig
-    bad_profile = tmp_path / "profile.md"
-    bad_profile.write_bytes(b"\xff\xfe not utf-8 \xe9")
+    from src.settings.documents import Documents
+    from src.web.coach import CoachProvider
     cfg = AppConfig.model_validate({
-        "filters": {"titles": ["engineer"], "seniority_allow": ["senior"],
-                    "location": {}, "comp_floor_usd": 0, "stack_any_of": []},
-        "quiet_hours": {"timezone": "UTC", "start": "22:00", "end": "07:00"},
-        "sources": {},
-        "schedules": {"ats_minutes": 30, "slow_minutes": 360},
-        "secrets": {"ntfy_topic_url": "https://ntfy.sh/x", "discord_webhook_url": ""},
-        "relevance": {"enabled": True, "provider": "ollama", "model": "m",
-                      "profile_path": str(bad_profile)},
-        "tailoring": {"content_path": str(tmp_path / "missing-content.json")},
+        "filters": {"titles": ["engineer"], "seniority_allow": ["senior"]},
+        "relevance": {"enabled": True, "provider": "ollama", "model": "m"},
     })
     engine = _FakeEngine(CoachResult(cards=[_CARD], is_fallback=False))
-    from src.web.coach import CoachProvider
     seen, rejected, coach_store = stores_trio
-    prov = CoachProvider(store=coach_store, seen=seen, rejected=rejected,
-                         engine=engine, cfg=cfg, provider_name="fake", model_name="fake-1")
+    prov = CoachProvider(store=coach_store, seen=seen, rejected=rejected, engine=engine, cfg=cfg,
+                         documents=Documents(profile=None, resume_content="{not json"),
+                         provider_name="fake", model_name="fake-1")
     run = await prov.run()
     assert run is not None and run["status"] == "ok"
     snap = engine.last_snapshot
-    assert snap.profile is None                    # bad encoding degraded, didn't block
-    assert snap.resume_bank is None                # missing content.json degraded
-    assert snap.config["filters"]["titles"] == ["engineer"]  # config block still built
+    assert snap.profile is None                  # missing document degraded, didn't block
+    assert snap.resume_bank is None              # unparseable content degraded
+    assert snap.config["filters"]["titles"] == ["engineer"]
     assert snap.meta["applied_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_run_snapshot_includes_saved_documents(stores_trio):
+    from pathlib import Path
+    from src.config import AppConfig
+    from src.settings.documents import Documents
+    from src.web.coach import CoachProvider
+    engine = _FakeEngine(CoachResult(cards=[_CARD], is_fallback=False))
+    seen, rejected, coach_store = stores_trio
+    prov = CoachProvider(
+        store=coach_store, seen=seen, rejected=rejected, engine=engine, cfg=AppConfig(),
+        documents=Documents(profile="# my profile",
+                            resume_content=Path("resume/content.example.json").read_text()),
+    )
+    await prov.run()
+    assert engine.last_snapshot.profile == "# my profile"
+    assert engine.last_snapshot.resume_bank is not None
 
 
 from fastapi.testclient import TestClient
 
 from src.web.app import create_app
 from src.web.repo import TriageRepo
-from tests.sqlite_helpers import sqlite_stores
+from tests.settings_helpers import configured_stores
 
 
 @pytest.fixture
 def coach_client(tmp_path, monkeypatch):
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
     conn = connect(":memory:")
-    stores = sqlite_stores(conn)
+    stores = configured_stores(conn)
     seen = stores.seen
     rejected = stores.rejected
     coach_store = stores.coach
@@ -174,6 +185,41 @@ def coach_client(tmp_path, monkeypatch):
                          engine=engine, provider_name="fake", model_name="fake-1")
     app = create_app(repo=TriageRepo(seen), stores=stores, coach=prov)
     return TestClient(app), prov, engine
+
+
+def test_app_coach_follows_settings_without_restart(tmp_path, monkeypatch):
+    from src.settings.service import ConfigService
+    from tests.settings_helpers import configured_stores
+    monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
+    stores = configured_stores(connect(":memory:"), {"coach": {"enabled": True}})
+    service = ConfigService(stores.settings, env={})
+    client = TestClient(create_app(stores=stores, service=service))
+    assert 'href="/coach"' in client.get("/").text
+    service.save_settings({"coach": {"enabled": False}}, source="cli")
+    assert 'href="/coach"' not in client.get("/").text
+
+
+def test_app_pages_survive_a_failing_coach_builder(tmp_path, monkeypatch):
+    """A broken _build_coach (bad client, missing dependency, ...) must not
+    500 every page — coach.enabled defaults to True, so coach_nav_visible
+    (called from base.html on nearly every page) would otherwise take down
+    the whole app until the settings generation moves."""
+    import src.handler
+    from tests.settings_helpers import configured_stores
+    monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
+
+    def _boom(cfg):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(src.handler, "_build_coach", _boom)
+    stores = configured_stores(connect(":memory:"))
+    client = TestClient(create_app(stores=stores))
+    r = client.get("/")
+    assert r.status_code == 200
+    assert 'href="/coach"' in r.text          # nav still renders: enabled + available
+    r2 = client.get("/coach")
+    assert r2.status_code == 200
+    assert "not configured" in r2.text        # engine is None: can_run is False
 
 
 def test_coach_page_renders_empty_state(coach_client):
@@ -237,7 +283,7 @@ def test_low_sample_banner(coach_client):
 def test_unavailable_store_renders_explainer(tmp_path, monkeypatch):
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
     conn = connect(":memory:")
-    stores = sqlite_stores(conn)
+    stores = configured_stores(conn)
     seen = stores.seen
     from src.web.coach import CoachProvider
     app = create_app(repo=TriageRepo(seen), stores=stores, coach=CoachProvider(store=None))
@@ -251,7 +297,7 @@ def test_unavailable_store_renders_explainer(tmp_path, monkeypatch):
 def test_engineless_provider_explains_not_configured(tmp_path, monkeypatch):
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "t2"))
     conn = connect(":memory:")
-    stores = sqlite_stores(conn)
+    stores = configured_stores(conn)
     seen = stores.seen
     coach_store = stores.coach
     from src.web.coach import CoachProvider

@@ -75,7 +75,7 @@ async def _main(slug: str) -> int:
     for r in results:
         print(f"  {r.ats_family:18s} {r.posting_count:5d} postings")
     print()
-    print(f"To add to config.yaml: append '{results[0].slug}' to sources.{results[0].ats_family}")
+    print(f"To add it: python -m src.settings add-source {results[0].ats_family} {results[0].slug}")
     return 0
 
 

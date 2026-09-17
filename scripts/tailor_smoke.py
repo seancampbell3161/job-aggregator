@@ -6,9 +6,9 @@ signed /tailor deep-link, and prints both a phone (whatever JOB_AGG_TAILOR_ENDPO
 points at) and an on-box (localhost) URL. Open either: loading page -> tailored
 one-page PDF. Append &regen=1 to force a fresh render instead of the cached copy.
 
-Reads JOB_AGG_TAILOR_SIGNING_SECRET + JOB_AGG_TAILOR_ENDPOINT_URL from .env so the
-secret is never printed. The signing secret must match what the running `web`
-container booted with (recreate it after editing .env).
+Resolves the signing secret and endpoint URL the way the web app does — a
+non-empty JOB_AGG_* value (from .env or the environment) wins over the
+settings database — and never prints the secret.
 
 Usage:
     python scripts/tailor_smoke.py            # seed a fake job + print the link
@@ -23,11 +23,16 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import sqlite3
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
 
 DEFAULT_JOB_ID = "test:tailor-smoke"
 DB_PATH = "data/job_aggregator.db"          # host path; container sees it via the ./data mount
@@ -59,15 +64,30 @@ def clean(job_id: str) -> None:
     print(f"deleted {n} row(s); cached PDF removed: {removed_pdf}")
 
 
+def _signing_config(db_path: str = DB_PATH, env_file: str = ".env") -> tuple[str, str]:
+    """(signing secret, endpoint URL) resolved like the web app resolves them."""
+    from src.settings.service import ConfigService
+    from src.settings.store import SqliteSettingsStore
+    from src.sqlite_db import connect
+
+    env = dict(os.environ)
+    if Path(env_file).is_file():
+        env.update(load_env(env_file))
+    snap = ConfigService(SqliteSettingsStore(connect(db_path)), env=env).snapshot()
+    if snap is None:
+        raise SystemExit("not set up — import settings first: python -m src.settings import DIR")
+    secrets = snap.cfg.secrets
+    if not secrets.tailor_signing_secret:
+        raise SystemExit("tailor_signing_secret is empty — start the web app once (it generates "
+                         "one) or run: python -m src.settings set-secret tailor_signing_secret")
+    if not secrets.tailor_endpoint_url:
+        raise SystemExit("tailor_endpoint_url is not set — run: "
+                         "python -m src.settings set-secret tailor_endpoint_url")
+    return secrets.tailor_signing_secret, secrets.tailor_endpoint_url
+
+
 def seed_and_mint(job_id: str) -> None:
-    env = load_env()
-    try:
-        secret = env["JOB_AGG_TAILOR_SIGNING_SECRET"]
-        endpoint = env["JOB_AGG_TAILOR_ENDPOINT_URL"]
-    except KeyError as exc:
-        raise SystemExit(f"{exc} not set in .env — tailoring deep-links need it.")
-    if not secret:
-        raise SystemExit("JOB_AGG_TAILOR_SIGNING_SECRET is empty in .env.")
+    secret, endpoint = _signing_config()
 
     now = int(time.time())
     ttl = now + TTL_DAYS * 86400

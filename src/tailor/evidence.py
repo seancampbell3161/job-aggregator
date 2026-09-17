@@ -12,8 +12,8 @@ from pathlib import Path
 from src.tailor.models import EvidenceAchievement, EvidenceBank, EvidenceMetric, EvidenceProject
 
 
-def load_evidence(path: Path | str) -> EvidenceBank:
-    raw = json.loads(Path(path).read_text())
+def parse_evidence(text: str) -> EvidenceBank:
+    raw = json.loads(text)
     if not isinstance(raw, dict) or "projects" not in raw:
         raise ValueError("evidence.json: missing required key 'projects'")
     projects = []
@@ -27,3 +27,7 @@ def load_evidence(path: Path | str) -> EvidenceBank:
             metrics=metrics, achievements=achievements,
         ))
     return EvidenceBank(projects=projects)
+
+
+def load_evidence(path: Path | str) -> EvidenceBank:
+    return parse_evidence(Path(path).read_text())

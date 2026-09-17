@@ -1,22 +1,31 @@
 # Configuration Reference
 
-Every configuration flag in the `AppConfig` tree — `config.yaml` plus the env
-secrets — one row per flag. (Runtime-only env vars such as `JOB_AGG_OLLAMA_HOST`
-or the web host/port are not config flags and are covered in GETTING_STARTED
-where their features are set up.) Configuration comes from two places:
+Every flag in the settings document (the `AppConfig` tree) plus the secrets,
+one row per flag.
 
-- **`config.yaml`** — everything below except secrets — untracked and personal;
-  seed it from `config.example.yaml`. The file is
-  bind-mounted into the containers: edit, then
-  `docker compose restart poller web` (no `--build` needed).
-- **Environment secrets** — the [secrets](#secrets) table at the bottom:
-  `JOB_AGG_*` env vars in `.env` (for Docker Compose).
+Settings live in the app database (`./data/job_aggregator.db`), not in files.
+YAML is the import/export format:
 
-Sections omitted from config.yaml run entirely on the defaults listed here.
-Setup narrative lives in [GETTING_STARTED.md](../GETTING_STARTED.md); this
-page is the lookup table. The drift-guard test `tests/test_config_docs.py`
-fails CI whenever a flag is added to `src/config.py` without a row here (or
-a row outlives its flag).
+- **Settings document** — everything below except secrets. Load or replace it
+  with `python -m src.settings import DIR` (reads `DIR/config.yaml`, plus
+  `profile.md`, `resume.md`, and `resume/` when present); write the settings in
+  effect back out with `python -m src.settings export DIR` (non-default values
+  only). Every import is a new settings version (`history`, `restore ID`), and
+  **changes apply live** in the poller, scheduler, and web UI — no restart.
+  Import replaces the settings document but only adds documents: a file missing
+  from the directory leaves that document as it was.
+- **Changes made outside your files** — `add-source`, `restore`, and the
+  `--merge` / `seed_companies.py` scripts save to the database only. After one,
+  export, bring the changes into your files, then import. Until then an import
+  refuses (listing the settings versions it would replace, writing nothing);
+  `import --force` overwrites them.
+- **Secrets** — the [secrets](#secrets) table at the bottom. Never part of the
+  settings document or an export.
+
+Sections omitted from `config.yaml` run on the defaults listed here. Setup
+narrative lives in [GETTING_STARTED.md](../GETTING_STARTED.md); this page is the
+lookup table. The drift-guard test `tests/test_config_docs.py` fails CI whenever
+a flag is added to `src/config.py` without a row here (or a row outlives its flag).
 
 ## filters
 
@@ -25,15 +34,15 @@ is never scored. Details and tuning advice: GETTING_STARTED §2a.
 
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
-| `filters.titles` | (required) | Title allowlist. A posting must match at least one entry — each entry matches as an exact phrase, case-insensitive, on word boundaries (no regex syntax; add variants like `full-stack engineer` / `fullstack engineer` explicitly). |
-| `filters.seniority_allow` | (required) | Allowed seniority bands inferred from the title: any of `junior`, `mid`, `senior`, `staff`. |
+| `filters.titles` | `[]` | Title allowlist. A posting must match at least one entry — each entry matches as an exact phrase, case-insensitive, on word boundaries (no regex syntax; add variants like `full-stack engineer` / `fullstack engineer` explicitly). Empty matches nothing. |
+| `filters.seniority_allow` | `[mid, senior]` | Allowed seniority bands inferred from the title: any of `junior`, `mid`, `senior`, `staff`. |
 | `filters.location.allowed_countries` | `[US]` | ISO 3166-1 alpha-2 codes (`UK` accepted as `GB`). A remote posting passes when its stated area covers one of these; onsite/hybrid postings gate on `allowed_cities`. Must not be empty. |
 | `filters.location.allowed_cities` | `[]` | Lowercase city names that onsite/hybrid postings may be in. |
 | `filters.location.remote_policy` | `allowed_countries` | `anywhere` disables the remote geo gate entirely (any remote posting passes); `allowed_countries` applies the coverage rule above. |
 | `filters.location.allow_unknown` | `true` | Postings whose location can't be parsed pass through to scoring instead of being rejected. |
 | `filters.location.remote_must_be_us` | `null` | **Deprecated** pre-v0.6 key: `true` maps to `remote_policy: allowed_countries`, `false` to `anywhere`. Warns at load; setting both keys is an error. Migrate to `remote_policy`. |
-| `filters.comp_floor_usd` | (required) | Reject postings whose advertised **minimum** comp is below this — a $150k–$200k range with a $160k floor is rejected. Raw-number comparison, USD-only (a `€85.000` posting is not converted). Postings advertising no comp — or only a maximum — are never comp-rejected. `0` disables. |
-| `filters.stack_any_of` | (required) | A posting must mention at least one listed technology. |
+| `filters.comp_floor_usd` | `0` | Reject postings whose advertised **minimum** comp is below this — a $150k–$200k range with a $160k floor is rejected. Raw-number comparison, USD-only (a `€85.000` posting is not converted). Postings advertising no comp — or only a maximum — are never comp-rejected. `0` disables. |
+| `filters.stack_any_of` | `[]` | A posting must mention at least one listed technology. |
 | `filters.max_age_days` | `null` | Reject postings older than N days (`null` = no age gate). `config.example.yaml` leaves it unset; `2` is the recommended value once you are past the first run — postings are alert-worthy only while fresh. |
 | `filters.blocked_companies` | `[]` | Companies to hard-reject regardless of which source surfaced them. An entry matches when its words appear **consecutively as whole words** in the posting's company name — so `microsoft` covers `Microsoft Corporation` and the slug-derived `Eightfold:Microsoft`, while `apple` does **not** match `Applebee's`. Case- and punctuation-insensitive; not a substring test. Multi-word entries (`career launch`) match as a phrase. Runs before the role gate, so rejections are audited under the `company` gate. Purely additive to `sources` — a blocked company's board keeps being polled, its postings are just dropped; delete the entry and they return on the next poll. `[]` disables the gate. |
 | `filters.blocked_employment_types` | `[contract, temporary, part_time, internship]` | Employment types to hard-reject when a posting's type is **known**. Valid values: `full_time`, `part_time`, `contract`, `contract_to_hire`, `temporary`, `internship`. Only connectors that expose the signal populate it (currently Hiring.cafe's `commitment` and Lever's `categories.commitment`); postings with an **unknown** type are never rejected here (fails open, so recall is unchanged). `contract_to_hire` is treated as distinct from `contract` and is allowed by default. Set to `[]` to disable the gate. |
@@ -41,18 +50,19 @@ is never scored. Details and tuning advice: GETTING_STARTED §2a.
 ## quiet_hours
 
 Suppresses **phone pushes** (ntfy) during a nightly window; Discord delivery
-is unaffected, so nothing is lost. All three keys required.
+is unaffected, so nothing is lost. Optional — unset (the default) means no
+quiet window. When set, all three keys are required.
 
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
-| `quiet_hours.timezone` | (required) | IANA zone name, e.g. `America/Los_Angeles`. |
-| `quiet_hours.start` | (required) | Window start, `HH:MM` (quote values with a leading zero — YAML). |
-| `quiet_hours.end` | (required) | Window end, `HH:MM`. |
+| `quiet_hours.timezone` | (required when set) | IANA zone name, e.g. `America/Los_Angeles`. |
+| `quiet_hours.start` | (required when set) | Window start, `HH:MM` (quote values with a leading zero — YAML). |
+| `quiet_hours.end` | (required when set) | Window end, `HH:MM`. |
 
 ## sources
 
 What gets polled. Two kinds of entries: **slug-list families** (one string
-per company board, added with `./scripts/add_company.sh <family> <slug>`)
+per company board, added with `python -m src.settings add-source <family> <slug>`)
 and **structured families** (hand-curated mapping entries — see the example
 block below the table). Adding/removing companies: GETTING_STARTED §2d.
 
@@ -114,8 +124,8 @@ Poll cadence per tier. Intervals are read by the scheduler daemon.
 
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
-| `schedules.ats_minutes` | (required) | Fast-tier interval: direct ATS boards (shipped: 10). |
-| `schedules.slow_minutes` | (required) | Slow-tier interval: aggregators — HN, Remotive, RemoteOK, Adzuna (shipped: 15). |
+| `schedules.ats_minutes` | `10` | Fast-tier interval: direct ATS boards (shipped: 10). |
+| `schedules.slow_minutes` | `15` | Slow-tier interval: aggregators — HN, Remotive, RemoteOK, Adzuna (shipped: 15). |
 | `schedules.discovery_hours` | `24` | Discovery-tier interval (candidate validation sweeps). |
 | `schedules.headless_minutes` | `45` | Headless (Playwright/Avature) tier interval. |
 | `schedules.digest_cron` | `"0 13 * * 1"` | UTC cron for the weekly digest tier (gap-analysis skills digest — Mondays 13:00 UTC). |
@@ -157,11 +167,11 @@ threshold calibration: GETTING_STARTED §2c and
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
 | `relevance.enabled` | `false` | Master switch. Off, every filtered posting alerts (no scoring). |
-| `relevance.provider` | `anthropic` | `anthropic`, `gemini`, or `ollama` (Ollama covers both local and hosted cloud — the base URL comes from the runtime env). |
+| `relevance.provider` | `anthropic` | `anthropic`, `gemini`, or `ollama` (Ollama covers both local and hosted cloud — the base URL is `relevance.ollama_host`). |
 | `relevance.model` | `claude-haiku-4-5` | Model name passed to the provider. |
+| `relevance.ollama_host` | `http://ollama:11434` | Ollama base URL for every Ollama-backed feature (scoring, gap analysis, coach, tailoring, .docx template import). `https://ollama.com` is hosted Ollama Cloud and needs `secrets.ollama_api_key`; any other host is treated as a local server and needs no key. A non-empty `JOB_AGG_OLLAMA_HOST` env var overrides it. |
 | `relevance.score_high` | `7` | Scores ≥ this get the instant phone push; below it (but above `score_low`) postings go to Discord/inbox only. |
 | `relevance.score_low` | `3` | Scores ≤ this are suppressed (still recorded — visible in `/audit`). Shipped: 4. Re-calibrate after any provider/model change. |
-| `relevance.profile_path` | `profile.md` | The prose profile the LLM grades against. Keep it in sync with the hard filters — it independently down-scores what it's told is a dealbreaker. |
 | `relevance.timeout_seconds` | `10` | Per-posting scoring timeout (shipped: 20 for a large local model). |
 
 ## gap_analysis
@@ -172,7 +182,6 @@ Optional résumé-gap flags on matched postings, plus a weekly skills digest
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
 | `gap_analysis.enabled` | `false` | Master switch. |
-| `gap_analysis.resume_path` | `resume.md` | Gitignored markdown résumé. |
 | `gap_analysis.provider` | `null` | LLM provider; `null` falls back to the `relevance` values. |
 | `gap_analysis.model` | `null` | Model; `null` falls back to `relevance.model`. |
 | `gap_analysis.timeout_seconds` | `20` | Per-posting analysis timeout. |
@@ -187,8 +196,6 @@ Setup: GETTING_STARTED "Mobile tap alert → tailored résumé loop".
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
 | `tailoring.enabled` | `false` | Used by the tailor endpoint + CLI; the poller ignores it (builds no engine). |
-| `tailoring.content_path` | `resume/content.json` | Gitignored structured résumé bank (bind-mounted locally). |
-| `tailoring.evidence_path` | `resume/evidence.json` | Gitignored evidence file backing the grounding guards. |
 | `tailoring.provider` | `null` | LLM provider; `null` falls back to the `relevance` values. |
 | `tailoring.model` | `null` | Model; `null` falls back to `relevance.model`. |
 | `tailoring.timeout_seconds` | `60` | Full-rewrite timeout (shipped: 180 — a ~24-bullet bank on a large local model runs 60-90s). |
@@ -260,14 +267,6 @@ Setup: GETTING_STARTED "Gmail ingestion".
 | `gmail.lookback_max_days` | `7` | Hard cap on any run's lookback (e.g. after downtime). |
 | `gmail.max_messages_per_run` | `200` | Cap on messages examined per sweep. |
 
-## kit
-
-The `/kit` tap-to-copy apply helper.
-
-| Flag | Default | What it does / when to touch it |
-|---|---|---|
-| `kit.facts_path` | `resume/facts.yaml` | Gitignored label/value facts file rendered with copy buttons. `resume/` is bind-mounted — edit, save, refresh. |
-
 ## http
 
 How the poller identifies itself to every site it fetches.
@@ -278,19 +277,29 @@ How the poller identifies itself to every site it fetches.
 
 ## secrets
 
-Never in config.yaml. `JOB_AGG_*` env vars (Docker Compose reads
-`.env` — note Compose snapshots it at container creation; `--force-recreate`
-after edits).
+Never part of the settings document. Each secret resolves in this order:
+
+1. a non-empty `JOB_AGG_*` environment variable (Docker Compose reads `.env` and
+   snapshots it at container creation — run `docker compose up -d --force-recreate`
+   after editing);
+2. the value stored in the database — `python -m src.settings set-secret NAME`
+   (prompts; values are never taken from the command line), or
+   `python -m src.settings import-env-secrets` to copy every non-empty
+   `JOB_AGG_*` value once;
+3. empty.
+
+`python -m src.settings status` shows where each secret comes from (`env`,
+`stored`, or `unset`); `clear-secret NAME` removes a stored value.
 
 | Flag | Env var | What it does |
 |---|---|---|
-| `secrets.ntfy_topic_url` | `JOB_AGG_NTFY_TOPIC_URL` | (required) ntfy topic for phone pushes. |
-| `secrets.discord_webhook_url` | `JOB_AGG_DISCORD_WEBHOOK_URL` | (required) Discord webhook for the match feed. |
+| `secrets.ntfy_topic_url` | `JOB_AGG_NTFY_TOPIC_URL` | ntfy topic for phone pushes. Empty = no pushes. |
+| `secrets.discord_webhook_url` | `JOB_AGG_DISCORD_WEBHOOK_URL` | Discord webhook for the match feed and the weekly gap digest. Empty = neither. |
 | `secrets.anthropic_api_key` | `JOB_AGG_ANTHROPIC_API_KEY` | For `provider: anthropic`. Empty OK otherwise. |
 | `secrets.google_api_key` | `JOB_AGG_GOOGLE_API_KEY` | For `provider: gemini`. Empty OK otherwise. |
 | `secrets.ollama_api_key` | `JOB_AGG_OLLAMA_API_KEY` | For hosted Ollama Cloud; leave empty for fully-local Ollama. |
 | `secrets.tailor_endpoint_url` | `JOB_AGG_TAILOR_ENDPOINT_URL` | Tailor endpoint base URL for alert deep links. Empty = no deep links. |
-| `secrets.tailor_signing_secret` | `JOB_AGG_TAILOR_SIGNING_SECRET` | HMAC secret signing the deep-link tokens. |
+| `secrets.tailor_signing_secret` | `JOB_AGG_TAILOR_SIGNING_SECRET` | HMAC secret signing the deep-link tokens. Generated and stored automatically on first boot when unset. |
 | `secrets.ops_ntfy_topic_url` | `JOB_AGG_OPS_NTFY_TOPIC_URL` | Separate ntfy topic for [ops alerts](#ops_notify). Empty (and no ops webhook) = ops alerts off. |
 | `secrets.ops_discord_webhook_url` | `JOB_AGG_OPS_DISCORD_WEBHOOK_URL` | Separate Discord webhook for ops alerts. |
 | `secrets.heartbeat_url` | `JOB_AGG_HEARTBEAT_URL` | healthchecks.io-style dead-man's-switch ping after each cycle. Empty = no ping. |

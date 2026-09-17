@@ -20,13 +20,13 @@ def _is_quiet(now_utc: datetime, qh: QuietHoursConfig) -> bool:
 class NtfySink:
     name = "ntfy"
 
-    def __init__(self, *, topic_url: str, quiet_hours: QuietHoursConfig) -> None:
+    def __init__(self, *, topic_url: str, quiet_hours: QuietHoursConfig | None) -> None:
         self._topic_url = topic_url
-        self._qh = quiet_hours
+        self._qh = quiet_hours  # None = no quiet window
 
     async def send(self, client: httpx.AsyncClient, payload: NotificationPayload) -> None:
         # Quiet hours always wins — even a high-relevance posting goes silent.
-        if _is_quiet(datetime.now(tz=timezone.utc), self._qh):
+        if self._qh is not None and _is_quiet(datetime.now(tz=timezone.utc), self._qh):
             priority = "low"
         else:
             # ntfy priority levels we use: max | default | min (plus low for quiet)

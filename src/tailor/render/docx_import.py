@@ -104,18 +104,19 @@ class DocxTemplateImporter:
 
 
 def build_docx_importer(cfg: Any) -> DocxTemplateImporter | None:
-    """Mirrors build_tailor_engine: ollama-only, key from secrets, None when
-    unavailable (the /builder page shows docx import as unavailable)."""
+    """Mirrors build_tailor_engine: ollama-only, host from relevance.ollama_host,
+    key required only for a non-local host, None when unavailable (the
+    /builder page shows docx import as unavailable)."""
     t = cfg.tailoring
     provider = t.provider or cfg.relevance.provider
     if provider != "ollama":
         return None
     api_key = cfg.secrets.ollama_api_key
-    if not api_key:
+    if not cfg.relevance.ollama_is_local and not api_key:
         return None
     from ollama import AsyncClient
-    client = AsyncClient(host="https://ollama.com",
-                         headers={"Authorization": f"Bearer {api_key}"})
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    client = AsyncClient(host=cfg.relevance.ollama_host, headers=headers)
     # Template generation is a longer LLM call than a normal tailoring run;
     # never let a tight tailoring.timeout_seconds starve it.
     return DocxTemplateImporter(client=client, model=t.model or cfg.relevance.model,

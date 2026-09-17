@@ -1,12 +1,15 @@
 # Résumé tailoring artifacts
 
 Personal data — `content.json` and `evidence.json` are **gitignored**. Use the
-committed examples / regen script to (re)create them.
+committed examples / regen script to (re)create them. Import them with
+`python -m src.settings import DIR` (they're read from `DIR/resume/content.json`
+and `DIR/resume/evidence.json`); the app uses the imported copies.
 
 ## Enable the feature
-Tailoring ships **disabled** in `config.yaml` (`tailoring.enabled: false`). Once
-your real `resume/content.json` + `resume/evidence.json` exist, flip it to
-`tailoring.enabled: true` (locally) to use the CLI.
+Tailoring ships **disabled** (`tailoring.enabled: false`). Once your real
+`resume/content.json` + `resume/evidence.json` exist, set `tailoring.enabled:
+true` in `config.yaml` and import the directory — the web app and CLI pick it
+up live.
 
 ## `content.json` — structured résumé
 Shape: see `content.example.json` (the authoritative schema is the dataclasses
@@ -30,12 +33,17 @@ The script mechanically turns tickets into `achievements`; curate `metrics`
 (the numbers worth claiming) by hand afterwards.
 
 ## CLI
-    JOB_AGG_NTFY_TOPIC_URL=x JOB_AGG_DISCORD_WEBHOOK_URL=x JOB_AGG_OLLAMA_API_KEY=<key> \
-      .venv/bin/python -m src.tailor --jd path/to/jd.txt --job-id some-id
+    JOB_AGG_OLLAMA_API_KEY=<key> JOB_AGG_OLLAMA_HOST=https://ollama.com \
+        .venv/bin/python -m src.tailor --jd path/to/jd.txt --job-id some-id
 
-Writes `tailored/<job-id>/{content.json,cover_letter.md,fit.md}` (gitignored).
-(The dummy NTFY/DISCORD vars are required by `load_config` even though tailoring
-never notifies — same as the relevance `--calibrate` path.)
+Reads settings plus the imported content/evidence from the app DB. Writes
+`tailored/<job-id>/{content.json,cover_letter.md,fit.md}` (gitignored).
+
+Tailoring calls Ollama at `relevance.ollama_host`. Its default,
+`http://ollama:11434`, only resolves inside Docker Compose, so for hosted Ollama
+Cloud either set `relevance.ollama_host: https://ollama.com` in `config.yaml` and
+import, or export `JOB_AGG_OLLAMA_HOST=https://ollama.com` for the command (as
+above).
 
 ## Rendering a PDF
 The CLI also writes a single-page `tailored/<job-id>/resume.pdf` that reproduces
@@ -58,7 +66,8 @@ bullets) are auto-trimmed to fit, and the trim is reported.
 Templates are **packs**: a directory with `template.html.j2`, optional `fonts/`
 (.ttf/.otf referenced as `url('fonts/X.ttf')`), and optional `meta.yaml`
 (`name`, `description`). Built-ins (`classic`, `headless`) ship in the image;
-your uploads live in `resume/templates/` (gitignored, bind-mounted). Manage
+your uploads live in the templates directory (`/data/templates` in Docker;
+`import` copies packs from `DIR/resume/templates/`). Manage
 everything on the **/builder** page: upload (`.html`/`.j2`, `.zip` pack, or
 `.docx` — imported via one LLM call and held as *pending* until you accept the
 preview), preview, switch the active template, and edit builder settings

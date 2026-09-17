@@ -1,10 +1,11 @@
-# Starter config — copy me, then personalize:
-#   cp config.example.yaml config.yaml
-#   cp profile.example.md profile.md
-# config.yaml is gitignored (it's yours); `git pull` never touches it.
+# Starter settings — copy me, personalize, then import:
+#   cp config.example.yaml config.yaml && cp profile.example.md profile.md
+#   docker compose run --rm -v "$PWD:/import:ro" web python -m src.settings import /import
+# config.yaml is gitignored (yours); the app reads settings from its database,
+# so re-run the import after edits — changes apply live, no restart.
 # Every flag and its default is documented in docs/CONFIG.md. Sections omitted
-# here (discovery, gap_analysis, tailoring, board, audit, ops_notify, gmail,
-# kit, …) run entirely on their documented defaults.
+# here (discovery, gap_analysis, tailoring, board, audit, ops_notify, gmail, …)
+# run entirely on their documented defaults.
 
 filters:
   titles:                       # posting title must contain one of these (case-insensitive)
@@ -34,7 +35,7 @@ quiet_hours:                    # push notifications are queued during this wind
   end: "07:00"
 sources:
   # Starter set of public boards (slugs verified live 2026-07-14). Add your own:
-  #   ./scripts/add_company.sh greenhouse <slug>
+  #   python -m src.settings add-source greenhouse <slug>
   # Slug-hunting guide + all ATS families: GETTING_STARTED.md §2d.
   greenhouse:
   - stripe
@@ -64,7 +65,6 @@ relevance:
   model: claude-haiku-4-5       # ollama: gpt-oss:120b · gemini: gemini-2.0-flash
   score_high: 7                 # >= this gets a "strong fit" marker in the notification
   score_low: 4                  # <= this is suppressed entirely (no notification)
-  profile_path: profile.md
   timeout_seconds: 20
 
 # How the poller identifies itself over HTTP. The default is honest and is what

@@ -45,7 +45,7 @@ response, timeout) the posting is delivered **unscored** rather than dropped. So
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Postings notify but never have a score | No key for the configured `relevance.provider`, or the key is wrong. | Set the matching key (`JOB_AGG_*_API_KEY` in `.env`). Check logs for `score_failed`. |
+| Postings notify but never have a score | No key for the configured `relevance.provider`, or the key is wrong. | Set the matching key (`python -m src.settings set-secret anthropic_api_key`, or `JOB_AGG_*_API_KEY` in `.env`). Check logs for `score_failed`. |
 | Ollama Cloud returns empty content | `gpt-oss:20b` currently returns empty content on Cloud. | Use `gpt-oss:120b` (a reasoning model that works) instead. |
 | Local Ollama is slow or OOMs | `gpt-oss:120b` (the model the Ollama recipes use) targets hosted Cloud and is too big for a typical Mac mini. | Pull a model sized to your RAM (`llama3.1:8b`, `qwen2.5:7b`, `gpt-oss:20b`) and set it in `config.yaml`. |
 | Scores look wrong after switching provider/model | Different models have different score distributions, so your old `score_low` no longer fits. | Re-run `python -m src.handler --tier ats --calibrate` and reset `score_low`. See [calibrating-relevance-scores.md](docs/runbooks/calibrating-relevance-scores.md). |
@@ -60,12 +60,14 @@ response, timeout) the posting is delivered **unscored** rather than dropped. So
 | First `docker compose up --build` takes minutes | Expected — the image installs WeasyPrint's native libraries. | Wait it out; subsequent builds are cached. |
 | `http://localhost:8000` won't load | The `web` service crashed, or you only started `poller`. | `docker compose ps` then `docker compose logs web`. |
 | Can't reach the UI from your phone | You used `localhost` from another device. | Use `http://<box-lan-ip>:8000`. The web service binds `0.0.0.0` inside the container and is published on the host. |
-| Edited `config.yaml` / `profile.md`, nothing changed | They're bind-mounted but read at process start. | `docker compose restart poller web` (no rebuild needed). |
+| Web UI shows **Set up job-aggregator**; poller logs `awaiting_setup` | No settings imported yet (fresh install or a new `./data`). | `docker compose run --rm -v "$PWD:/import:ro" web python -m src.settings import /import` from the directory holding your `config.yaml`. |
+| Edited `config.yaml` / `profile.md`, nothing changed | The files are only an import format; the app reads its database. | Re-run the import — changes apply live, no restart. |
+| Import fails: `invalid settings — nothing was written` | A value failed validation; the dotted path names the key. | Fix that key and import again — a failed import changes nothing. |
+| Import fails: `settings were saved after your last import …` | `add-source`, `restore`, or a `--merge` / `seed_companies.py` script changed settings in the database since your last import. Importing your older files would silently drop those changes, so import refuses and writes nothing. | Export the settings in effect (`docker compose run --rm web python -m src.settings export /data/export`), bring the listed changes into your files from `./data/export/`, then import again. To discard those changes on purpose, re-run the import with `--force`. |
+| Banner "Settings version N is invalid"; ops alert **settings fallback** (`config_fallback`) | The newest settings version fails validation (for example, written by a newer release you rolled back from); the app runs on the last valid version. | `python -m src.settings status` lists the errors; import corrected settings, or `python -m src.settings restore ID` (IDs from `history`). |
+| `gap_analysis` enabled but no stretch areas | No résumé document was imported. | Put `resume.md` next to `config.yaml` and re-import. |
 | Local Ollama provider, but scoring never happens | Started the stack without the Ollama profile, or didn't pull the model. | `docker compose --profile ollama up -d --build` then `docker compose exec ollama ollama pull <model>`. |
-| `gap_analysis` enabled but no stretch areas | `resume.md` isn't mounted into the containers. | Uncomment the `./resume.md:/app/resume.md:ro` lines in `docker-compose.yml` and restart. |
 | Lost data after `docker compose down` | You removed the `./data` volume, or ran `down -v`. | State lives in `./data/job_aggregator.db`; `down` alone preserves it. Back up by copying `./data`. |
-| Startup fails: `config.yaml not found — copy config.example.yaml…` | Fresh clone; the personal `config.yaml`/`profile.md` were never seeded. | `cp config.example.yaml config.yaml && cp profile.example.md profile.md`, personalize (GETTING_STARTED §2), restart. |
-| Startup fails: `config.yaml is a directory, not a file…` | You ran `docker compose up` before seeding the files — compose created directory stubs at the mount sources. | `rm -r config.yaml  # and/or profile.md — only the ones that are directories`, then `cp config.example.yaml config.yaml && cp profile.example.md profile.md`, personalize, restart. |
 
 ---
 
@@ -87,13 +89,13 @@ response, timeout) the posting is delivered **unscored** rather than dropped. So
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `/kit` is empty or has no copy buttons | `resume/facts.yaml` doesn't exist — only `facts.example.yaml` ships. | `cp resume/facts.example.yaml resume/facts.yaml`, then edit it. `resume/` is bind-mounted, so a page refresh picks it up — no restart. |
-| The `/kit` "Apply Autofill" bookmarklet does nothing | It's dragged to the bookmarks bar but clicked on a non-supported form, or `facts.yaml` was edited after you saved it. | It autofills Greenhouse / Lever / Ashby forms only. Re-drag it from `/kit` after editing `facts.yaml`. |
-| Gmail badges never appear on `/board` | 2-Step Verification off, wrong app password, or `.env` not re-read. | Generate a Gmail **app password** (requires 2FA), set `JOB_AGG_GMAIL_ADDRESS` + `JOB_AGG_GMAIL_APP_PASSWORD`, then `docker compose up -d --force-recreate`. |
+| `/kit` is empty or has no copy buttons | No `resume/facts.yaml` has been imported — only `facts.example.yaml` ships. | `cp resume/facts.example.yaml resume/facts.yaml`, edit it, then re-import — `/kit` shows it on the next refresh. |
+| The `/kit` "Apply Autofill" bookmarklet does nothing | It's dragged to the bookmarks bar but clicked on a non-supported form, or your facts changed since the last import. | It autofills Greenhouse / Lever / Ashby forms only. Re-drag it from `/kit` after re-importing your facts. |
+| Gmail badges never appear on `/board` | 2-Step Verification off, wrong app password, or `.env` not re-read. | Generate a Gmail **app password** (requires 2FA), then `python -m src.settings set-secret gmail_app_password` (and `gmail_address`) — applies live, no recreate — or set `JOB_AGG_GMAIL_ADDRESS` + `JOB_AGG_GMAIL_APP_PASSWORD` in `.env` and `docker compose up -d --force-recreate`. |
 | Triage inbox is empty though alerts fired | The inbox shows only matches notified **after** the triage feature shipped — the pipeline persists display fields at notify time; older rows are id+score+gaps only. | New matches populate it automatically. |
 | A triaged match disappeared | "New" and "Dismissed" matches expire after the 60-day TTL. | Move a match to Interested/Applied/Interviewing — that drops the TTL so it persists. |
 | `/analytics` stretch-skills panel shows a hint | `gap_analysis` isn't enabled, or no annotated matches yet. | Enable `gap_analysis` (Getting Started §2f); it populates as matches accrue. |
-| Tailor deep-link in an alert doesn't work | `JOB_AGG_TAILOR_SIGNING_SECRET` / `JOB_AGG_TAILOR_ENDPOINT_URL` unset, the URL isn't reachable from your phone, or the résumé artifacts are missing. | Set both env vars to a reachable URL (LAN IP or Tailscale/Cloudflare Tunnel); create `resume/content.json` + `resume/evidence.json` (see `resume/README.md`). |
+| Tailor deep-link in an alert doesn't work | `tailor_endpoint_url` unset, the URL isn't reachable from your phone, or the résumé artifacts are missing. | Set `tailor_endpoint_url` (`set-secret tailor_endpoint_url`, or `JOB_AGG_TAILOR_ENDPOINT_URL` in `.env`) to a reachable URL (LAN IP or Tailscale/Cloudflare Tunnel) — the signing secret is generated automatically; import `resume/content.json` + `resume/evidence.json` (see `resume/README.md`). |
 
 ---
 

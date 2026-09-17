@@ -1,23 +1,31 @@
 from __future__ import annotations
 
+import logging
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qs
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 
+from src.settings.service import ConfigService
 from src.state import VALID_STATUSES
 from src.stores import Stores, build_stores
 from src.web.analytics import MatchAnalytics, register_analytics_routes
 from src.web.board import BoardProvider, register_board_routes
 from src.web.coach import CoachProvider, register_coach_routes
+from src.web.context import config_ctx
+from src.web.generation_cache import GenerationCache
 from src.web.ops import OpsProvider, register_ops_routes
 from src.web.repo import TriageRepo
+
+log = logging.getLogger(__name__)
 
 _HERE = Path(__file__).parent
 
@@ -26,24 +34,39 @@ _HERE = Path(__file__).parent
 # value) falls back to the app-configured default, so the slice stays bounded.
 ALLOWED_PAGE_SIZES = (10, 25, 50)
 
+# Paths reachable before setup: the setup page itself, static assets, served
+# tailored PDFs, and the HMAC-token tailor deep link (it answers with its own
+# invalid-link page when nothing is configured).
+SETUP_EXEMPT_PREFIXES = ("/setup", "/static", "/tailored", "/tailor")
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    from src.web.watchdog import start_watchdog
+    app.state.watchdog_task = start_watchdog(app)
+    try:
+        yield
+    finally:
+        if app.state.watchdog_task is not None:
+            app.state.watchdog_task.cancel()
+
 
 def create_app(
     repo: TriageRepo | None = None,
     *,
-    score_high: int = 7,
-    score_low: int = 4,
-    stale_after_days: int = 10,
     ops: OpsProvider | None = None,
     match_analytics: MatchAnalytics | None = None,
     board: BoardProvider | None = None,
     coach: CoachProvider | None = None,
     stores: Stores | None = None,
-    kit_facts_path: str = "resume/facts.yaml",
+    service: ConfigService | None = None,
     page_size: int = 10,
 ) -> FastAPI:
-    app = FastAPI(title="Job Triage")
+    app = FastAPI(title="Job Triage", lifespan=_lifespan)
     stores = stores if stores is not None else build_stores()
     app.state.stores = stores
+    app.state.service = service if service is not None else ConfigService(stores.settings)
+    app.state.cache = GenerationCache()
     app.state.repo = repo if repo is not None else TriageRepo(stores.seen)
     app.state.board = board if board is not None else BoardProvider(app.state.repo)
     app.state.ops = ops if ops is not None else OpsProvider(
@@ -55,21 +78,48 @@ def create_app(
     )
     from src.web.audit import AuditProvider, register_audit_routes
     app.state.audit = AuditProvider(rejected=stores.rejected, seen=stores.seen)
-    app.state.coach = coach if coach is not None else CoachProvider(
-        store=stores.coach, seen=stores.seen, rejected=stores.rejected,
+    app.state.coach_override = coach
+    from src.web.builder import EXAMPLE_CONTENT_PATH, BuilderProvider, register_builder_routes
+
+    service_ref, cache = app.state.service, app.state.cache
+
+    def _builder_content():
+        # Previews are not tied to one request, so they read the current snapshot.
+        snap = service_ref.snapshot()
+        content = snap.documents.content() if snap is not None else None
+        if content is not None:
+            return content
+        from src.tailor.content import load_content
+        return load_content(EXAMPLE_CONTENT_PATH)
+
+    def _docx_importer():
+        snap = service_ref.snapshot()
+        if snap is None:
+            return None
+
+        def _build(s):
+            try:
+                from src.tailor.render.docx_import import build_docx_importer
+                return build_docx_importer(s.cfg)
+            except Exception as exc:  # noqa: BLE001 — Ruling G: a builder must never 500 the request
+                log.warning("docx_importer_build_failed", extra={"error": str(exc)})
+                return None
+
+        return cache.get("docx_importer", snap, _build)
+
+    app.state.builder = BuilderProvider(
+        store=stores.builder, content_loader=_builder_content, importer_source=_docx_importer,
     )
-    from src.web.builder import BuilderProvider, register_builder_routes
-    app.state.builder = BuilderProvider(store=stores.builder)
-    app.state.score_high = score_high
-    app.state.score_low = score_low
-    app.state.stale_after_days = stale_after_days
-    app.state.kit_facts_path = kit_facts_path
+    app.state.tailor_boot_override = None
     app.state.page_size = page_size
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
     from src.web.pipeline_activity import format_ago
     templates.env.filters["ago"] = format_ago
+    from src.web.coach import coach_nav_visible
+    templates.env.globals["coach_nav_visible"] = coach_nav_visible
     app.state.templates = templates
     app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
+    _register_setup_gate(app)
     _register_routes(app)
     register_ops_routes(app)
     register_analytics_routes(app)
@@ -87,54 +137,42 @@ def create_app(
     os.makedirs(tailored_dir, exist_ok=True)
     app.mount("/tailored", StaticFiles(directory=tailored_dir), name="tailored")
 
-    app.state.tailor_boot = None
-    app.state.audit_llm = (None, None)
-    try:
-        from src.config import load_config
-        cfg = load_config(os.environ.get("JOB_AGG_CONFIG_PATH", "config.yaml"))
-        from src.handler import _build_gap_analyzer, _build_relevance_scorer
-        app.state.audit_llm = (_build_relevance_scorer(cfg), _build_gap_analyzer(cfg))
-        if coach is None:
-            from src.handler import _build_coach
-            app.state.coach = CoachProvider(
-                store=stores.coach, seen=stores.seen, rejected=stores.rejected,
-                engine=_build_coach(cfg), cfg=cfg,
-                provider_name=cfg.coach.provider or cfg.relevance.provider,
-                model_name=cfg.coach.model or cfg.relevance.model,
-                enabled=cfg.coach.enabled,
-            )
-
-        def _builder_content():
-            from src.tailor.content import load_content
-            try:
-                return load_content(cfg.tailoring.content_path)
-            except Exception:  # noqa: BLE001 — previews fall back to the example
-                return load_content("resume/content.example.json")
-        from src.tailor.render.docx_import import build_docx_importer
-        app.state.builder = BuilderProvider(store=stores.builder, content_loader=_builder_content,
-                                            importer=build_docx_importer(cfg))
-        if cfg.tailoring.enabled:
-            from src.tailor import build_tailor_engine
-            from src.tailor.content import load_content
-            app.state.tailor_boot = (build_tailor_engine(cfg), load_content(cfg.tailoring.content_path))
-    except Exception as exc:  # noqa: BLE001 — tailoring is optional; UI must still boot
-        log_app = __import__("logging").getLogger(__name__)
-        log_app.warning("tailor_boot_skipped", extra={"error": str(exc)})
-
     register_tailor_routes(app)
 
-    from src.web.watchdog import register_watchdog
-    register_watchdog(app)
     return app
 
 
+def _setup_exempt(path: str) -> bool:
+    """Whether ``path`` is one of SETUP_EXEMPT_PREFIXES or below one — matched
+    at a "/" boundary, so /tailor-history is not exempt just because it starts
+    with /tailor."""
+    return any(path == p or path.startswith(p + "/") for p in SETUP_EXEMPT_PREFIXES)
+
+
+def _register_setup_gate(app: FastAPI) -> None:
+    """Take the request's settings snapshot — one per request, per the
+    snapshot rule — and, until the instance is set up, send everything outside
+    SETUP_EXEMPT_PREFIXES to /setup."""
+
+    @app.middleware("http")
+    async def _snapshot_and_setup_gate(request: Request, call_next):
+        snap = await run_in_threadpool(request.app.state.service.snapshot)
+        request.state.snapshot = snap
+        if snap is None and not _setup_exempt(request.url.path):
+            if request.method in ("GET", "HEAD"):
+                return RedirectResponse("/setup", status_code=303)
+            return PlainTextResponse("This instance is not set up yet — see /setup.", status_code=409)
+        return await call_next(request)
+
+    @app.get("/setup", response_class=HTMLResponse)
+    def setup(request: Request):
+        if request.state.snapshot is not None:
+            return RedirectResponse("/", status_code=303)
+        return request.app.state.templates.TemplateResponse(request, "setup.html", {})
+
+
 def _ctx(request: Request, **extra) -> dict:
-    return {
-        "score_high": request.app.state.score_high,
-        "score_low": request.app.state.score_low,
-        "stale_after_days": request.app.state.stale_after_days,
-        **extra,
-    }
+    return {**config_ctx(request), **extra}
 
 
 def _render_list(

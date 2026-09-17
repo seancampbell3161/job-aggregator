@@ -37,6 +37,9 @@ geography rule in the "Weak fit / not interested" section with something like:
 > "US-only" / "APAC" / "LATAM" remote listing. Remote roles open to Germany,
 > the EU, EMEA, or worldwide are fine.
 
+Import both files (`python -m src.settings import DIR`); the new gate and
+profile apply live.
+
 ## 3. Known caveats
 
 - **Compensation floor is USD-only.** `comp_floor_usd` compares raw numbers;

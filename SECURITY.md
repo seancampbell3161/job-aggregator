@@ -89,6 +89,8 @@ The latest release only. Fixes go into a new release; there are no backports.
 ## Handling your own data
 
 `config.yaml`, `profile.md`, `resume.md`, `resume/facts.yaml`,
-`resume/content.json` and everything under `data/` hold personal information and
-are gitignored for that reason. Keep them that way. If you fork this and commit
+`resume/content.json`, and everything under `data/` hold personal information
+and are gitignored for that reason — `data/job_aggregator.db` now also holds
+your imported settings, documents, and any secrets stored with `set-secret`,
+so protect it like `.env`. Keep them out of git. If you fork this and commit
 your own config, that is your disclosure, not a vulnerability in the project.

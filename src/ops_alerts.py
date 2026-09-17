@@ -191,8 +191,12 @@ class OpsAlertEvaluator:
 
     # -- entry points --------------------------------------------------------
 
-    def evaluate_cycle(self, *, now_ms: int | None = None) -> list[OpsAlert]:
-        """Poller-side conditions, evaluated after each recorded cycle."""
+    def evaluate_cycle(
+        self, *, now_ms: int | None = None, config_invalid_version_id: int | None = None,
+    ) -> list[OpsAlert]:
+        """Poller-side conditions, evaluated after each recorded cycle.
+        config_invalid_version_id is the snapshot's degraded version id (None
+        when the newest settings version is valid)."""
         now = now_ms if now_ms is not None else _now_ms()
         days = max(1, (self._t.zero_yield_hours + 23) // 24)
         rows = self._events.recent_cycles(days, now_ms=now)
@@ -212,6 +216,16 @@ class OpsAlertEvaluator:
             body=(f"Cycles are running but no new postings were seen in "
                   f"{self._t.zero_yield_hours}h — possible upstream/format "
                   "breakage. See /pipeline."),
+        )
+        if alert:
+            out.append(alert)
+        alert = self._gate(
+            "config_fallback", config_invalid_version_id is not None, now_ms=now,
+            title="settings fallback",
+            body=(f"Settings version {config_invalid_version_id} failed validation, so the "
+                  "app is running on the last valid version. Inspect with "
+                  "`python -m src.settings status`, then import corrected settings or "
+                  "`python -m src.settings restore ID`."),
         )
         if alert:
             out.append(alert)

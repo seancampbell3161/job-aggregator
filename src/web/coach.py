@@ -9,7 +9,6 @@ import logging
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -49,7 +48,7 @@ class CoachProvider:
     (the engine is fail-open, and persistence failures degrade to None)."""
 
     def __init__(
-        self, *, store=None, seen=None, rejected=None, engine=None, cfg=None,
+        self, *, store=None, seen=None, rejected=None, engine=None, cfg=None, documents=None,
         provider_name: str = "", model_name: str = "", enabled: bool = True,
     ) -> None:
         self._store = store
@@ -57,6 +56,7 @@ class CoachProvider:
         self._rejected = rejected
         self._engine = engine
         self._cfg = cfg
+        self._documents = documents
         self._provider_name = provider_name
         self._model_name = model_name
         self._enabled = enabled
@@ -130,24 +130,16 @@ class CoachProvider:
             return None
 
     def build_run_snapshot(self, *, now: datetime | None = None) -> CoachSnapshot:
-        """Assemble the snapshot from stores + config. Every input degrades
-        independently: a missing profile/content file or a dead audit store
-        shrinks the snapshot instead of blocking the run."""
+        """Assemble the snapshot from stores + settings. Every input degrades
+        independently: a missing profile/content document or a dead audit
+        store shrinks the snapshot instead of blocking the run."""
         now = now or datetime.now(timezone.utc)
         matches = self._seen.list_matches() if self._seen is not None else []
         cfg = self._cfg
-        config = profile_text = content = None
-        if cfg is not None:
-            config = _config_block(cfg)
-            try:
-                profile_text = Path(cfg.relevance.profile_path).read_text()
-            except (OSError, ValueError):
-                log.warning("coach_profile_unreadable", extra={"path": cfg.relevance.profile_path})
-            try:
-                from src.tailor.content import load_content
-                content = load_content(cfg.tailoring.content_path)
-            except (OSError, ValueError, json.JSONDecodeError):
-                log.warning("coach_content_unreadable", extra={"path": cfg.tailoring.content_path})
+        config = _config_block(cfg) if cfg is not None else None
+        docs = self._documents
+        profile_text = docs.profile if docs is not None else None
+        content = docs.content() if docs is not None else None  # None when absent/unparseable
         window_days = cfg.coach.window_days if cfg is not None else 90
         max_jobs = cfg.coach.max_jobs if cfg is not None else 100
         since_iso = (now - timedelta(days=window_days)).isoformat()
@@ -184,10 +176,50 @@ class CoachProvider:
             self._inflight = False
 
 
+def build_coach_provider(stores, snap) -> CoachProvider:
+    """A CoachProvider wired to one settings snapshot. The engine build is
+    fail-soft (in the CoachProvider mold): a broken client/API key degrades
+    to no engine (can_run False) instead of 500-ing every page — nav
+    visibility and the coach page's "not configured" state keep working."""
+    from src.handler import _build_coach
+    cfg = snap.cfg
+    try:
+        engine = _build_coach(cfg)
+    except Exception as exc:  # noqa: BLE001 — degrade, don't break every page
+        log.warning("coach_engine_build_failed", extra={"error": str(exc)})
+        engine = None
+    return CoachProvider(
+        store=stores.coach, seen=stores.seen, rejected=stores.rejected,
+        engine=engine, cfg=cfg, documents=snap.documents,
+        provider_name=cfg.coach.provider or cfg.relevance.provider,
+        model_name=cfg.coach.model or cfg.relevance.model,
+        enabled=cfg.coach.enabled,
+    )
+
+
+def coach_provider(request: Request) -> CoachProvider:
+    """The coach for this request: the provider injected into create_app
+    (tests), else one built from the request's snapshot and cached per
+    settings generation (its in-flight guard lives as long as the generation)."""
+    app = request.app
+    if app.state.coach_override is not None:
+        return app.state.coach_override
+    return app.state.cache.get(
+        "coach", request.state.snapshot, lambda snap: build_coach_provider(app.state.stores, snap),
+    )
+
+
+def coach_nav_visible(request: Request) -> bool:
+    """Jinja global for base.html; hidden until the instance is set up."""
+    if getattr(request.state, "snapshot", None) is None:
+        return False
+    return coach_provider(request).nav_visible
+
+
 def register_coach_routes(app: FastAPI) -> None:
     @app.get("/coach", response_class=HTMLResponse)
     def coach(request: Request):
-        prov = request.app.state.coach
+        prov = coach_provider(request)
         return request.app.state.templates.TemplateResponse(
             request, "coach.html",
             {"available": prov.available, "enabled": prov.enabled,
@@ -197,7 +229,7 @@ def register_coach_routes(app: FastAPI) -> None:
 
     @app.get("/coach/runs/{run_id}", response_class=HTMLResponse)
     def coach_past_run(request: Request, run_id: str):
-        prov = request.app.state.coach
+        prov = coach_provider(request)
         run = prov.get(run_id)
         if run is None:
             raise HTTPException(status_code=404, detail="unknown run")
@@ -210,7 +242,7 @@ def register_coach_routes(app: FastAPI) -> None:
 
     @app.post("/coach/run", response_class=HTMLResponse)
     async def coach_run(request: Request):
-        prov = request.app.state.coach
+        prov = coach_provider(request)
         if not prov.can_run:
             raise HTTPException(status_code=409, detail="coach engine not configured")
         busy = prov.inflight

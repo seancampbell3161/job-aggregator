@@ -2,7 +2,8 @@
 
 Token = "<exp>.<sig>" where sig = urlsafe-b64(HMAC-SHA256(secret, "<job_id>|<exp>")).
 The signature is the gate (unforgeable without the secret); exp bounds a leaked
-link's lifetime. Rotate JOB_AGG_TAILOR_SIGNING_SECRET to invalidate every
+link's lifetime. Rotate the signing secret (`python -m src.settings set-secret
+tailor_signing_secret`, or JOB_AGG_TAILOR_SIGNING_SECRET) to invalidate every
 outstanding link."""
 
 from __future__ import annotations
