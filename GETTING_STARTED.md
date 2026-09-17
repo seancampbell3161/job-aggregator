@@ -374,7 +374,9 @@ Three services: **poller** (scrape → filter → score → notify on the
 analytics, ops, and `/tailor`), and **ollama** (opt-in local LLM, only started
 with `--profile ollama`).
 
-**Prerequisite:** Docker + Docker Compose (Docker Desktop on macOS/Windows).
+**Prerequisite:** Docker + Docker Compose **2.24 or newer** (`docker compose
+version`; Docker Desktop on macOS/Windows). `docker-compose.yml` marks `.env`
+optional, which older Compose releases reject.
 Everything else — Python, SQLite, WeasyPrint — lives inside the image.
 
 ### A1. Configure

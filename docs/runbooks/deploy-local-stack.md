@@ -22,6 +22,7 @@ the box that runs the stack**, in the repo directory.
 
 ```bash
 cd <repo-dir>
+docker compose version                       # needs Compose 2.24+ (optional .env in docker-compose.yml)
 docker compose ps                            # what's currently up
 git fetch origin
 git status -sb                               # ⚠️ KEY — see below
