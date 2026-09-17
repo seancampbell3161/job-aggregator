@@ -38,3 +38,13 @@ def test_env_example_sets_nothing_by_default():
 
 def test_image_defaults_templates_into_data():
     assert "JOB_AGG_TEMPLATES_DIR=/data/templates" in (REPO / "Dockerfile").read_text()
+
+
+def test_docs_no_longer_say_the_ui_has_no_authentication():
+    for name in ("docker-compose.yml", "README.md", "GETTING_STARTED.md",
+                 "SECURITY.md", "TROUBLESHOOTING.md"):
+        assert "no authentication" not in (REPO / name).read_text().lower(), name
+
+
+def test_env_example_documents_forwarded_allow_ips():
+    assert "#FORWARDED_ALLOW_IPS=" in (REPO / ".env.example").read_text()

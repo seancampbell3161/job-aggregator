@@ -1,7 +1,6 @@
 # tests/web/test_watchdog.py
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from src.ops_alerts import OpsThresholds
 from src.sqlite_db import connect
@@ -9,6 +8,7 @@ from src.state_sqlite import _now_ms
 from src.web.app import create_app
 from src.web.repo import TriageRepo
 from src.web.watchdog import check_once, watchdog_pass
+from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import make_service
 from tests.sqlite_helpers import sqlite_stores
 
@@ -97,7 +97,7 @@ def test_watchdog_task_runs_with_the_app_lifespan(monkeypatch, tmp_path):
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
     _, stores = _sqlite_stores()
     app = create_app(repo=TriageRepo(stores.seen), stores=stores, service=make_service())
-    with TestClient(app):
+    with signed_in_client(app):
         task = app.state.watchdog_task
         assert task is not None and not task.done()
     assert task.cancelled() or task.done()

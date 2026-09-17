@@ -162,10 +162,9 @@ async def test_run_snapshot_includes_saved_documents(stores_trio):
     assert engine.last_snapshot.resume_bank is not None
 
 
-from fastapi.testclient import TestClient
-
 from src.web.app import create_app
 from src.web.repo import TriageRepo
+from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import configured_stores
 
 
@@ -184,7 +183,7 @@ def coach_client(tmp_path, monkeypatch):
     prov = CoachProvider(store=coach_store, seen=seen, rejected=rejected,
                          engine=engine, provider_name="fake", model_name="fake-1")
     app = create_app(repo=TriageRepo(seen), stores=stores, coach=prov)
-    return TestClient(app), prov, engine
+    return signed_in_client(app), prov, engine
 
 
 def test_app_coach_follows_settings_without_restart(tmp_path, monkeypatch):
@@ -193,7 +192,7 @@ def test_app_coach_follows_settings_without_restart(tmp_path, monkeypatch):
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
     stores = configured_stores(connect(":memory:"), {"coach": {"enabled": True}})
     service = ConfigService(stores.settings, env={})
-    client = TestClient(create_app(stores=stores, service=service))
+    client = signed_in_client(create_app(stores=stores, service=service))
     assert 'href="/coach"' in client.get("/").text
     service.save_settings({"coach": {"enabled": False}}, source="cli")
     assert 'href="/coach"' not in client.get("/").text
@@ -213,7 +212,7 @@ def test_app_pages_survive_a_failing_coach_builder(tmp_path, monkeypatch):
 
     monkeypatch.setattr(src.handler, "_build_coach", _boom)
     stores = configured_stores(connect(":memory:"))
-    client = TestClient(create_app(stores=stores))
+    client = signed_in_client(create_app(stores=stores))
     r = client.get("/")
     assert r.status_code == 200
     assert 'href="/coach"' in r.text          # nav still renders: enabled + available
@@ -287,7 +286,7 @@ def test_unavailable_store_renders_explainer(tmp_path, monkeypatch):
     seen = stores.seen
     from src.web.coach import CoachProvider
     app = create_app(repo=TriageRepo(seen), stores=stores, coach=CoachProvider(store=None))
-    client = TestClient(app)
+    client = signed_in_client(app)
     r = client.get("/coach")
     assert r.status_code == 200 and "unavailable" in r.text
     assert client.post("/coach/run").status_code == 409
@@ -303,6 +302,6 @@ def test_engineless_provider_explains_not_configured(tmp_path, monkeypatch):
     from src.web.coach import CoachProvider
     app = create_app(repo=TriageRepo(seen), stores=stores,
                      coach=CoachProvider(store=coach_store, seen=seen))
-    client = TestClient(app)
+    client = signed_in_client(app)
     r = client.get("/coach")
     assert r.status_code == 200 and "not configured" in r.text

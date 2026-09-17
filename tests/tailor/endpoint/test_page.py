@@ -38,3 +38,10 @@ def test_loading_page_with_templates_renders_picker_with_active_selected():
                         active="headless")
     assert 'id="tpl"' in html
     assert '<option value="headless" selected>' in html
+
+
+def test_loading_page_escapes_the_pdf_url_for_the_href():
+    html = loading_page("j", "t", "", "")
+    assert "const attr =" in html
+    assert "attr(d.pdf_url)" in html
+    assert "'+d.pdf_url+'" not in html

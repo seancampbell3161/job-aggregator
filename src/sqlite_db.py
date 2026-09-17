@@ -113,6 +113,16 @@ CREATE TABLE IF NOT EXISTS config_generation (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     n  INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS auth_credential (
+    id            INTEGER PRIMARY KEY CHECK (id = 1),
+    password_hash TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    token_hash   TEXT PRIMARY KEY,
+    created_at   TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL
+);
 """
 
 

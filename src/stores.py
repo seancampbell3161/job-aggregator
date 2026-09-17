@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from src.auth.store import SqliteAuthStore
     from src.settings.store import SqliteSettingsStore
     from src.state_sqlite import (
         SqliteBuilderSettingsStore,
@@ -37,6 +38,7 @@ class Stores:
     coach: SqliteCoachRunsStore
     builder: SqliteBuilderSettingsStore
     settings: SqliteSettingsStore
+    auth: SqliteAuthStore
 
 
 def build_stores(cfg: Any = None) -> Stores:
@@ -46,6 +48,7 @@ def build_stores(cfg: Any = None) -> Stores:
     backend = os.environ.get("JOB_AGG_BACKEND")
     if backend and backend != "sqlite":
         log.warning("legacy_backend_env_ignored", extra={"value": backend})
+    from src.auth.store import SqliteAuthStore
     from src.settings.store import SqliteSettingsStore
     from src.sqlite_db import connect
     from src.state_sqlite import (
@@ -77,4 +80,7 @@ def build_stores(cfg: Any = None) -> Stores:
         # within a transaction") with any other store's BEGIN IMMEDIATE on a
         # shared connection.
         settings=SqliteSettingsStore(connect()),
+        # Also its own connection, for the same reason: change-password and
+        # the CLI reset run BEGIN IMMEDIATE transactions.
+        auth=SqliteAuthStore(connect()),
     )

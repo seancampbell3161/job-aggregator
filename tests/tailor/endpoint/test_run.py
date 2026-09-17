@@ -17,9 +17,8 @@ def _result():
 
 
 class FakeStorage:
-    def __init__(self, exists=False, url="https://signed.example/pdf", put_raises=None):
+    def __init__(self, exists=False, put_raises=None):
         self._exists = exists
-        self._url = url
         self._put_raises = put_raises
         self.put_calls = []
         self._blobs = {}
@@ -36,9 +35,6 @@ class FakeStorage:
     def get(self, key):
         return self._blobs.get(key)
 
-    def url(self, key, ttl):
-        return self._url
-
 
 def test_run_tailors_and_uploads(monkeypatch):
     monkeypatch.setattr(render_mod, "render_resume",
@@ -49,7 +45,7 @@ def test_run_tailors_and_uploads(monkeypatch):
                      jd_reader=lambda jid: PostingJD("jd text", "SWE", "Acme"), storage=storage)
     assert len(storage.put_calls) == 2         # render input (for re-render) + the PDF
     assert storage.get("j1.result.json") is not None
-    assert out["pdf_url"] == "https://signed.example/pdf"
+    assert out["pdf_key"] == "j1.pdf"
     assert out["cover_letter"] == "Dear team"
     assert out["fit"]["gaps"] == ["Kafka"]
     assert out["cached"] is False
@@ -62,7 +58,7 @@ def test_run_uses_cache_when_object_exists(monkeypatch):
                      jd_reader=lambda jid: PostingJD("jd", "t", "c"), storage=storage)
     engine.tailor.assert_not_called()       # cache hit -> no LLM call
     assert len(storage.put_calls) == 0
-    assert out["cached"] is True and out["pdf_url"]
+    assert out["cached"] is True and out["pdf_key"] == "j1.pdf"
 
 
 def test_run_missing_jd_returns_error():
@@ -76,7 +72,7 @@ def test_run_fallback_when_engine_none(monkeypatch):
                         lambda content, result, **kw: RenderResult(pdf=b"%PDF-x", trimmed=[]))
     out = run_tailor(job_id="j1", regen=False, engine=None, content=MagicMock(),
                      jd_reader=lambda jid: PostingJD("jd", "t", "c"), storage=FakeStorage())
-    assert out["pdf_url"] and out["cached"] is False   # static fallback still renders
+    assert out["pdf_key"] == "j1.pdf" and out["cached"] is False   # static fallback still renders
 
 
 def test_run_returns_error_dict_on_render_failure(monkeypatch):
@@ -87,7 +83,7 @@ def test_run_returns_error_dict_on_render_failure(monkeypatch):
     out = run_tailor(job_id="j1", regen=False, engine=engine, content=MagicMock(),
                      jd_reader=lambda jid: PostingJD("jd", "t", "c"), storage=FakeStorage(exists=False))
     assert "error" in out          # did NOT raise
-    assert "pdf_url" not in out
+    assert "pdf_key" not in out
 
 
 def test_run_returns_error_dict_on_put_failure(monkeypatch):
@@ -125,6 +121,7 @@ def test_template_rerender_uses_stored_result_without_engine(monkeypatch):
                      jd_reader=lambda j: PostingJD("desc", "T", "C"),
                      storage=storage, renderer=renderer, template="headless")
     assert out["template"] == "headless"
+    assert out["pdf_key"] == "j1.headless.pdf"
     assert storage.get("j1.headless.pdf") == b"%PDF-fake"
     assert len(calls) == 1
 

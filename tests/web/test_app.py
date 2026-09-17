@@ -1,9 +1,9 @@
 import re
+import sqlite3
 import time
 from datetime import datetime, timezone
 
 import pytest
-from fastapi.testclient import TestClient
 
 from src.models import NormalizedPosting
 from src.sqlite_db import connect
@@ -12,6 +12,7 @@ from src.web.analytics import MatchAnalytics, MatchAnalyticsSummary, WeekBucket
 from src.web.app import create_app
 from src.web.funnel import build_funnel, build_pipeline, pipeline_rates
 from src.web.repo import TriageRepo
+from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import WEB_TEST_SETTINGS, configured_stores, make_service
 
 
@@ -55,7 +56,7 @@ def client():
         repo=TriageRepo(store), ops=ops, match_analytics=MatchAnalytics(seen=store),
         service=make_service(WEB_TEST_SETTINGS),
     )
-    yield TestClient(app)
+    yield signed_in_client(app)
 
 
 def test_inbox_shell_renders(client):
@@ -307,7 +308,7 @@ def status_suggestion_client(tmp_path, monkeypatch):
         ),
     )
     app = create_app(repo=TriageRepo(seen), stores=stores)
-    return TestClient(app), seen
+    return signed_in_client(app), seen
 
 
 def test_set_status_clears_email_suggestion(status_suggestion_client):
@@ -680,3 +681,18 @@ def test_jobs_list_shows_adzuna_attribution_on_row(client):
 def test_jobs_list_attribution_only_on_adzuna_rows(client):
     r = client.get("/jobs", params={"status": "applied"})  # only the Ramp row (lever source)
     assert "Jobs by Adzuna" not in r.text
+
+
+def test_startup_check_reads_the_login_tables(monkeypatch, tmp_path):
+    import src.web.__main__ as entry
+
+    monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
+    app = entry.create_app()
+    assert entry._startup_repo_ok(app) is True
+
+    class Broken:
+        def has_password(self):
+            raise sqlite3.OperationalError("no such table: auth_credential")
+
+    app.state.auth = Broken()
+    assert entry._startup_repo_ok(app) is False

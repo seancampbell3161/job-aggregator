@@ -65,11 +65,10 @@ def test_parse_facts_invalid_yaml_raises_facts_error():
         parse_facts("- group: [unclosed\n")
 
 
-from fastapi.testclient import TestClient
-
 from src.sqlite_db import connect
 from src.web.app import create_app
 from src.web.repo import TriageRepo
+from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import configured_stores
 
 
@@ -84,7 +83,7 @@ def kit_client(tmp_path, monkeypatch):
         # saved document that a newer parser can no longer read.
         stores.settings.insert_document(kind="kit_facts", body=text, source="cli")
 
-    return TestClient(app), set_facts
+    return signed_in_client(app), set_facts
 
 
 def test_kit_renders_groups_and_copy_buttons(kit_client):

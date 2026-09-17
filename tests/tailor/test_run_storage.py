@@ -12,16 +12,13 @@ class FakeStorage:
     def put(self, key, data, content_type):
         self.blobs[key] = data
 
-    def url(self, key, ttl):
-        return f"/tailored/{key}"
-
 
 def test_run_tailor_cached_short_circuits():
     storage = FakeStorage()
     storage.blobs["j1.pdf"] = b"x"
     out = run_tailor(job_id="j1", regen=False, engine=None, content=None,
                      jd_reader=lambda _: PostingJD("body", "T", "C"), storage=storage)
-    assert out == {"pdf_url": "/tailored/j1.pdf", "cached": True}
+    assert out == {"pdf_key": "j1.pdf", "cached": True}
 
 
 def test_run_tailor_missing_jd_returns_error():
