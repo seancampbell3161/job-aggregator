@@ -44,7 +44,6 @@ def create_app(
     app = FastAPI(title="Job Triage")
     stores = stores if stores is not None else build_stores()
     app.state.stores = stores
-    local_mode = os.environ.get("JOB_AGG_BACKEND", "sqlite") != "dynamodb"
     app.state.repo = repo if repo is not None else TriageRepo(stores.seen)
     app.state.board = board if board is not None else BoardProvider(app.state.repo)
     app.state.ops = ops if ops is not None else OpsProvider(
@@ -52,7 +51,7 @@ def create_app(
         events=stores.events,
         log_group=os.environ.get("JOB_AGG_LOG_GROUP", "/aws/lambda/job-aggregator"),
         region=os.environ.get("AWS_REGION", "us-east-1"),
-        local_mode=local_mode,
+        local_mode=True,
     )
     app.state.match_analytics = (
         match_analytics if match_analytics is not None else MatchAnalytics(seen=stores.seen)

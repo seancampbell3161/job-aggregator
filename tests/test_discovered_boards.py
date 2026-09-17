@@ -62,15 +62,11 @@ def test_stale_before():
     assert s.stale_before("0001-01-01") == []
 
 
-def test_boards_store_present_on_sqlite_absent_on_dynamo(monkeypatch, tmp_path):
+def test_build_stores_wires_boards_store(monkeypatch, tmp_path):
     from src.stores import build_stores
     # Isolate the DB — never open the real data/job_aggregator.db dev database.
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
     assert build_stores().boards is not None
-    # DynamoDB backend leaves the SQLite-only boards store absent.
-    monkeypatch.setenv("JOB_AGG_BACKEND", "dynamodb")
-    assert build_stores().boards is None
 
 
 from src.sqlite_db import connect as _connect

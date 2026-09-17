@@ -411,7 +411,6 @@ gap_analysis: {enabled: true, digest_window_days: 30}
 
 
 def test_run_uses_sqlite_backend(monkeypatch, tmp_path):
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     db_path = tmp_path / "t.db"
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(db_path))
     monkeypatch.setenv("JOB_AGG_CONFIG_PATH", "config.example.yaml")
@@ -512,7 +511,6 @@ def _sqlite_env(monkeypatch, tmp_path):
     monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "https://ntfy.test/x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "https://discord.test/x")
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
     monkeypatch.delenv("JOB_AGG_OPS_NTFY_TOPIC_URL", raising=False)
     monkeypatch.delenv("JOB_AGG_OPS_DISCORD_WEBHOOK_URL", raising=False)
@@ -679,7 +677,6 @@ schedules:
     monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
 
     from src.handler import _run
@@ -745,7 +742,6 @@ async def test_discovery_tier_board_sweep_failure_does_not_skip_recovery(tmp_pat
     monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
 
     from src.handler import _run
@@ -786,7 +782,6 @@ schedules: {ats_minutes: 10, slow_minutes: 15}
 discovery: {enabled: true}
 """)
     monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
 
     payload = {"pageProps": {"ssrHits": [
@@ -844,7 +839,6 @@ schedules: {ats_minutes: 10, slow_minutes: 15}
 discovery: {enabled: true, hiringcafe_mining_enabled: false}
 """)
     monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
     from unittest.mock import AsyncMock
     monkeypatch.setattr("src.hiringcafe.HiringCafeClient.search",
@@ -865,7 +859,6 @@ async def test_discovery_tier_board_sweep_exception_does_not_skip_recovery(tmp_p
     monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
 
     from src.handler import _run
@@ -969,7 +962,6 @@ def _vc_handler_env(tmp_path, monkeypatch, yaml_text):
     monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
 
 

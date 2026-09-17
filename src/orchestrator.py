@@ -20,7 +20,11 @@ from src.tailor.endpoint.auth import build_tailor_url
 from src.gaps import GapAnalyzer, Gaps
 from src.relevance import RelevanceScorer, Score
 from src.poll_health import classify_outcome, retry_after_seconds, update_poll_health
-from src.state import ConnectorHealthStore, SeenJobsStore, SourceStateStore
+from src.state_sqlite import (
+    SqliteConnectorHealthStore,
+    SqliteSeenJobsStore,
+    SqliteSourceStateStore,
+)
 
 log = logging.getLogger(__name__)
 
@@ -143,8 +147,8 @@ async def run_once(
     *,
     cfg: AppConfig,
     tier: Tier,
-    store: SeenJobsStore,
-    source_state: SourceStateStore,
+    store: SqliteSeenJobsStore,
+    source_state: SqliteSourceStateStore,
     connectors: Sequence[Connector],
     sinks: Sequence[Sink],
     client_factory: Callable[[], httpx.AsyncClient],
@@ -152,7 +156,7 @@ async def run_once(
     dry_run: bool = False,
     relevance_scorer: RelevanceScorer | None = None,
     gap_analyzer: GapAnalyzer | None = None,
-    health: ConnectorHealthStore | None = None,
+    health: SqliteConnectorHealthStore | None = None,
     calibrate: bool = False,
     max_concurrency: int = 40,
     rejected_store=None,

@@ -9,7 +9,12 @@ from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 
-from src.state import ConnectorHealthStore, DiscoveredSlug, DiscoveredSlugsStore, SeenJobsStore
+from src.state import DiscoveredSlug
+from src.state_sqlite import (
+    SqliteConnectorHealthStore,
+    SqliteDiscoveredSlugsStore,
+    SqliteSeenJobsStore,
+)
 from src.web.cloudwatch import (
     CycleRow,
     LastCycle,
@@ -34,15 +39,15 @@ _DIM_AFTER_MS = 24 * 3_600_000  # tallies older than this render dimmed
 
 @dataclass(frozen=True)
 class HealthSummary:
-    # Field names mirror the validation_status values DiscoveredSlugsStore writes:
-    # "ok" | "failed" | "quarantined" | "no_match" (see src/state.py).
+    # Field names mirror the validation_status values SqliteDiscoveredSlugsStore
+    # writes: "ok" | "failed" | "quarantined" | "no_match" (see src/state.py).
     ok: int
     failed: int
     quarantined: int
     no_match: int
     unhealthy: list[DiscoveredSlug] = field(default_factory=list)
     # Connectors auto-suppressed by the poll-health circuit breaker (dead 404/410).
-    # Sourced from ConnectorHealthStore, not discovered_slugs.
+    # Sourced from SqliteConnectorHealthStore, not discovered_slugs.
     suppressed: list[str] = field(default_factory=list)
 
 
@@ -219,12 +224,12 @@ class OpsProvider:
     def __init__(
         self,
         *,
-        discovered: DiscoveredSlugsStore,
-        seen: SeenJobsStore,
+        discovered: SqliteDiscoveredSlugsStore,
+        seen: SqliteSeenJobsStore,
         log_group: str,
         region: str,
         window_days: int = 7,
-        health: ConnectorHealthStore | None = None,
+        health: SqliteConnectorHealthStore | None = None,
         events=None,
         local_mode: bool = False,
     ) -> None:

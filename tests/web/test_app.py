@@ -350,7 +350,6 @@ def test_main_module_builds_app(monkeypatch, tmp_path):
 
     monkeypatch.delenv("JOB_AGG_NTFY_TOPIC_URL", raising=False)
     monkeypatch.delenv("JOB_AGG_DISCORD_WEBHOOK_URL", raising=False)
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
 
     calls = {}
@@ -368,7 +367,6 @@ def test_main_module_exits_1_when_repo_unreachable(monkeypatch, tmp_path):
     port (the friendly-startup-failure branch)."""
     import src.web.__main__ as entry
 
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
 
     ran = {"called": False}

@@ -48,9 +48,7 @@ def _integrity_check() -> None:
     then reads the DB, so it sees the fix immediately (the web container's repair
     wasn't visible to the poller until a restart; see sqlite_db.connect()).
 
-    SQLite-backend only; a no-op otherwise. Never re-raised — keeps the daemon up."""
-    if os.environ.get("JOB_AGG_BACKEND", "sqlite") != "sqlite":
-        return
+    Never re-raised — keeps the daemon up."""
     try:
         from src.sqlite_db import connect, integrity_check_and_repair
 

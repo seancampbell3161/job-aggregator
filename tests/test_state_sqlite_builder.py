@@ -26,7 +26,6 @@ def test_put_overwrites_previous(tmp_path, monkeypatch):
 
 
 def test_build_stores_wires_builder(tmp_path, monkeypatch):
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
     stores = build_stores()
     assert stores.builder is not None

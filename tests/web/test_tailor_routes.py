@@ -7,7 +7,6 @@ from tests.conftest import requires_weasyprint
 
 
 def _app(tmp_path, monkeypatch):
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
     monkeypatch.setenv("JOB_AGG_TAILOR_SIGNING_SECRET", "s3cr3t")
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
