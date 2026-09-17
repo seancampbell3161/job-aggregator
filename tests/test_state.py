@@ -1,26 +1,16 @@
 from datetime import datetime, timezone
 
-import boto3
 import pytest
 from freezegun import freeze_time
-from moto import mock_aws
 
-from src.state import SeenJobsStore
-
-TABLE = "seen_jobs_test"
+from src.sqlite_db import connect
+from src.state_sqlite import SqliteConnectorHealthStore, SqliteSeenJobsStore
+from tests.sqlite_helpers import raw_seen_item
 
 
 @pytest.fixture
 def store():
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        ddb.create_table(
-            TableName=TABLE,
-            AttributeDefinitions=[{"AttributeName": "job_id", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "job_id", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        yield SeenJobsStore(table_name=TABLE)
+    yield SqliteSeenJobsStore(connect(":memory:"))
 
 
 def test_diff_new_returns_all_when_table_empty(store):
@@ -46,8 +36,7 @@ def test_diff_new_chunks_over_100(store):
 
 def test_mark_seen_writes_ttl(store):
     store.mark_seen("x:y:1", notified=True)
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table(TABLE).get_item(Key={"job_id": "x:y:1"})["Item"]
+    item = raw_seen_item(store, "x:y:1")
     assert item["notified"] is True
     assert int(item["ttl"]) > 0
     assert item["first_seen"]
@@ -86,8 +75,7 @@ def test_claim_for_notify_persists_score_and_rationale(store):
     """A claim carrying a relevance score must store it so a high-scoring job
     can be explained after the fact."""
     assert store.claim_for_notify("g:s:1", score=8, rationale="Strong fit") is True
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table(TABLE).get_item(Key={"job_id": "g:s:1"})["Item"]
+    item = raw_seen_item(store, "g:s:1")
     assert int(item["score"]) == 8
     assert item["rationale"] == "Strong fit"
 
@@ -96,8 +84,7 @@ def test_claim_for_notify_omits_score_when_absent(store):
     """A claim with no score (relevance disabled / scoring not run) must still
     write a valid row and simply leave score/rationale off the item."""
     assert store.claim_for_notify("g:s:1") is True
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table(TABLE).get_item(Key={"job_id": "g:s:1"})["Item"]
+    item = raw_seen_item(store, "g:s:1")
     assert "score" not in item
     assert "rationale" not in item
     assert item["notified"] is True
@@ -106,22 +93,19 @@ def test_claim_for_notify_omits_score_when_absent(store):
 
 def test_claim_for_notify_persists_gaps(store):
     assert store.claim_for_notify("g:s:1", score=8, rationale="ok", gaps=["Kubernetes", "Kafka"]) is True
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table(TABLE).get_item(Key={"job_id": "g:s:1"})["Item"]
+    item = raw_seen_item(store, "g:s:1")
     assert item["gaps"] == ["Kubernetes", "Kafka"]
 
 
 def test_claim_for_notify_omits_gaps_when_empty(store):
     assert store.claim_for_notify("g:s:1", gaps=[]) is True
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table(TABLE).get_item(Key={"job_id": "g:s:1"})["Item"]
+    item = raw_seen_item(store, "g:s:1")
     assert "gaps" not in item
 
 
 def test_claim_for_notify_omits_gaps_when_none(store):
     assert store.claim_for_notify("g:s:1") is True
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table(TABLE).get_item(Key={"job_id": "g:s:1"})["Item"]
+    item = raw_seen_item(store, "g:s:1")
     assert "gaps" not in item
 
 
@@ -133,7 +117,13 @@ def test_recent_gap_lists_includes_window_and_excludes_old(store):
         store.claim_for_notify("g:new:2")  # clean match: notified, no gaps
 
     since = datetime(2026, 6, 10, tzinfo=timezone.utc)
-    lists = store.recent_gap_lists(since)
+    # SQLite's _live_rows enforces the ttl column synchronously on every read
+    # (unlike DynamoDB's native TTL, which only reaps in the real background and
+    # is never simulated by moto), so the read must stay inside the frozen
+    # window too — otherwise real wall-clock time elapsed since the frozen
+    # writes could put the 60-day ttl in the past and hide both rows.
+    with freeze_time("2026-06-20T00:00:00+00:00"):
+        lists = store.recent_gap_lists(since)
 
     assert ["Kubernetes", "Kafka"] in lists
     assert [] in lists                 # clean match contributes an empty list
@@ -162,8 +152,7 @@ def _posting(**over):
 
 def test_claim_for_notify_persists_display_fields(store):
     assert store.claim_for_notify("g:s:1", score=8, rationale="fit", posting=_posting()) is True
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table(TABLE).get_item(Key={"job_id": "g:s:1"})["Item"]
+    item = raw_seen_item(store, "g:s:1")
     assert item["title"] == "Senior Backend Engineer"
     assert item["company"] == "Stripe"
     assert item["location_text"] == "Remote (US)"
@@ -178,8 +167,7 @@ def test_claim_for_notify_persists_display_fields(store):
 def test_claim_for_notify_omits_optional_display_fields_when_none(store):
     p = _posting(job_id="g:s:2", comp_min=None, comp_max=None, posted_at=None, apply_url="https://j/2")
     assert store.claim_for_notify("g:s:2", posting=p) is True
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table(TABLE).get_item(Key={"job_id": "g:s:2"})["Item"]
+    item = raw_seen_item(store, "g:s:2")
     assert item["title"] == "Senior Backend Engineer"
     assert "comp_min" not in item
     assert "comp_max" not in item
@@ -188,8 +176,7 @@ def test_claim_for_notify_omits_optional_display_fields_when_none(store):
 
 def test_claim_for_notify_without_posting_writes_no_display_fields(store):
     assert store.claim_for_notify("g:s:3") is True
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table(TABLE).get_item(Key={"job_id": "g:s:3"})["Item"]
+    item = raw_seen_item(store, "g:s:3")
     assert "title" not in item
     assert "description_snapshot" not in item  # no posting → nothing to snapshot
 
@@ -197,8 +184,7 @@ def test_claim_for_notify_without_posting_writes_no_display_fields(store):
 def test_claim_for_notify_omits_description_snapshot_when_empty(store):
     p = _posting(job_id="g:s:4", description="")
     assert store.claim_for_notify("g:s:4", posting=p) is True
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table(TABLE).get_item(Key={"job_id": "g:s:4"})["Item"]
+    item = raw_seen_item(store, "g:s:4")
     assert item["title"] == "Senior Backend Engineer"  # posting still stored
     assert "description_snapshot" not in item          # empty description → field omitted
 
@@ -207,7 +193,10 @@ def test_list_matches_returns_only_notified_rows_with_title(store):
     # rich, notified
     store.claim_for_notify("g:s:1", score=8, rationale="fit", posting=_posting())
     # legacy notified row with no title (pre-migration) — must be skipped
-    store._table.put_item(Item={"job_id": "g:s:legacy", "notified": True, "first_seen": "2026-06-16T00:00:00+00:00"})
+    store._write(
+        {"job_id": "g:s:legacy", "notified": True, "first_seen": "2026-06-16T00:00:00+00:00"},
+        ignore=False,
+    )
     rows = store.list_matches()
     ids = {r["job_id"] for r in rows}
     assert ids == {"g:s:1"}
@@ -233,25 +222,24 @@ def test_get_match_returns_one_row_or_none(store):
     store.claim_for_notify("g:s:1", score=8, rationale="fit", posting=_posting())
     row = store.get_match("g:s:1")
     assert row["company"] == "Stripe"
-    assert isinstance(row["score"], int)  # normalized through _to_match
+    assert isinstance(row["score"], int)  # normalized through match_view
     assert store.get_match("nope:0:0") is None
 
 
 def test_get_match_skips_non_notified_row(store):
     """A non-notified row must not be surfaced by the detail lookup, mirroring
     list_matches (which filters on notified)."""
-    store._table.put_item(Item={
+    store._write({
         "job_id": "g:s:unnotified", "notified": False, "title": "Eng",
         "first_seen": "2026-06-16T00:00:00+00:00",
-    })
+    }, ignore=False)
     assert store.get_match("g:s:unnotified") is None
 
 
 def test_set_status_kept_status_drops_ttl(store):
     store.claim_for_notify("g:s:1", score=8, rationale="fit", posting=_posting())
     assert store.set_status("g:s:1", "applied") is True
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table(TABLE).get_item(Key={"job_id": "g:s:1"})["Item"]
+    item = raw_seen_item(store, "g:s:1")
     assert item["status"] == "applied"
     assert "ttl" not in item  # kept status persists indefinitely
 
@@ -259,8 +247,7 @@ def test_set_status_kept_status_drops_ttl(store):
 def test_set_status_dismissed_keeps_ttl(store):
     store.claim_for_notify("g:s:1", score=8, rationale="fit", posting=_posting())
     assert store.set_status("g:s:1", "dismissed") is True
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table(TABLE).get_item(Key={"job_id": "g:s:1"})["Item"]
+    item = raw_seen_item(store, "g:s:1")
     assert item["status"] == "dismissed"
     assert int(item["ttl"]) > 0  # still expires
 
@@ -282,15 +269,13 @@ def test_set_status_dismiss_after_kept_leaves_ttl_absent(store):
     store.claim_for_notify("g:s:1", score=8, rationale="fit", posting=_posting())
     store.set_status("g:s:1", "applied")    # drops TTL
     store.set_status("g:s:1", "dismissed")  # does NOT re-add it
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table(TABLE).get_item(Key={"job_id": "g:s:1"})["Item"]
+    item = raw_seen_item(store, "g:s:1")
     assert "ttl" not in item
 
 
 def test_mark_suppressed_writes_notified_false_with_score(store):
     store.mark_suppressed("g:s:1", score=2)
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table(TABLE).get_item(Key={"job_id": "g:s:1"})["Item"]
+    item = raw_seen_item(store, "g:s:1")
     assert item["notified"] is False
     assert int(item["score"]) == 2
     assert "title" not in item          # minimal marker → invisible to list_matches
@@ -311,16 +296,14 @@ def test_mark_suppressed_does_not_overwrite_existing_notified_row(store):
     the notified row is never clobbered."""
     store.claim_for_notify("g:s:1", score=8, rationale="fit")
     store.mark_suppressed("g:s:1", score=2)
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table(TABLE).get_item(Key={"job_id": "g:s:1"})["Item"]
+    item = raw_seen_item(store, "g:s:1")
     assert item["notified"] is True     # unchanged
     assert int(item["score"]) == 8      # unchanged
 
 
 def test_mark_suppressed_omits_score_when_none(store):
     store.mark_suppressed("g:s:1", score=None)
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table(TABLE).get_item(Key={"job_id": "g:s:1"})["Item"]
+    item = raw_seen_item(store, "g:s:1")
     assert "score" not in item
     assert item["notified"] is False
 
@@ -330,31 +313,19 @@ def test_list_suppressed_returns_only_suppressed_scored_rows(store):
     rows and score-less rows are excluded — it feeds only the histogram's low end."""
     store.mark_suppressed("g:s:low", score=2)                       # suppressed + scored → included
     store.claim_for_notify("g:s:hi", score=8, rationale="fit")      # notified → excluded
-    store._table.put_item(Item={                                    # suppressed but no score → excluded
+    store._write({                                                   # suppressed but no score → excluded
         "job_id": "g:s:noscore", "notified": False,
         "first_seen": "2026-06-16T00:00:00+00:00",
-    })
+    }, ignore=False)
     rows = store.list_suppressed()
     assert [r["score"] for r in rows] == [2]
     assert all(isinstance(r["score"], int) for r in rows)
     assert rows[0]["first_seen"]
 
 
-HEALTH_TABLE = "connector_health_test"
-
-
 @pytest.fixture
 def health():
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        ddb.create_table(
-            TableName=HEALTH_TABLE,
-            AttributeDefinitions=[{"AttributeName": "connector_name", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "connector_name", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        from src.state import ConnectorHealthStore
-        yield ConnectorHealthStore(table_name=HEALTH_TABLE)
+    yield SqliteConnectorHealthStore(connect(":memory:"))
 
 
 def test_record_dead_increments_and_returns_streak(health):
@@ -387,30 +358,19 @@ def test_tracked_vs_suppressed_distinguish_rows(health):
 
 
 def test_claim_for_notify_stores_capped_description_snapshot():
-    import boto3
-    from moto import mock_aws
     from src.models import NormalizedPosting
-    from src.state import SeenJobsStore
 
-    with mock_aws():
-        ddb = boto3.resource("dynamodb", region_name="us-east-1")
-        ddb.create_table(
-            TableName="seen_jobs",
-            KeySchema=[{"AttributeName": "job_id", "KeyType": "HASH"}],
-            AttributeDefinitions=[{"AttributeName": "job_id", "AttributeType": "S"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        store = SeenJobsStore("seen_jobs")
-        posting = NormalizedPosting(
-            job_id="greenhouse:stripe:1", title="SWE", company="Stripe",
-            location_text="Remote, US", location_tags=frozenset({"remote", "us"}),
-            seniority="senior", stack=frozenset({"go"}), comp_min=None, comp_max=None,
-            apply_url="https://x/1", description="D" * 40000, posted_at=None, source="greenhouse:stripe",
-        )
-        assert store.claim_for_notify("greenhouse:stripe:1", posting=posting) is True
-        item = ddb.Table("seen_jobs").get_item(Key={"job_id": "greenhouse:stripe:1"})["Item"]
-        assert len(item["description_snapshot"]) == 30000      # capped
-        assert item["description_snapshot"] == "D" * 30000
+    store = SqliteSeenJobsStore(connect(":memory:"))
+    posting = NormalizedPosting(
+        job_id="greenhouse:stripe:1", title="SWE", company="Stripe",
+        location_text="Remote, US", location_tags=frozenset({"remote", "us"}),
+        seniority="senior", stack=frozenset({"go"}), comp_min=None, comp_max=None,
+        apply_url="https://x/1", description="D" * 40000, posted_at=None, source="greenhouse:stripe",
+    )
+    assert store.claim_for_notify("greenhouse:stripe:1", posting=posting) is True
+    item = raw_seen_item(store, "greenhouse:stripe:1")
+    assert len(item["description_snapshot"]) == 30000      # capped
+    assert item["description_snapshot"] == "D" * 30000
 
 
 def test_set_status_accepts_new_outcome_statuses(store):
@@ -422,8 +382,7 @@ def test_set_status_accepts_new_outcome_statuses(store):
 def test_set_status_offer_drops_ttl(store):
     store.mark_seen("g:s:1", notified=True)
     assert store.set_status("g:s:1", "offer") is True
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table(TABLE).get_item(Key={"job_id": "g:s:1"})["Item"]
+    item = raw_seen_item(store, "g:s:1")
     assert "ttl" not in item
 
 
@@ -431,8 +390,7 @@ def test_set_status_rejected_and_ghosted_drop_ttl(store):
     for jid, s in (("g:s:2", "rejected"), ("g:s:3", "ghosted")):
         store.mark_seen(jid, notified=True)
         assert store.set_status(jid, s) is True
-        ddb = boto3.resource("dynamodb", region_name="us-east-1")
-        item = ddb.Table(TABLE).get_item(Key={"job_id": jid})["Item"]
+        item = raw_seen_item(store, jid)
         assert "ttl" not in item
 
 
@@ -440,8 +398,7 @@ def test_set_status_seeds_history_on_first_transition(store):
     store.mark_seen("g:s:1", notified=True)
     with freeze_time("2026-06-10T12:00:00Z"):
         store.set_status("g:s:1", "interested")
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table(TABLE).get_item(Key={"job_id": "g:s:1"})["Item"]
+    item = raw_seen_item(store, "g:s:1")
     assert item["history"] == [{"status": "interested", "at": "2026-06-10T12:00:00+00:00"}]
 
 
@@ -451,8 +408,7 @@ def test_set_status_appends_history_in_order(store):
         store.set_status("g:s:1", "interested")
     with freeze_time("2026-06-12T09:00:00Z"):
         store.set_status("g:s:1", "applied")
-    item = (boto3.resource("dynamodb", region_name="us-east-1")
-            .Table(TABLE).get_item(Key={"job_id": "g:s:1"})["Item"])
+    item = raw_seen_item(store, "g:s:1")
     assert [h["status"] for h in item["history"]] == ["interested", "applied"]
     assert item["history"][1]["at"] == "2026-06-12T09:00:00+00:00"
 
@@ -470,32 +426,20 @@ def test_list_matches_surfaces_history(store):
 
 
 def test_get_jd_reads_snapshot():
-    import boto3
-    from moto import mock_aws
-
     from src.models import NormalizedPosting
-    from src.state import SeenJobsStore
 
-    with mock_aws():
-        ddb = boto3.resource("dynamodb", region_name="us-east-1")
-        ddb.create_table(
-            TableName="seen_jobs",
-            KeySchema=[{"AttributeName": "job_id", "KeyType": "HASH"}],
-            AttributeDefinitions=[{"AttributeName": "job_id", "AttributeType": "S"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        store = SeenJobsStore(table_name="seen_jobs", region="us-east-1")
-        p = NormalizedPosting(
-            job_id="j1", title="Staff Eng", company="Acme", location_text="Remote",
-            location_tags=frozenset(), seniority="staff", stack=frozenset(),
-            comp_min=None, comp_max=None, apply_url="https://x", description="JD body",
-            posted_at=None, source="greenhouse:acme",
-        )
-        store.claim_for_notify("j1", posting=p)
-        jd = store.get_jd("j1")
-        assert jd.description == "JD body"
-        assert jd.title == "Staff Eng"
-        assert store.get_jd("missing") is None
+    store = SqliteSeenJobsStore(connect(":memory:"))
+    p = NormalizedPosting(
+        job_id="j1", title="Staff Eng", company="Acme", location_text="Remote",
+        location_tags=frozenset(), seniority="staff", stack=frozenset(),
+        comp_min=None, comp_max=None, apply_url="https://x", description="JD body",
+        posted_at=None, source="greenhouse:acme",
+    )
+    store.claim_for_notify("j1", posting=p)
+    jd = store.get_jd("j1")
+    assert jd.description == "JD body"
+    assert jd.title == "Staff Eng"
+    assert store.get_jd("missing") is None
 
 
 def test_posting_display_fields_and_roundtrip():

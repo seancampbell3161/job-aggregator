@@ -1,16 +1,13 @@
-import boto3
 import httpx
 import pytest
-from moto import mock_aws
 
 from src.models import FetchResult
 from src.poll_health import (
     DEAD_AFTER_CYCLES, DEFAULT_BACKOFF_SECONDS, classify_outcome,
     retry_after_seconds, update_poll_health,
 )
-from src.state import ConnectorHealthStore
-
-HEALTH_TABLE = "connector_health_test"
+from src.sqlite_db import connect
+from src.state_sqlite import SqliteConnectorHealthStore
 
 
 def _http_error(status: int) -> httpx.HTTPStatusError:
@@ -116,15 +113,7 @@ def test_update_dead_is_noop_when_suppress_dead_false(health):
 
 @pytest.fixture
 def health():
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        ddb.create_table(
-            TableName=HEALTH_TABLE,
-            AttributeDefinitions=[{"AttributeName": "connector_name", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "connector_name", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        yield ConnectorHealthStore(table_name=HEALTH_TABLE)
+    yield SqliteConnectorHealthStore(connect(":memory:"))
 
 
 def test_update_suppresses_after_threshold_consecutive_dead(health):

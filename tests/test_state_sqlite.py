@@ -153,6 +153,7 @@ def _norm(job_id="greenhouse:acme:9", title="Platform Engineer"):
 def test_mark_suppressed_stores_rationale_and_display_fields():
     from src.sqlite_db import connect
     from src.state_sqlite import SqliteSeenJobsStore
+    from tests.sqlite_helpers import raw_seen_item
     s = SqliteSeenJobsStore(connect(":memory:"))
     s.mark_suppressed("greenhouse:acme:9", score=3, rationale="Weak fit", posting=_norm())
     rows = s.list_suppressed_details(since_iso="")
@@ -162,6 +163,8 @@ def test_mark_suppressed_stores_rationale_and_display_fields():
     assert it["rationale"] == "Weak fit"
     assert it["title"] == "Platform Engineer"
     assert it["description_snapshot"] == "Build platforms with Python."
+    raw = raw_seen_item(s, "greenhouse:acme:9")
+    assert raw["notified"] is False
 
 
 def test_mark_suppressed_without_details_still_works():
