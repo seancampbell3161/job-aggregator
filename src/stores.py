@@ -1,8 +1,12 @@
 # src/stores.py
 from __future__ import annotations
 
+import logging
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from src.state_sqlite import (
@@ -37,6 +41,9 @@ def build_stores(cfg: Any = None) -> Stores:
     """Construct every store over one shared SQLite connection
     (JOB_AGG_SQLITE_PATH). cfg is accepted for forward compatibility but
     unused today."""
+    backend = os.environ.get("JOB_AGG_BACKEND")
+    if backend and backend != "sqlite":
+        log.warning("legacy_backend_env_ignored", extra={"value": backend})
     from src.sqlite_db import connect
     from src.state_sqlite import (
         SqliteBuilderSettingsStore,
