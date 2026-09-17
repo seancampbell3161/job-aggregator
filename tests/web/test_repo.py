@@ -1,12 +1,9 @@
-import boto3
 import pytest
 from freezegun import freeze_time
-from moto import mock_aws
 
-from src.state import SeenJobsStore
+from src.sqlite_db import connect
+from src.state_sqlite import SqliteSeenJobsStore
 from src.web.repo import TriageMatch, TriageRepo, filter_sort_search, workplace_type_of
-
-TABLE = "seen_jobs_test"
 
 
 def _m(job_id, *, title="Eng", company="Foo", score=5, gaps=None, status="new",
@@ -171,28 +168,20 @@ def test_stage_timeline_pairs_status_and_short_date():
 
 @pytest.fixture
 def repo():
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        ddb.create_table(
-            TableName=TABLE,
-            AttributeDefinitions=[{"AttributeName": "job_id", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "job_id", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        store = SeenJobsStore(table_name=TABLE)
-        from datetime import datetime, timezone
-        from src.models import NormalizedPosting
-        store.claim_for_notify(
-            "greenhouse:stripe:1", score=8, rationale="fit", gaps=["Kafka"],
-            posting=NormalizedPosting(
-                job_id="greenhouse:stripe:1", title="Senior Backend Engineer",
-                company="Stripe", location_text="Remote (US)", location_tags=frozenset(),
-                seniority="senior", stack=frozenset({"python"}), comp_min=180000,
-                comp_max=220000, apply_url="https://x", description="",
-                posted_at=datetime(2026, 6, 16, tzinfo=timezone.utc), source="greenhouse:stripe",
-            ),
-        )
-        yield TriageRepo(store)
+    store = SqliteSeenJobsStore(connect(":memory:"))
+    from datetime import datetime, timezone
+    from src.models import NormalizedPosting
+    store.claim_for_notify(
+        "greenhouse:stripe:1", score=8, rationale="fit", gaps=["Kafka"],
+        posting=NormalizedPosting(
+            job_id="greenhouse:stripe:1", title="Senior Backend Engineer",
+            company="Stripe", location_text="Remote (US)", location_tags=frozenset(),
+            seniority="senior", stack=frozenset({"python"}), comp_min=180000,
+            comp_max=220000, apply_url="https://x", description="",
+            posted_at=datetime(2026, 6, 16, tzinfo=timezone.utc), source="greenhouse:stripe",
+        ),
+    )
+    yield TriageRepo(store)
 
 
 def test_repo_list_returns_view_models(repo):

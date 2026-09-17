@@ -1,10 +1,10 @@
 from datetime import datetime, timezone
 
-import boto3
 import pytest
-from moto import mock_aws
 
-from src.state import ConnectorHealthStore, DiscoveredSlug, DiscoveredSlugsStore, SeenJobsStore
+from src.sqlite_db import connect
+from src.state import DiscoveredSlug
+from src.state_sqlite import SqliteConnectorHealthStore, SqliteDiscoveredSlugsStore, SqliteSeenJobsStore
 from src.web.ops import (
     HealthSummary, OpsProvider, ScoreAnalytics, connector_health, score_analytics,
 )
@@ -102,27 +102,15 @@ def test_score_analytics_suppressed_defaults_empty():
     assert sum(a.histogram) == 1
 
 
-DISC = "discovered_slugs_test"
-SEEN = "seen_jobs_test"
-
-
 @pytest.fixture
 def provider():
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        for name, key in ((DISC, "connector_name"), (SEEN, "job_id"), ("connector_health_t", "connector_name")):
-            ddb.create_table(
-                TableName=name,
-                AttributeDefinitions=[{"AttributeName": key, "AttributeType": "S"}],
-                KeySchema=[{"AttributeName": key, "KeyType": "HASH"}],
-                BillingMode="PAY_PER_REQUEST",
-            )
-        disc = DiscoveredSlugsStore(table_name=DISC)
-        disc.upsert_ok("greenhouse:ramp", last_posting_count=7)
-        disc.upsert_failed("greenhouse:acme")
-        seen = SeenJobsStore(table_name=SEEN)
-        health = ConnectorHealthStore(table_name="connector_health_t")
-        yield OpsProvider(discovered=disc, seen=seen, health=health, log_group="/g", region="us-east-1")
+    conn = connect(":memory:")
+    disc = SqliteDiscoveredSlugsStore(conn)
+    disc.upsert_ok("greenhouse:ramp", last_posting_count=7)
+    disc.upsert_failed("greenhouse:acme")
+    seen = SqliteSeenJobsStore(conn)
+    health = SqliteConnectorHealthStore(conn)
+    yield OpsProvider(discovered=disc, seen=seen, health=health, log_group="/g", region="us-east-1")
 
 
 def test_provider_health_surfaces_suppressed(provider):

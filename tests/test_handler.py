@@ -1,7 +1,5 @@
-import boto3
 import httpx
 import pytest
-from moto import mock_aws
 
 from src.handler import handler
 
@@ -10,7 +8,6 @@ from src.handler import handler
 def _env(monkeypatch, tmp_path):
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "https://ntfy.test/x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "https://discord.test/x")
-    monkeypatch.setenv("JOB_AGG_SEEN_JOBS_TABLE", "seen_jobs_test")
     monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(tmp_path / "config.yaml"))
     # Minimal config with no sources → handler should produce a zero-result run.
     (tmp_path / "config.yaml").write_text("""
@@ -31,30 +28,10 @@ schedules: {ats_minutes: 2, slow_minutes: 15}
 """)
 
 
-def test_handler_returns_run_summary(monkeypatch):
-    monkeypatch.setenv("JOB_AGG_BACKEND", "dynamodb")
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        ddb.create_table(
-            TableName="seen_jobs_test",
-            AttributeDefinitions=[{"AttributeName": "job_id", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "job_id", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        ddb.create_table(
-            TableName="discovered_slugs",
-            AttributeDefinitions=[{"AttributeName": "connector_name", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "connector_name", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        ddb.create_table(
-            TableName="connector_health_test",
-            AttributeDefinitions=[{"AttributeName": "connector_name", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "connector_name", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        monkeypatch.setenv("JOB_AGG_CONNECTOR_HEALTH_TABLE", "connector_health_test")
-        result = handler({"tier": "ats"}, None)
+def test_run_returns_zero_result_summary_for_empty_sources():
+    import asyncio
+    from src.handler import _run
+    result = asyncio.run(_run(tier="ats"))
     assert result["fetched_count"] == 0
     assert result["matched_count"] == 0
     assert result["tier"] == "ats"
@@ -73,7 +50,13 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_handler_routes_discovery_tier_to_discovery_routine(tmp_path, monkeypatch):
-    """tier=discovery invokes run_discovery instead of run_once."""
+    """tier=discovery invokes run_discovery instead of run_once. board_discovery
+    is explicitly disabled: it's tested on its own in
+    test_discovery_tier_runs_board_sweep, and (unlike the dynamodb backend this
+    test used to run on, where stores.boards was always None) the sqlite
+    backend wires a real boards store, so an unset board_discovery_enabled
+    (default True) would make this test sweep real seed-file domains over the
+    network."""
     cfg_path = tmp_path / "config.yaml"
     cfg_path.write_text(
         """
@@ -96,6 +79,7 @@ discovery:
   enabled: true
   max_validations_per_run: 10
   quarantine_after_failures: 5
+  board_discovery_enabled: false
 schedules:
   ats_minutes: 1
   slow_minutes: 15
@@ -105,35 +89,17 @@ schedules:
     monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    monkeypatch.setenv("JOB_AGG_BACKEND", "dynamodb")
 
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        for table, key in [
-            ("seen_jobs_t", "job_id"),
-            ("source_state_t", "connector_name"),
-            ("discovered_slugs_t", "connector_name"),
-        ]:
-            ddb.create_table(
-                TableName=table,
-                AttributeDefinitions=[{"AttributeName": key, "AttributeType": "S"}],
-                KeySchema=[{"AttributeName": key, "KeyType": "HASH"}],
-                BillingMode="PAY_PER_REQUEST",
-            )
-        monkeypatch.setenv("JOB_AGG_SEEN_JOBS_TABLE", "seen_jobs_t")
-        monkeypatch.setenv("JOB_AGG_SOURCE_STATE_TABLE", "source_state_t")
-        monkeypatch.setenv("JOB_AGG_DISCOVERED_SLUGS_TABLE", "discovered_slugs_t")
+    from src.handler import _run
 
-        from src.handler import _run
+    from unittest.mock import AsyncMock, patch
+    with patch("src.handler.run_discovery", new=AsyncMock()) as mock_disc, \
+         patch("src.handler.recover_suppressed", new=AsyncMock()) as mock_rec:
+        result = await _run(tier="discovery")
 
-        from unittest.mock import AsyncMock, patch
-        with patch("src.handler.run_discovery", new=AsyncMock()) as mock_disc, \
-             patch("src.handler.recover_suppressed", new=AsyncMock()) as mock_rec:
-            result = await _run(tier="discovery")
-
-        mock_disc.assert_called_once()
-        mock_rec.assert_called_once()
-        assert result["tier"] == "discovery"
+    mock_disc.assert_called_once()
+    mock_rec.assert_called_once()
+    assert result["tier"] == "discovery"
 
 
 def _minimal_app_config(*, relevance_kwargs=None, secrets_kwargs=None):
@@ -390,31 +356,21 @@ gap_analysis: {enabled: true, resume_path: "/nonexistent-resume-ok-for-digest.md
     monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "https://discord.test/wh")
-    monkeypatch.setenv("JOB_AGG_BACKEND", "dynamodb")
 
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        ddb.create_table(
-            TableName="seen_jobs_dg",
-            AttributeDefinitions=[{"AttributeName": "job_id", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "job_id", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        monkeypatch.setenv("JOB_AGG_SEEN_JOBS_TABLE", "seen_jobs_dg")
-        from src.state import SeenJobsStore
-        s = SeenJobsStore(table_name="seen_jobs_dg")
-        s.claim_for_notify("g:1", gaps=["Kubernetes", "Kafka"])
-        s.claim_for_notify("g:2", gaps=["Kubernetes"])
+    from src.stores import build_stores
+    s = build_stores().seen
+    s.claim_for_notify("g:1", gaps=["Kubernetes", "Kafka"])
+    s.claim_for_notify("g:2", gaps=["Kubernetes"])
 
-        sent: dict = {}
+    sent: dict = {}
 
-        async def fake_send(client, webhook_url, content):
-            sent["content"] = content
+    async def fake_send(client, webhook_url, content):
+        sent["content"] = content
 
-        from unittest.mock import patch
-        from src.handler import _run
-        with patch("src.handler.send_gap_digest", new=fake_send):
-            result = await _run(tier="digest")
+    from unittest.mock import patch
+    from src.handler import _run
+    with patch("src.handler.send_gap_digest", new=fake_send):
+        result = await _run(tier="digest")
 
     assert result["tier"] == "digest"
     assert result["matches"] == 2
@@ -441,24 +397,14 @@ gap_analysis: {enabled: true, digest_window_days: 30}
     monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    monkeypatch.setenv("JOB_AGG_BACKEND", "dynamodb")
 
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        ddb.create_table(
-            TableName="seen_jobs_rep",
-            AttributeDefinitions=[{"AttributeName": "job_id", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "job_id", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        monkeypatch.setenv("JOB_AGG_SEEN_JOBS_TABLE", "seen_jobs_rep")
-        from src.state import SeenJobsStore
-        s = SeenJobsStore(table_name="seen_jobs_rep")
-        s.claim_for_notify("g:1", gaps=["Kubernetes"])
-        s.claim_for_notify("g:2", gaps=["Kubernetes"])
+    from src.stores import build_stores
+    s = build_stores().seen
+    s.claim_for_notify("g:1", gaps=["Kubernetes"])
+    s.claim_for_notify("g:2", gaps=["Kubernetes"])
 
-        from src.handler import _gaps_report
-        result = await _gaps_report(days=None)
+    from src.handler import _gaps_report
+    result = await _gaps_report(days=None)
 
     assert result["matches"] == 2
     assert result["gaps"] == [("Kubernetes", 2)]
@@ -699,9 +645,9 @@ async def test_run_skips_ops_alerts_without_ops_sinks(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_discovery_tier_runs_board_sweep(tmp_path, monkeypatch):
     """tier=discovery invokes run_board_discovery with stores.boards when
-    board_discovery_enabled and the boards store is present (sqlite backend —
-    unlike test_handler_routes_discovery_tier_to_discovery_routine's dynamodb
-    backend, where stores.boards is None and the sweep stays inert)."""
+    board_discovery_enabled and the boards store is present (unlike
+    test_handler_routes_discovery_tier_to_discovery_routine, whose config
+    disables board_discovery_enabled so the sweep stays inert)."""
     cfg_path = tmp_path / "config.yaml"
     cfg_path.write_text(
         """
@@ -942,7 +888,10 @@ async def test_discovery_tier_board_sweep_exception_does_not_skip_recovery(tmp_p
 async def test_discovery_active_set_includes_rippling_config_slugs(tmp_path, monkeypatch):
     """Rider (conversion-chain spec): the discovery-tier active_set build
     enumerates all 6 slug families — a config-listed rippling slug must not
-    be re-probed by discovery."""
+    be re-probed by discovery. board_discovery is explicitly disabled (see
+    test_handler_routes_discovery_tier_to_discovery_routine's docstring for
+    why: on the sqlite backend, stores.boards is real, and this test doesn't
+    mock run_board_discovery)."""
     cfg_path = tmp_path / "config.yaml"
     cfg_path.write_text(
         """
@@ -966,6 +915,7 @@ discovery:
   enabled: true
   max_validations_per_run: 10
   quarantine_after_failures: 5
+  board_discovery_enabled: false
 schedules:
   ats_minutes: 1
   slow_minutes: 15
@@ -975,30 +925,12 @@ schedules:
     monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    monkeypatch.setenv("JOB_AGG_BACKEND", "dynamodb")
 
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        for table, key in [
-            ("seen_jobs_t", "job_id"),
-            ("source_state_t", "connector_name"),
-            ("discovered_slugs_t", "connector_name"),
-        ]:
-            ddb.create_table(
-                TableName=table,
-                AttributeDefinitions=[{"AttributeName": key, "AttributeType": "S"}],
-                KeySchema=[{"AttributeName": key, "KeyType": "HASH"}],
-                BillingMode="PAY_PER_REQUEST",
-            )
-        monkeypatch.setenv("JOB_AGG_SEEN_JOBS_TABLE", "seen_jobs_t")
-        monkeypatch.setenv("JOB_AGG_SOURCE_STATE_TABLE", "source_state_t")
-        monkeypatch.setenv("JOB_AGG_DISCOVERED_SLUGS_TABLE", "discovered_slugs_t")
-
-        from src.handler import _run
-        from unittest.mock import AsyncMock, patch
-        with patch("src.handler.run_discovery", new=AsyncMock()) as mock_disc, \
-             patch("src.handler.recover_suppressed", new=AsyncMock()):
-            await _run(tier="discovery")
+    from src.handler import _run
+    from unittest.mock import AsyncMock, patch
+    with patch("src.handler.run_discovery", new=AsyncMock()) as mock_disc, \
+         patch("src.handler.recover_suppressed", new=AsyncMock()):
+        await _run(tier="discovery")
 
     active_set = mock_disc.call_args.kwargs["active_set"]
     assert ("rippling", "ripco") in active_set

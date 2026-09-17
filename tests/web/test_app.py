@@ -2,76 +2,59 @@ import re
 import time
 from datetime import datetime, timezone
 
-import boto3
 import pytest
 from fastapi.testclient import TestClient
-from moto import mock_aws
 
 from src.models import NormalizedPosting
-from src.state import SeenJobsStore
+from src.sqlite_db import connect
+from src.state_sqlite import SqliteDiscoveredSlugsStore, SqliteSeenJobsStore
 from src.web.analytics import MatchAnalytics, MatchAnalyticsSummary, WeekBucket
 from src.web.app import create_app
 from src.web.funnel import build_funnel, build_pipeline, pipeline_rates
 from src.web.repo import TriageRepo
 
-TABLE = "seen_jobs_test"
-
 
 @pytest.fixture
 def client():
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        ddb.create_table(
-            TableName=TABLE,
-            AttributeDefinitions=[{"AttributeName": "job_id", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "job_id", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        store = SeenJobsStore(table_name=TABLE)
+    conn = connect(":memory:")
+    store = SqliteSeenJobsStore(conn)
 
-        def seed(job_id, title, company, score, gaps, status=None):
-            store.claim_for_notify(
-                job_id, score=score, rationale=f"why {score}", gaps=gaps,
-                posting=NormalizedPosting(
-                    job_id=job_id, title=title, company=company, location_text="Remote (US)",
-                    location_tags=frozenset(), seniority="senior", stack=frozenset({"python"}),
-                    comp_min=180000, comp_max=220000, apply_url=f"https://apply/{job_id}",
-                    description="", posted_at=datetime(2026, 6, 16, tzinfo=timezone.utc),
-                    source=company.lower(),
-                ),
-            )
-            if status:
-                store.set_status(job_id, status)
-
-        seed("greenhouse:stripe:1", "Senior Backend Engineer", "Stripe", 8, ["Kafka", "Kubernetes"])
-        seed("lever:ramp:2", "Staff Software Engineer", "Ramp", 7, [], status="applied")
+    def seed(job_id, title, company, score, gaps, status=None):
         store.claim_for_notify(
-            "adzuna:5001", score=6, rationale="why 6", gaps=[],
+            job_id, score=score, rationale=f"why {score}", gaps=gaps,
             posting=NormalizedPosting(
-                job_id="adzuna:5001", title="Platform Engineer", company="TalentBridge",
-                location_text="Austin, TX", location_tags=frozenset(), seniority="senior",
-                stack=frozenset(), comp_min=None, comp_max=None,
-                apply_url="https://talentbridge.example.com/jobs/42", description="",
-                posted_at=datetime(2026, 7, 17, tzinfo=timezone.utc), source="adzuna",
+                job_id=job_id, title=title, company=company, location_text="Remote (US)",
+                location_tags=frozenset(), seniority="senior", stack=frozenset({"python"}),
+                comp_min=180000, comp_max=220000, apply_url=f"https://apply/{job_id}",
+                description="", posted_at=datetime(2026, 6, 16, tzinfo=timezone.utc),
+                source=company.lower(),
             ),
         )
-        from src.state import DiscoveredSlugsStore
-        from src.web.ops import OpsProvider
-        ddb.create_table(
-            TableName="discovered_slugs_test",
-            AttributeDefinitions=[{"AttributeName": "connector_name", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "connector_name", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        disc = DiscoveredSlugsStore(table_name="discovered_slugs_test")
-        disc.upsert_ok("greenhouse:ramp", last_posting_count=7)
-        disc.upsert_failed("greenhouse:acme")
-        ops = OpsProvider(discovered=disc, seen=store, log_group="/g", region="us-east-1")
-        app = create_app(
-            repo=TriageRepo(store), score_high=7, score_low=4, ops=ops,
-            match_analytics=MatchAnalytics(seen=store),
-        )
-        yield TestClient(app)
+        if status:
+            store.set_status(job_id, status)
+
+    seed("greenhouse:stripe:1", "Senior Backend Engineer", "Stripe", 8, ["Kafka", "Kubernetes"])
+    seed("lever:ramp:2", "Staff Software Engineer", "Ramp", 7, [], status="applied")
+    store.claim_for_notify(
+        "adzuna:5001", score=6, rationale="why 6", gaps=[],
+        posting=NormalizedPosting(
+            job_id="adzuna:5001", title="Platform Engineer", company="TalentBridge",
+            location_text="Austin, TX", location_tags=frozenset(), seniority="senior",
+            stack=frozenset(), comp_min=None, comp_max=None,
+            apply_url="https://talentbridge.example.com/jobs/42", description="",
+            posted_at=datetime(2026, 7, 17, tzinfo=timezone.utc), source="adzuna",
+        ),
+    )
+    from src.web.ops import OpsProvider
+    disc = SqliteDiscoveredSlugsStore(conn)
+    disc.upsert_ok("greenhouse:ramp", last_posting_count=7)
+    disc.upsert_failed("greenhouse:acme")
+    ops = OpsProvider(discovered=disc, seen=store, log_group="/g", region="us-east-1")
+    app = create_app(
+        repo=TriageRepo(store), score_high=7, score_low=4, ops=ops,
+        match_analytics=MatchAnalytics(seen=store),
+    )
+    yield TestClient(app)
 
 
 def test_inbox_shell_renders(client):
@@ -302,10 +285,8 @@ def test_set_status_missing_row_returns_expired(client):
 
 @pytest.fixture
 def status_suggestion_client(tmp_path, monkeypatch):
-    """Minimal sqlite-backed app: the shared `client` fixture above uses the
-    DynamoDB-backed SeenJobsStore, which has no update_email_suggestion
-    method, so it can't exercise /status's suggestion-clearing behavior.
-    Mirrors tests/web/test_board.py's board_client fixture."""
+    """Minimal sqlite-backed app. Mirrors tests/web/test_board.py's
+    board_client fixture."""
     from src.sqlite_db import connect
     from src.state_sqlite import (
         SqliteConnectorHealthStore,
