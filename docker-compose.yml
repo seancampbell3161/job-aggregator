@@ -3,36 +3,33 @@ services:
     build: .
     command: ["python", "-m", "src.scheduler"]
     restart: unless-stopped
-    env_file: .env
+    # Optional. Secrets can live in .env (a non-empty JOB_AGG_* value wins) or
+    # in the app database (python -m src.settings set-secret NAME).
+    env_file:
+      - path: .env
+        required: false
     environment:
       JOB_AGG_SQLITE_PATH: /data/job_aggregator.db
       JOB_AGG_TAILORED_DIR: /data/tailored
-      # Local Ollama container by default; set JOB_AGG_OLLAMA_HOST in .env
-      # (e.g. https://ollama.com) to use hosted Ollama Cloud instead.
-      JOB_AGG_OLLAMA_HOST: ${JOB_AGG_OLLAMA_HOST:-http://ollama:11434}
+      JOB_AGG_TEMPLATES_DIR: /data/templates
     volumes:
+      # Everything persistent — settings, documents, secrets, jobs, tailored
+      # PDFs, résumé template packs — lives in ./data. Load settings with:
+      #   docker compose run --rm -v "$PWD:/import:ro" web python -m src.settings import /import
       - ./data:/data
-      - ./config.yaml:/app/config.yaml:ro
-      - ./profile.md:/app/profile.md:ro
-      # gap_analysis users: add `- ./resume.md:/app/resume.md:ro` here
-      # (resume.md does not exist by default; see resume.md.example)
-      - ./resume:/app/resume:ro
-      # Nested mount shadows the parent :ro mount for this subdir only, so
-      # template uploads/staging/accept/delete can write here.
-      - ./resume/templates:/app/resume/templates
 
   web:
     build: .
     command: ["python", "-m", "src.web"]
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       JOB_AGG_SQLITE_PATH: /data/job_aggregator.db
       JOB_AGG_TAILORED_DIR: /data/tailored
+      JOB_AGG_TEMPLATES_DIR: /data/templates
       JOB_AGG_WEB_HOST: 0.0.0.0
-      # Local Ollama container by default; set JOB_AGG_OLLAMA_HOST in .env
-      # (e.g. https://ollama.com) to use hosted Ollama Cloud instead.
-      JOB_AGG_OLLAMA_HOST: ${JOB_AGG_OLLAMA_HOST:-http://ollama:11434}
     ports:
       # WARNING: the web UI has NO authentication. "8000:8000" publishes it on
       # every interface, so anyone who can route to this host can read your
@@ -42,14 +39,6 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/data
-      - ./config.yaml:/app/config.yaml:ro
-      - ./profile.md:/app/profile.md:ro
-      # gap_analysis users: add `- ./resume.md:/app/resume.md:ro` here
-      # (resume.md does not exist by default; see resume.md.example)
-      - ./resume:/app/resume:ro
-      # Nested mount shadows the parent :ro mount for this subdir only, so
-      # template uploads/staging/accept/delete can write here.
-      - ./resume/templates:/app/resume/templates
 
   ollama:
     image: ollama/ollama:latest
