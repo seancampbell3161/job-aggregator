@@ -31,11 +31,13 @@ services:
       JOB_AGG_TEMPLATES_DIR: /data/templates
       JOB_AGG_WEB_HOST: 0.0.0.0
     ports:
-      # WARNING: the web UI has NO authentication. "8000:8000" publishes it on
-      # every interface, so anyone who can route to this host can read your
-      # résumé, applications and apply-kit answers. On a shared or untrusted
-      # network use "127.0.0.1:8000:8000" instead and reach it over Tailscale
-      # or an SSH tunnel. Never port-forward this to the internet.
+      # The UI requires a login. The first visitor creates the password, so set
+      # it right after `up` — or beforehand with
+      #   docker compose run --rm -it web python -m src.settings set-password
+      # Plain HTTP sends that password in cleartext: on a network you don't
+      # trust, publish "127.0.0.1:8000:8000" and reach it over Tailscale or an
+      # SSH tunnel, or put an HTTPS reverse proxy in front. Never port-forward
+      # plain HTTP to the internet.
       - "8000:8000"
     volumes:
       - ./data:/data

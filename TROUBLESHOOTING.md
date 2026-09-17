@@ -96,6 +96,11 @@ response, timeout) the posting is delivered **unscored** rather than dropped. So
 | A triaged match disappeared | "New" and "Dismissed" matches expire after the 60-day TTL. | Move a match to Interested/Applied/Interviewing — that drops the TTL so it persists. |
 | `/analytics` stretch-skills panel shows a hint | `gap_analysis` isn't enabled, or no annotated matches yet. | Enable `gap_analysis` (Getting Started §2f); it populates as matches accrue. |
 | Tailor deep-link in an alert doesn't work | `tailor_endpoint_url` unset, the URL isn't reachable from your phone, or the résumé artifacts are missing. | Set `tailor_endpoint_url` (`set-secret tailor_endpoint_url`, or `JOB_AGG_TAILOR_ENDPOINT_URL` in `.env`) to a reachable URL (LAN IP or Tailscale/Cloudflare Tunnel) — the signing secret is generated automatically; import `resume/content.json` + `resume/evidence.json` (see `resume/README.md`). |
+| Forgot the web UI password, or locked out | There is no email reset — the password lives only in the app database. | `docker compose run --rm -it web python -m src.settings set-password` sets a new one and signs every device out. |
+| A phone or laptop that was signed in is lost | Its session stays valid until it goes 30 days unused. | `docker compose run --rm web python -m src.settings sign-out-everywhere` ends every session (the password is unchanged), or change the password at `/account/password`. |
+| Sign-in says **Too many attempts. Try again in N s.** | More than 5 wrong passwords in a row, from any device. Each further failure doubles the wait, up to 5 minutes. | Wait it out; browsers that are already signed in keep working. If someone else is guessing, take the port off that network. |
+| A form or button fails with **Cross-origin request blocked** | The browser reported the request as coming from another site — usually a reverse proxy that rewrites the `Host` header. `docker compose logs web` shows `cross_origin_blocked` with the `Origin` and `Host` it saw. | Make the proxy pass the original `Host` through (nginx: `proxy_set_header Host $host;`), or serve the UI over HTTPS. |
+| Every page says **Cannot read the login database.** | The web service can't read `./data/job_aggregator.db`. | `docker compose logs web`; check the `./data` mount and file permissions. |
 
 ---
 
