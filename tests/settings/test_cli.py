@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
+from src.auth.service import AuthService
+from src.auth.store import SqliteAuthStore
 from src.settings.cli import main
+from src.sqlite_db import connect
+from tests.auth_helpers import cheap_hasher
 from tests.settings_helpers import make_service
 
 REPO = Path(__file__).resolve().parents[2]
@@ -221,3 +225,78 @@ def test_export_then_import_after_add_source_needs_no_force(tmp_path, capsys):
 
     assert main(["import", str(tmp_path / "export")], service=svc) == 0
     assert svc.snapshot().cfg.sources.greenhouse == ["stripe"]
+
+
+def _auth() -> AuthService:
+    return AuthService(SqliteAuthStore(connect(":memory:")), hasher=cheap_hasher())
+
+
+class _Tty(io.StringIO):
+    def isatty(self):
+        return True
+
+
+def test_set_password_from_prompts(monkeypatch, capsys):
+    auth = _auth()
+    answers = iter(["new password 1", "new password 1"])
+    monkeypatch.setattr(sys, "stdin", _Tty())
+    monkeypatch.setattr("src.settings.cli.getpass.getpass", lambda prompt: next(answers))
+    assert main(["set-password"], auth=auth) == 0
+    assert auth.login("new password 1") is not None
+    out = capsys.readouterr()
+    assert "new password 1" not in out.out + out.err
+
+
+def test_set_password_mismatched_prompts_write_nothing(monkeypatch, capsys):
+    auth = _auth()
+    answers = iter(["new password 1", "new password 2"])
+    monkeypatch.setattr(sys, "stdin", _Tty())
+    monkeypatch.setattr("src.settings.cli.getpass.getpass", lambda prompt: next(answers))
+    assert main(["set-password"], auth=auth) == 1
+    assert auth.has_password() is False
+    assert "don't match" in capsys.readouterr().err
+
+
+def test_set_password_from_stdin_ends_every_session(monkeypatch, capsys):
+    auth = _auth()
+    token = auth.claim("old password 1")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("new password 1\n"))
+    assert main(["set-password"], auth=auth) == 0
+    assert auth.resolve(token) is None
+    assert auth.login("new password 1") is not None
+    assert "ended 1 session" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("stdin", ["\n", "", "short\n"])
+def test_set_password_rejects_short_input_and_writes_nothing(monkeypatch, capsys, stdin):
+    auth = _auth()
+    monkeypatch.setattr(sys, "stdin", io.StringIO(stdin))
+    assert main(["set-password"], auth=auth) == 1
+    assert auth.has_password() is False
+    assert "at least 8 characters" in capsys.readouterr().err
+
+
+def test_set_password_never_takes_the_value_from_argv():
+    with pytest.raises(SystemExit) as exc:
+        main(["set-password", "on-argv-password"], auth=_auth())
+    assert exc.value.code == 2
+
+
+def test_sign_out_everywhere(capsys):
+    auth = _auth()
+    token = auth.claim("old password 1")
+    assert main(["sign-out-everywhere"], auth=auth) == 0
+    assert auth.resolve(token) is None
+    assert auth.login("old password 1") is not None
+    assert "ended 1 session" in capsys.readouterr().out
+
+
+def test_status_shows_the_login_state(capsys):
+    auth = _auth()
+    assert main(["status"], service=make_service(), auth=auth) == 0
+    out = capsys.readouterr().out
+    assert "login password: not set" in out and "active sessions: 0" in out
+    auth.claim("old password 1")
+    assert main(["status"], service=make_service(), auth=auth) == 0
+    out = capsys.readouterr().out
+    assert "login password: set" in out and "active sessions: 1" in out

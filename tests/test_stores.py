@@ -44,5 +44,14 @@ def test_state_module_has_no_aws_dependency():
 def test_stores_requires_every_store():
     import dataclasses
     fields = dataclasses.fields(Stores)
-    assert len(fields) == 11
+    assert len(fields) == 12
     assert all(f.default is dataclasses.MISSING for f in fields)
+
+
+def test_build_stores_gives_auth_its_own_connection(monkeypatch, tmp_path):
+    from src.auth.store import SqliteAuthStore
+    monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
+    stores = build_stores()
+    assert isinstance(stores.auth, SqliteAuthStore)
+    assert stores.auth._conn is not stores.seen._conn
+    assert stores.auth._conn is not stores.settings._conn

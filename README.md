@@ -86,15 +86,15 @@ The same local web app (`python -m src.web`, or the `web` service in Docker) ser
 several pages over the same state as the pipeline:
 
 > [!WARNING]
-> **The web UI has no authentication of any kind, and must never be exposed to the
-> internet.** There is no login, no session, and no access control — anyone who can
-> reach the port can read everything: your résumé and its tailored variants, every
-> job you have applied to and its status, your apply-kit answers (work authorization,
-> personal links, EEO responses) and any Gmail-derived data. The Docker `web` service
-> binds `0.0.0.0` and publishes `8000:8000`, so on a shared or public network it is
-> reachable by anyone who can route to the host. Keep it on a trusted network, put it
-> behind a private overlay such as Tailscale, or bind it to loopback by publishing
-> `127.0.0.1:8000:8000` in `docker-compose.yml`. Do not port-forward it.
+> **Keep the web UI off the public internet.** It requires a login — the first
+> visit asks you to create the password (or set it beforehand with
+> `python -m src.settings set-password`) — but the Docker `web` service serves
+> plain HTTP on `0.0.0.0:8000`. On an untrusted network that password and
+> everything the UI shows (your résumé and its tailored variants, applications,
+> apply-kit answers, Gmail-derived data) cross the network unencrypted. Keep it on
+> a trusted network, reach it over a private overlay such as Tailscale, bind it to
+> loopback by publishing `127.0.0.1:8000:8000` in `docker-compose.yml`, or put an
+> HTTPS reverse proxy in front. Do not port-forward it.
 
 
 - **Triage inbox** (`/`) — browse, search, and filter notified matches; set a status (New → Interested → Applied → Interviewing, or Dismissed) and click through to apply.

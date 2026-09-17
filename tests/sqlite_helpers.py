@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
+from src.auth.store import SqliteAuthStore
 from src.settings.store import SqliteSettingsStore
 from src.state_sqlite import (
     SqliteBuilderSettingsStore,
@@ -54,4 +55,5 @@ def sqlite_stores(conn: sqlite3.Connection) -> Stores:
         coach=SqliteCoachRunsStore(conn),
         builder=SqliteBuilderSettingsStore(conn),
         settings=SqliteSettingsStore(conn),
+        auth=SqliteAuthStore(conn),
     )

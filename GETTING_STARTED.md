@@ -440,17 +440,26 @@ docker compose run --rm web python -m src.settings status
 ### A4. Open the web UI
 
 `http://localhost:8000` — or `http://<this-box-lan-ip>:8000` from your phone or
-laptop on the same network.
+laptop on the same network. The first visit asks you to **create the password**
+that protects the UI. Do it right after starting the stack: until it's set,
+whoever opens the page first chooses it. To set it from the terminal instead
+(before or after starting the stack):
+
+```bash
+docker compose run --rm -it web python -m src.settings set-password
+```
+
+Each browser signs in once and stays signed in until it goes 30 days unused.
 
 > [!WARNING]
-> **The UI has no authentication — never expose it to the internet.** Anyone who
-> can reach port 8000 can read your résumé, every application and its status, and
-> your apply-kit answers (work authorization, links, EEO). The LAN address above
-> is reachable by every device on that network, which is fine at home and not
-> fine on shared or public Wi-Fi. To reach it away from home use
-> [Tailscale](#reach-it-from-your-phone-anywhere-tailscale) rather than
-> port-forwarding. To restrict it to this machine only,
-> publish `127.0.0.1:8000:8000` in `docker-compose.yml`.
+> **Keep it off the public internet.** The UI is served over plain HTTP, so the
+> password and everything the UI shows — your résumé, every application and its
+> status, your apply-kit answers — cross the network unencrypted. That's fine on
+> your home network and not fine on shared or public Wi-Fi. To reach it away from
+> home use [Tailscale](#reach-it-from-your-phone-anywhere-tailscale) (encrypted)
+> rather than port-forwarding. To restrict it to this machine only, publish
+> `127.0.0.1:8000:8000` in `docker-compose.yml`. Behind an HTTPS reverse proxy,
+> set `FORWARDED_ALLOW_IPS` to the proxy's address (see `.env.example`).
 
 Everything persists in **`./data`** — settings, secrets you stored, jobs,
 generated PDFs, template packs — which is git-ignored. Back it up by copying
@@ -465,6 +474,8 @@ that folder. Jump to
 docker compose logs -f poller          # follow the poller (or: web)
 docker compose run --rm -v "$PWD:/import:ro" web python -m src.settings import /import   # apply edits (live)
 docker compose run --rm web python -m src.settings status       # setup state + secret origins
+docker compose run --rm -it web python -m src.settings set-password   # new web UI password; signs every device out
+docker compose run --rm web python -m src.settings sign-out-everywhere # lost a device: end every session
 docker compose up -d --build           # apply new code (after git pull)
 docker compose down                    # stop everything (add --profile ollama
                                        # if you started Ollama). Data survives in ./data
@@ -535,6 +546,8 @@ fine).
    resume"** action on an alert. The same address also serves the whole triage UI
    — `http://<hostname>.<tailnet>.ts.net:8000` works from anywhere your phone has
    signal, replacing the LAN-only access from [§A4](#a4-open-the-web-ui).
+   The tailor link and its PDF download need no sign-in — the signed link is
+   the key. Every other page asks you to sign in once on each device.
 
 > **The box must stay awake and online** for the phone to reach it. On a Mac
 > mini, prevent sleep (System Settings → Energy, or `caffeinate`); a server/NAS

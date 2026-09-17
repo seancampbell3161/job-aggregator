@@ -16,11 +16,29 @@ JOB_AGG_WEB_PORT=8901 \
 - Use `.venv/bin/python` / `.venv/bin/pytest` (or `uv run …`) so the project
   venv is the interpreter that runs.
 - `src.sqlite_db.connect(path)` creates the full schema on first open, so a
-  fresh scratch path just works; a fresh DB is **not set up** — every page
-  redirects to `/setup` until you import settings.
+  fresh scratch path just works. A fresh DB has **no password and no
+  settings**: every page redirects to `/welcome` until a password exists, then
+  to `/login` without a session, then to `/setup` until you import settings.
 - Server binds 127.0.0.1; ready within ~2s (poll with curl).
 - The poller/scheduler is separate (`python -m src.scheduler`) — the web app
   alone renders everything from whatever is in the DB.
+
+## Sign in
+
+Everything except `/static/*`, `/login`, `/welcome`, `/logout`, `/tailor`, and
+`/tailor/pdf` needs a session. Set the password with the CLI (same DB file),
+then sign in with curl and reuse the cookie jar:
+
+```bash
+printf 'verify password 1\n' | JOB_AGG_SQLITE_PATH=/path/to/scratch.db .venv/bin/python -m src.settings set-password
+curl -s -c /tmp/verify-jar -o /dev/null -w '%{http_code} %{redirect_url}\n' \
+  --data-urlencode 'password=verify password 1' http://127.0.0.1:8901/login   # 303
+curl -s -b /tmp/verify-jar http://127.0.0.1:8901/board                        # signed in
+```
+
+Or open `/welcome` in a browser on a fresh DB and create it there. curl posts
+need no extra headers (no `Origin` header = not a browser); a browser's posts
+must be same-origin, or they get `403 Cross-origin request blocked.`
 
 ## Seed settings
 

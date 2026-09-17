@@ -48,8 +48,9 @@ function show(d){{
   document.getElementById('status').style.display='none';
   const out = document.getElementById('result');
   const esc = s => (s||'').replace(/</g,'&lt;');
+  const attr = s => (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
   if(d.error){{ out.innerHTML = '<p class="err">'+esc(d.error)+'</p>'; return; }}
-  let h = '<a class="btn" href="'+d.pdf_url+'">⬇ Download tailored résumé (PDF)</a>';
+  let h = '<a class="btn" href="'+attr(d.pdf_url)+'">⬇ Download tailored résumé (PDF)</a>';
   if(d.fit_warning){{ h += '<p class="err">⚠ '+esc(d.fit_warning)+'</p>'; }}
   if(d.cover_letter){{ h += '<h1>Cover letter</h1><button class="copy" onclick="navigator.clipboard.writeText(document.getElementById(\\'cl\\').innerText)">Copy</button><pre id="cl">'+esc(d.cover_letter)+'</pre>'; }}
   if(d.fit){{ h += '<h1>Fit</h1><pre>Matches:\\n- '+esc((d.fit.matches||[]).join('\\n- '))+'\\n\\nGaps:\\n- '+esc((d.fit.gaps||[]).join('\\n- '))+'</pre>'; }}
@@ -70,4 +71,4 @@ def error_page(message: str) -> str:
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Tailored résumé</title>
 <style>{_STYLE}</style></head><body><div class="wrap">
-<h1>Tailored résumé</h1><p class="err">{_html.escape(message)}</p></div></body></html>"""
+<h1>Tailored résumé</h1><p class="err">{_html.escape(message, quote=True)}</p></div></body></html>"""

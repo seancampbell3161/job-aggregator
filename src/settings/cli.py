@@ -1,7 +1,8 @@
 """python -m src.settings — manage settings stored in the app database.
 
-Settings, documents, and secrets live in SQLite (JOB_AGG_SQLITE_PATH). Files
-are an import/export format only; every change applies live in every process."""
+Settings, documents, secrets, and the web UI login live in SQLite
+(JOB_AGG_SQLITE_PATH). Files are an import/export format only; every change
+applies live in every process."""
 from __future__ import annotations
 
 import argparse
@@ -10,6 +11,8 @@ import sys
 from pathlib import Path
 from typing import Callable
 
+from src.auth.errors import PasswordRejected
+from src.auth.service import AuthService
 from src.config import SLUG_SOURCE_FAMILIES
 from src.settings import EXPORT_TIP
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
@@ -54,6 +57,11 @@ def _parser() -> argparse.ArgumentParser:
     p = sub.add_parser("add-source", help="append a company slug to a sources list")
     p.add_argument("family", choices=SLUG_SOURCE_FAMILIES, metavar="FAMILY")
     p.add_argument("slug")
+
+    sub.add_parser("set-password",
+                   help="set the web UI password (prompt or stdin); ends every session")
+    sub.add_parser("sign-out-everywhere",
+                   help="end every web UI session; the password is unchanged")
 
     sub.add_parser("status", help="setup state, generation, degraded state, secret origins")
     return ap
@@ -141,7 +149,7 @@ def _cmd_add_source(service: ConfigService, args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_status(service: ConfigService, args: argparse.Namespace) -> int:
+def _cmd_status(service: ConfigService, args: argparse.Namespace, *, auth: AuthService) -> int:
     snap = service.snapshot()
     if snap is None:
         print(f"setup: not configured (generation {service.generation()}) — "
@@ -155,9 +163,38 @@ def _cmd_status(service: ConfigService, args: argparse.Namespace) -> int:
                 print(f"  {error['loc'] or '(document)'}: {error['msg']}")
     host, origin = service.ollama_host()
     print(f"ollama host: {host} ({f'env {OLLAMA_HOST_ENV}' if origin == 'env' else origin})")
+    if auth.has_password():
+        print("login password: set")
+    else:
+        print("login password: not set — the first visitor to the web UI creates it "
+              "(or run `python -m src.settings set-password`)")
+    print(f"active sessions: {auth.active_session_count()}")
     print("secrets:")
     for name in SECRET_NAMES:
         print(f"  {name:<26} {service.secret_source(name)}")
+    return 0
+
+
+def _plural_sessions(n: int) -> str:
+    return f"{n} session{'' if n == 1 else 's'}"
+
+
+def _cmd_set_password(auth: AuthService, args: argparse.Namespace) -> int:
+    if sys.stdin.isatty():
+        password = getpass.getpass("New web UI password: ")
+        if getpass.getpass("Confirm password: ") != password:
+            print("error: the passwords don't match. Nothing was written.", file=sys.stderr)
+            return 1
+    else:
+        password = sys.stdin.readline().rstrip("\r\n")
+    ended = auth.set_password(password)
+    print(f"web UI password set; ended {_plural_sessions(ended)} — sign in again in the browser")
+    return 0
+
+
+def _cmd_sign_out_everywhere(auth: AuthService, args: argparse.Namespace) -> int:
+    ended = auth.sign_out_everywhere()
+    print(f"ended {_plural_sessions(ended)}; the password is unchanged")
     return 0
 
 
@@ -170,7 +207,11 @@ _COMMANDS: dict[str, Callable[[ConfigService, argparse.Namespace], int]] = {
     "history": _cmd_history,
     "restore": _cmd_restore,
     "add-source": _cmd_add_source,
-    "status": _cmd_status,
+}
+
+_AUTH_COMMANDS: dict[str, Callable[[AuthService, argparse.Namespace], int]] = {
+    "set-password": _cmd_set_password,
+    "sign-out-everywhere": _cmd_sign_out_everywhere,
 }
 
 
@@ -183,12 +224,28 @@ def _print_error(exc: Exception) -> None:
         print(f"error: {exc}", file=sys.stderr)
 
 
-def main(argv: list[str] | None = None, *, service: ConfigService | None = None) -> int:
+def main(
+    argv: list[str] | None = None,
+    *,
+    service: ConfigService | None = None,
+    auth: AuthService | None = None,
+) -> int:
     args = _parser().parse_args(argv)
+    if auth is None and (args.command in _AUTH_COMMANDS or args.command == "status"):
+        from src.auth import open_auth_service
+        auth = open_auth_service()
+    if args.command in _AUTH_COMMANDS:
+        try:
+            return _AUTH_COMMANDS[args.command](auth, args)
+        except PasswordRejected as exc:
+            print(f"error: {exc} Nothing was written.", file=sys.stderr)
+            return 1
     if service is None:
         from src.settings import open_service
         service = open_service()
     try:
+        if args.command == "status":
+            return _cmd_status(service, args, auth=auth)
         return _COMMANDS[args.command](service, args)
     except (SettingsInvalid, NotConfigured, StaleWrite, ImportFailed, ValueError) as exc:
         _print_error(exc)

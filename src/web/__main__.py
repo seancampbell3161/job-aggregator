@@ -9,12 +9,13 @@ from src.web.app import create_app
 
 
 def _startup_repo_ok(app) -> bool:
-    """Verify the SQLite DB — jobs and settings — is readable before binding
-    the port, so a path/permission problem prints a friendly one-liner
-    instead of a stack trace on first click."""
+    """Verify the SQLite DB — jobs, settings, and the login — is readable
+    before binding the port, so a path/permission problem prints a friendly
+    one-liner instead of a stack trace on first click."""
     try:
         app.state.repo.list()
         app.state.service.snapshot()
+        app.state.auth.has_password()
         return True
     except Exception as exc:  # noqa: BLE001 — friendly startup diagnostic
         path = os.environ.get("JOB_AGG_SQLITE_PATH", "data/job_aggregator.db")

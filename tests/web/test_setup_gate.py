@@ -1,13 +1,12 @@
 """The not-set-up gate, per-request snapshots, and the degraded banner."""
 from datetime import datetime, timezone
 
-from fastapi.testclient import TestClient
-
 from src.models import NormalizedPosting
 from src.settings.service import ConfigService
 from src.settings.store import SqliteSettingsStore
 from src.sqlite_db import connect
 from src.web.app import create_app
+from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import configured_stores, make_service
 from tests.sqlite_helpers import sqlite_stores
 
@@ -15,7 +14,7 @@ from tests.sqlite_helpers import sqlite_stores
 def _client(tmp_path, monkeypatch, service, stores=None):
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
     stores = stores if stores is not None else sqlite_stores(connect(":memory:"))
-    return TestClient(create_app(stores=stores, service=service), follow_redirects=False)
+    return signed_in_client(create_app(stores=stores, service=service), follow_redirects=False)
 
 
 def test_pages_redirect_to_setup_until_configured(tmp_path, monkeypatch):
@@ -40,13 +39,14 @@ def test_exempt_prefixes_are_not_redirected(tmp_path, monkeypatch):
     assert client.get("/static/app.css").status_code == 200
     r = client.get("/tailor", params={"job_id": "j1", "t": "bad"})
     assert r.status_code == 200  # the route's own invalid-link page, not a redirect
+    r = client.get("/tailor/pdf", params={"job_id": "j1", "t": "bad"})
+    assert r.status_code == 403  # the route's own invalid-link page, not a redirect
 
 
 def test_exemptions_match_whole_path_segments_only(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch, make_service())
-    assert client.get("/tailored/x.pdf").status_code == 404  # served by the static mount, not gated
     assert client.get("/static/app.css").status_code == 200
-    for path in ("/setupfoo", "/tailor-history", "/statically", "/tailoredx"):
+    for path in ("/setupfoo", "/tailor-history", "/statically", "/tailoredx", "/tailored/x.pdf"):
         r = client.get(path)
         assert r.status_code == 303, path
         assert r.headers["location"] == "/setup"

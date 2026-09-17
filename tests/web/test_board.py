@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 
 import pytest
-from fastapi.testclient import TestClient
 from freezegun import freeze_time
 
 from src.models import NormalizedPosting
@@ -9,6 +8,7 @@ from src.sqlite_db import connect
 from src.web.app import create_app
 from src.web.board import ACTIVE_COLUMNS, Board, BoardProvider
 from src.web.repo import TriageMatch, TriageRepo
+from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import configured_stores
 
 
@@ -100,7 +100,7 @@ def board_client(tmp_path, monkeypatch):
     seen.set_status("greenhouse:acme:applied-card", "applied")
 
     app = create_app(repo=TriageRepo(seen), stores=stores)
-    return TestClient(app), seen
+    return signed_in_client(app), seen
 
 
 def test_board_card_renders_posting_closed_badge(board_client):

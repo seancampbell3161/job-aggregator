@@ -253,3 +253,18 @@ header { display: flex; align-items: baseline; gap: 16px; }
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .config-banner { padding: 10px 16px; font-size: 14px; color: #f4c77a;
                  background: rgba(245,158,11,.12); border-bottom: 1px solid rgba(245,158,11,.55); }
+
+/* ---- Sign-in, create-password, and change-password forms; header account links ---- */
+.auth-page { display: flex; justify-content: center; padding: 8vh 16px 0; }
+.auth-form { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 360px; }
+.auth-form h1 { font-size: 18px; margin: 0; }
+.auth-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.auth-form input { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface-2); color: var(--text); }
+.auth-form p { margin: 0; }
+.auth-error { color: #f3b0b0; background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.4);
+  border-radius: 6px; padding: 6px 9px; font-size: 12px; }
+.auth-ok { color: var(--accent); }
+.account { margin-left: auto; display: flex; gap: 12px; align-items: baseline; font-size: 13px; }
+.account a { color: var(--accent); text-decoration: none; }
+.account form { margin: 0; }

@@ -38,6 +38,12 @@
       <a href="/kit">Kit</a>
       <a href="/builder">Builder</a>
     </nav>
+    {% if request.state.session %}
+    <div class="account">
+      <a href="/account/password">Account</a>
+      <form method="post" action="/logout"><button type="submit">Sign out</button></form>
+    </div>
+    {% endif %}
   </header>
   {% set snap = request.state.snapshot %}
   {% if snap and snap.degraded %}
