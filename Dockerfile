@@ -23,6 +23,8 @@ COPY resume/ /app/resume/
 # at /app/scripts/seeds/enterprise_companies.csv every discovery cycle; without
 # it the discovery tier's board sweep raises FileNotFoundError in prod.
 COPY scripts/seeds/ /app/scripts/seeds/
+# The settings UI reads per-flag help out of the configuration reference.
+COPY docs/CONFIG.md /app/docs/CONFIG.md
 
 ENV JOB_AGG_SQLITE_PATH=/data/job_aggregator.db \
     JOB_AGG_TAILORED_DIR=/data/tailored \
