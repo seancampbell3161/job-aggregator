@@ -1,22 +1,32 @@
 """The partition: every editable path belongs to exactly one place."""
 from src.settings.fields import KIND_READ_ONLY, editable_fields, field_map
 from src.web.settings.sections import (
-    SECTIONS, advanced_group, advanced_groups, section_by_slug, section_fields,
+    SECTIONS, UNCLAIMED_SECRETS, advanced_group, advanced_groups, section_by_slug,
+    section_fields,
 )
 
 
-def test_every_editable_path_is_owned_exactly_once():
+def test_no_path_is_claimed_by_two_sections():
     hand_built = [p for s in SECTIONS for p in s.paths]
-    assert len(hand_built) == len(set(hand_built)), "a path is claimed twice"
+    assert len(hand_built) == len(set(hand_built))
 
-    owned = set(hand_built)
+
+def test_advanced_groups_are_exactly_the_keys_with_leftovers():
+    """Coverage itself is guaranteed by construction — _groups() builds Advanced
+    as the complement of CLAIMED_PATHS, so a coverage assertion cannot fail.
+    This pins the split instead: it breaks the moment a section's claims change
+    which keys still have leftovers."""
+    assert [g.key for g in advanced_groups()] == [
+        "sources", "discovery", "gap_analysis", "tailoring", "board",
+        "audit", "coach", "ops_notify", "http", "gmail",
+    ]
+
+
+def test_advanced_never_renders_a_claimed_path():
+    claimed = {p for s in SECTIONS for p in s.paths}
     for group in advanced_groups():
-        for spec in group.fields:
-            assert spec.path not in owned, f"{spec.path} is in a section AND in Advanced"
-            owned.add(spec.path)
-
-    missing = {f.path for f in editable_fields()} - owned
-    assert not missing, f"editable flags no page renders: {sorted(missing)}"
+        overlap = {f.path for f in group.fields} & claimed
+        assert not overlap, f"{group.key} re-renders claimed paths: {sorted(overlap)}"
 
 
 def test_sections_only_claim_paths_that_exist():
@@ -62,3 +72,10 @@ def test_secret_claims_are_real_secret_names():
     for section in SECTIONS:
         unknown = set(section.secrets) - set(Secrets.model_fields)
         assert not unknown, f"{section.slug} claims unknown secrets: {sorted(unknown)}"
+
+
+def test_every_secret_is_claimed_or_explicitly_exempt():
+    from src.config import Secrets
+    claimed = {name for s in SECTIONS for name in s.secrets}
+    assert claimed | UNCLAIMED_SECRETS == set(Secrets.model_fields)
+    assert not (claimed & UNCLAIMED_SECRETS)

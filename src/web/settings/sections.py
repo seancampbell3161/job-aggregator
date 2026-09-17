@@ -94,6 +94,15 @@ SECTIONS: tuple[Section, ...] = (
 
 CLAIMED_PATHS: frozenset[str] = frozenset(p for s in SECTIONS for p in s.paths)
 
+# Secrets no settings page offers. tailor_signing_secret is generated on first
+# boot by ConfigService.ensure_signing_secret() and editing it would silently
+# invalidate every deep link already sent to the user's phone, so it stays
+# CLI-only by design. The rest are claimed by the integrations section.
+UNCLAIMED_SECRETS: frozenset[str] = frozenset({
+    "adzuna_app_id", "adzuna_app_key", "gmail_address", "gmail_app_password",
+    "tailor_endpoint_url", "tailor_signing_secret",
+})
+
 _BY_SLUG = {s.slug: s for s in SECTIONS}
 
 
