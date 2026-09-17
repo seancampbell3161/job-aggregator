@@ -1089,3 +1089,43 @@ def test_ollama_builders_use_the_configured_host(monkeypatch):
     })
     assert handler._build_relevance_scorer(cfg, "# profile") is not None
     assert captured["host"] == "http://gpu-box:11434"
+
+
+@pytest.mark.asyncio
+async def test_run_without_notification_secrets_keeps_matches_for_the_web_ui(monkeypatch):
+    """No ntfy/Discord secrets means no sinks. A match must still land in the
+    inbox (seen_jobs) and must not be re-fetched as new and re-scored next cycle."""
+    from datetime import datetime, timezone
+
+    from src.handler import _run
+    from src.models import FetchResult, RawPosting
+    from src.stores import build_stores
+
+    for name in ("NTFY_TOPIC_URL", "DISCORD_WEBHOOK_URL", "OPS_NTFY_TOPIC_URL",
+                 "OPS_DISCORD_WEBHOOK_URL", "HEARTBEAT_URL"):
+        monkeypatch.delenv(f"JOB_AGG_{name}", raising=False)
+
+    posting = RawPosting(
+        source="greenhouse:acme", external_id="1",
+        title="Senior Software Engineer", description="Python services.",
+        apply_url="https://boards.greenhouse.io/acme/jobs/1", location="Remote, US",
+        posted_at=datetime.now(timezone.utc), comp_min=180_000, comp_max=240_000,
+    )
+
+    class OnePostingConnector:
+        name = "greenhouse:acme"
+        tier = "ats"
+
+        async def fetch(self, client, state):
+            return FetchResult(postings=[posting], new_state=None, not_modified=False)
+
+    monkeypatch.setattr("src.handler.build_connectors",
+                        lambda *args, **kwargs: [OnePostingConnector()])
+
+    first = await _run(tier="ats")
+    assert (first["new_count"], first["matched_count"], first["notified_count"]) == (1, 1, 0)
+    assert [m["job_id"] for m in build_stores().seen.list_matches()] == ["greenhouse:acme:1"]
+
+    second = await _run(tier="ats")
+    assert second["new_count"] == 0
+    assert second["matched_count"] == 0

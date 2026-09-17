@@ -147,6 +147,35 @@ async def test_run_once_does_not_mark_seen_when_all_sinks_fail(store):
 
 
 @pytest.mark.asyncio
+async def test_run_once_keeps_the_claim_when_no_sinks_are_configured(store):
+    """No notification sinks is a valid setup (matches land in the web UI
+    only): the claimed row must stay, not be released as a total send failure."""
+    seen, src_state = store
+    posting = RawPosting(
+        source="greenhouse:stripe", external_id="1",
+        title="Senior Backend Engineer", description="Python and Go.",
+        apply_url="https://x", location="Remote",
+        comp_min=180_000, comp_max=240_000,
+    )
+    conn = _StubConnector("greenhouse:stripe", [posting])
+
+    first = await run_once(
+        cfg=_cfg(), tier="ats", store=seen, source_state=src_state, connectors=[conn], sinks=[],
+        client_factory=lambda: httpx.AsyncClient(),
+    )
+    assert first.matched_count == 1
+    assert seen.diff_new(["greenhouse:stripe:1"]) == []
+    assert [m["job_id"] for m in seen.list_matches()] == ["greenhouse:stripe:1"]
+
+    second = await run_once(
+        cfg=_cfg(), tier="ats", store=seen, source_state=src_state, connectors=[conn], sinks=[],
+        client_factory=lambda: httpx.AsyncClient(),
+    )
+    assert second.new_count == 0
+    assert second.matched_count == 0
+
+
+@pytest.mark.asyncio
 async def test_run_once_isolates_connector_failures(store):
     seen, src_state = store
     cfg = _cfg()
