@@ -5,9 +5,7 @@ entrypoint the Lambda uses, on cadences read from config.schedules. Run as
 `python -m src.scheduler`. The Lambda path is unaffected.
 
 A fifth job (`prune`) runs daily at 04:00 UTC and calls
-SqliteSeenJobsStore.prune_expired() to remove expired rows that DynamoDB
-would handle via native TTL. The DynamoDB store does not have this method;
-the job is a no-op in that backend."""
+SqliteSeenJobsStore.prune_expired() to remove TTL-expired rows."""
 
 from __future__ import annotations
 
@@ -62,19 +60,14 @@ def _integrity_check() -> None:
 
 
 def _prune(cfg: AppConfig) -> None:
-    """Daily maintenance: remove expired seen-jobs rows (SQLite lacks DynamoDB's
-    native TTL) and sweep the audit trail past its retention window. Each part
-    no-ops on backends that don't wire the store; failures are logged, never
-    re-raised, so the daemon keeps running."""
+    """Daily maintenance: remove expired seen-jobs rows and sweep the audit
+    trail past its retention window. Failures are logged, never re-raised,
+    so the daemon keeps running."""
     try:
         stores = build_stores(cfg)
-        prune = getattr(stores.seen, "prune_expired", None)
-        if prune:
-            removed = prune()
-            log.info("scheduled_prune_complete", extra={"removed": removed})
-        else:
-            log.debug("scheduled_prune_skipped: store has no prune_expired")
-        if stores.rejected is not None and cfg.audit.enabled:
+        removed = stores.seen.prune_expired()
+        log.info("scheduled_prune_complete", extra={"removed": removed})
+        if cfg.audit.enabled:
             removed = stores.rejected.prune_older_than(cfg.audit.retention_days)
             log.info("scheduled_rejected_prune_complete", extra={"removed": removed})
     except Exception:  # noqa: BLE001
@@ -116,10 +109,9 @@ def _board_digest(cfg: AppConfig) -> None:
                 )
 
         sent = asyncio.run(_send())
-        mark = getattr(stores.seen, "mark_closed_notified", None)
-        if sent and mark:
+        if sent:
             for job_id in to_mark:
-                mark(job_id)
+                stores.seen.mark_closed_notified(job_id)
         log.info("scheduled_board_digest_done", extra={"sent": sent, "closed_marked": len(to_mark) if sent else 0})
     except Exception:  # noqa: BLE001
         log.exception("scheduled_board_digest_failed")

@@ -28,8 +28,7 @@ def register_tailor_routes(app: FastAPI) -> None:
             return HTMLResponse(error_page("This link has expired or is invalid."))
 
         store = request.app.state.stores.seen
-        builder_store = getattr(request.app.state.stores, "builder", None)
-        settings = settings_from_dict(builder_store.get() if builder_store else None)
+        settings = settings_from_dict(request.app.state.stores.builder.get())
 
         if run != "1":
             jd = store.get_jd(job_id)

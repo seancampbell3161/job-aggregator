@@ -77,33 +77,17 @@ def test_load_facts_invalid_yaml_raises_facts_error(tmp_path):
 from fastapi.testclient import TestClient
 
 from src.sqlite_db import connect
-from src.state_sqlite import (
-    SqliteConnectorHealthStore,
-    SqliteDiscoveredSlugsStore,
-    SqliteOpsAlertStateStore,
-    SqlitePipelineEventsStore,
-    SqliteRejectedPostingsStore,
-    SqliteSeenJobsStore,
-    SqliteSourceStateStore,
-)
-from src.stores import Stores
 from src.web.app import create_app
 from src.web.repo import TriageRepo
+from tests.sqlite_helpers import sqlite_stores
 
 
 @pytest.fixture
 def kit_client(tmp_path, monkeypatch):
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
     conn = connect(":memory:")
-    seen = SqliteSeenJobsStore(conn)
-    stores = Stores(
-        seen=seen, source_state=SqliteSourceStateStore(conn),
-        discovered=SqliteDiscoveredSlugsStore(conn),
-        health=SqliteConnectorHealthStore(conn),
-        events=SqlitePipelineEventsStore(conn),
-        rejected=SqliteRejectedPostingsStore(conn),
-        alert_state=SqliteOpsAlertStateStore(conn),
-    )
+    stores = sqlite_stores(conn)
+    seen = stores.seen
     facts_path = tmp_path / "facts.yaml"
     app = create_app(repo=TriageRepo(seen), stores=stores,
                      kit_facts_path=str(facts_path))

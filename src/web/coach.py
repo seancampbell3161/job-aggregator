@@ -1,7 +1,7 @@
 """Coach: on-demand LLM recommendations for improving application response
 rates, grounded in the user's own funnel/audit/config/résumé data. Run history
-is local-runtime only — on DynamoDB the provider reports unavailable and the
-page says so instead of 500-ing."""
+reports unavailable when no run store is wired and the page says so instead
+of 500-ing."""
 from __future__ import annotations
 
 import json

@@ -2,21 +2,35 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from src.state_sqlite import (
+        SqliteBuilderSettingsStore,
+        SqliteCoachRunsStore,
+        SqliteConnectorHealthStore,
+        SqliteDiscoveredBoardsStore,
+        SqliteDiscoveredSlugsStore,
+        SqliteOpsAlertStateStore,
+        SqlitePipelineEventsStore,
+        SqliteRejectedPostingsStore,
+        SqliteSeenJobsStore,
+        SqliteSourceStateStore,
+    )
 
 
 @dataclass(frozen=True)
 class Stores:
-    seen: Any
-    source_state: Any
-    discovered: Any
-    health: Any
-    events: Any = None
-    rejected: Any = None
-    alert_state: Any = None
-    boards: Any = None
-    coach: Any = None
-    builder: Any = None
+    seen: SqliteSeenJobsStore
+    source_state: SqliteSourceStateStore
+    discovered: SqliteDiscoveredSlugsStore
+    health: SqliteConnectorHealthStore
+    events: SqlitePipelineEventsStore
+    rejected: SqliteRejectedPostingsStore
+    alert_state: SqliteOpsAlertStateStore
+    boards: SqliteDiscoveredBoardsStore
+    coach: SqliteCoachRunsStore
+    builder: SqliteBuilderSettingsStore
 
 
 def build_stores(cfg: Any = None) -> Stores:

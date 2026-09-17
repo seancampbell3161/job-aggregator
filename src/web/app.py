@@ -244,11 +244,10 @@ def _register_routes(app: FastAPI) -> None:
         if to_status not in VALID_STATUSES:
             raise HTTPException(status_code=400, detail=f"invalid status: {to_status}")
         repo = request.app.state.repo
-        clear = getattr(request.app.state.stores.seen, "update_email_suggestion", None)
+        seen = request.app.state.stores.seen
         for job_id in form.get("ids", []):
             repo.set_status(job_id, to_status)  # missing/expired rows are no-ops
-            if clear:
-                clear(job_id, suggestion=None)
+            seen.update_email_suggestion(job_id, suggestion=None)
         return _render_list(
             request, q=first("q"), status=form.get("status", []),
             min_score=first("min_score"), has_gaps=first("has_gaps") == "true",
@@ -274,9 +273,7 @@ def _register_routes(app: FastAPI) -> None:
         repo = request.app.state.repo
         templates = request.app.state.templates
         repo.set_status(id, status)  # False (vanished row) handled by the get below
-        clear = getattr(request.app.state.stores.seen, "update_email_suggestion", None)
-        if clear:
-            clear(id, suggestion=None)
+        request.app.state.stores.seen.update_email_suggestion(id, suggestion=None)
         m = repo.get(id)
         if m is None:
             return templates.TemplateResponse(

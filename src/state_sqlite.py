@@ -916,10 +916,10 @@ class SqliteOpsAlertStateStore:
 
 
 class SqliteRejectedPostingsStore:
-    """Audit trail of filter-gate rejections (local runtime only; the DynamoDB
-    backend wires this to None). Capture-once: INSERT OR IGNORE on job_id, so a
-    posting re-fetched and re-rejected on later cycles keeps its first record.
-    Retention is enforced by the scheduler's daily prune, not on write."""
+    """Audit trail of filter-gate rejections. Capture-once: INSERT OR IGNORE
+    on job_id, so a posting re-fetched and re-rejected on later cycles keeps
+    its first record. Retention is enforced by the scheduler's daily prune,
+    not on write."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
@@ -1056,10 +1056,10 @@ class SqliteRejectedPostingsStore:
 
 
 class SqliteCoachRunsStore:
-    """Persisted /coach runs (local runtime only; the DynamoDB backend wires
-    this to None). Each row is one LLM run: the snapshot sent, the cards that
-    came back, and an ok/error status. Runs are small and manual, so nothing
-    schedules prune_older_than yet — it exists for a future retention knob."""
+    """Persisted /coach runs. Each row is one LLM run: the snapshot sent, the
+    cards that came back, and an ok/error status. Runs are small and manual,
+    so nothing schedules prune_older_than yet — it exists for a future
+    retention knob."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
@@ -1116,9 +1116,8 @@ class SqliteCoachRunsStore:
 
 
 class SqliteBuilderSettingsStore:
-    """The résumé-builder settings singleton (local runtime only; the DynamoDB
-    backend wires this to None). One JSON row — validation lives in
-    src.tailor.render.settings, not here."""
+    """The résumé-builder settings singleton. One JSON row — validation lives
+    in src.tailor.render.settings, not here."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn

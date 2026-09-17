@@ -288,30 +288,14 @@ def status_suggestion_client(tmp_path, monkeypatch):
     """Minimal sqlite-backed app. Mirrors tests/web/test_board.py's
     board_client fixture."""
     from src.sqlite_db import connect
-    from src.state_sqlite import (
-        SqliteConnectorHealthStore,
-        SqliteDiscoveredSlugsStore,
-        SqliteOpsAlertStateStore,
-        SqlitePipelineEventsStore,
-        SqliteRejectedPostingsStore,
-        SqliteSeenJobsStore,
-        SqliteSourceStateStore,
-    )
-    from src.stores import Stores
+    from tests.sqlite_helpers import sqlite_stores
 
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
     monkeypatch.delenv("JOB_AGG_OPS_NTFY_TOPIC_URL", raising=False)
     monkeypatch.delenv("JOB_AGG_OPS_DISCORD_WEBHOOK_URL", raising=False)
     conn = connect(":memory:")
-    seen = SqliteSeenJobsStore(conn)
-    stores = Stores(
-        seen=seen, source_state=SqliteSourceStateStore(conn),
-        discovered=SqliteDiscoveredSlugsStore(conn),
-        health=SqliteConnectorHealthStore(conn),
-        events=SqlitePipelineEventsStore(conn),
-        rejected=SqliteRejectedPostingsStore(conn),
-        alert_state=SqliteOpsAlertStateStore(conn),
-    )
+    stores = sqlite_stores(conn)
+    seen = stores.seen
     seen.claim_for_notify(
         "greenhouse:acme:1", score=7, rationale="Good fit",
         posting=NormalizedPosting(

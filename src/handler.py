@@ -325,7 +325,7 @@ async def _run(tier: str, dry_run: bool = False, calibrate: bool = False) -> dic
                 cfg=d_cfg,
                 boards=stores.boards,
             )
-            if cfg.discovery.board_discovery_enabled and stores.boards is not None:
+            if cfg.discovery.board_discovery_enabled:
                 try:
                     # Dedicated follow_redirects client: locate_careers_urls needs
                     # post-redirect final URLs, but the shared `client` above (no
@@ -430,7 +430,7 @@ async def _run(tier: str, dry_run: bool = False, calibrate: bool = False) -> dic
     # Local cycle telemetry for the /pipeline ops page. Skip dry-run/calibrate
     # cycles — they don't reflect real polling. Never let a telemetry write
     # break the cycle.
-    if not dry_run and stores.events is not None:
+    if not dry_run:
         try:
             stores.events.record_cycle(
                 tier=tier,
@@ -444,12 +444,9 @@ async def _run(tier: str, dry_run: bool = False, calibrate: bool = False) -> dic
             )
         except Exception:  # noqa: BLE001 — telemetry is best-effort
             log.warning("pipeline_event_record_failed", extra={"tier": tier})
-        # Ops alerts (separate channel; inert unless an ops sink is configured
-        # and the local alert-state store exists). Best-effort by design.
-        if (
-            (cfg.secrets.ops_ntfy_topic_url or cfg.secrets.ops_discord_webhook_url)
-            and stores.alert_state is not None
-        ):
+        # Ops alerts (separate channel; inert unless an ops sink is configured).
+        # Best-effort by design.
+        if cfg.secrets.ops_ntfy_topic_url or cfg.secrets.ops_discord_webhook_url:
             try:
                 evaluator = OpsAlertEvaluator(
                     state=stores.alert_state,

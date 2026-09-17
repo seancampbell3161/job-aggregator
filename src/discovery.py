@@ -275,9 +275,9 @@ async def _run_candidate_chain(
                     company=name,
                 )
                 return budget, "board_ok"
-            # Structured match but no boards store (legacy DynamoDB caller):
-            # nothing can hold the identity — record the definitive slug-side
-            # miss so the row doesn't retry the fingerprint forever.
+            # Structured match but no boards store (caller without a boards
+            # store): nothing can hold the identity — record the definitive
+            # slug-side miss so the row doesn't retry the fingerprint forever.
             methods_tried.append("fingerprint")
         elif result.status in ("not_found", "unsupported"):
             methods_tried.append("fingerprint")  # definitive miss → exhausted
