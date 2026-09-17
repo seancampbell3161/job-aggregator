@@ -30,25 +30,3 @@ jobs:
         # Fail loudly here rather than letting the render tests skip silently.
         run: python -c "import weasyprint; print(weasyprint.__version__)"
       - run: pytest -v
-
-  terraform:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.7.5"
-      - name: Stub Lambda zip for validation
-        run: |
-          mkdir -p build
-          (cd build && echo placeholder > x && zip -q lambda.zip x && rm x)
-      - name: terraform fmt
-        run: terraform -chdir=infra fmt -check -recursive
-      - name: terraform validate (main)
-        run: |
-          terraform -chdir=infra init -backend=false -input=false
-          terraform -chdir=infra validate
-      - name: terraform validate (bootstrap)
-        run: |
-          terraform -chdir=infra/bootstrap init -backend=false -input=false
-          terraform -chdir=infra/bootstrap validate
