@@ -82,3 +82,25 @@ def test_every_config_flag_resolves_help(path):
 
 def test_group_intro_for_a_real_section():
     assert group_intro("discovery")
+
+
+def test_real_docs_render_with_no_residual_markdown():
+    """Sweep the real docs/CONFIG.md: every rendered help string and group
+    intro must be free of a stray `**` or an unbalanced backtick. The
+    per-path non-nullness test can't catch this — it only proves a row was
+    found, not that its rendering is clean — so this is the guard for
+    parser bugs like an intro that swallows a trailing fenced example, or a
+    bold span that can't cross an embedded code span."""
+    for path in sorted(all_paths()):
+        help_ = field_help(path)
+        assert help_ is not None
+        for rendered in (help_.summary, help_.full):
+            assert "**" not in rendered, f"{path}: unrendered bold — {rendered!r}"
+            assert rendered.count("`") % 2 == 0, f"{path}: unbalanced backtick — {rendered!r}"
+
+    import src.settings.help as help_mod
+    _, intros = help_mod._load()
+    assert intros, "the real file should have parsed at least one section intro"
+    for section, intro in intros.items():
+        assert "**" not in intro, f"{section} intro: unrendered bold — {intro!r}"
+        assert intro.count("`") % 2 == 0, f"{section} intro: unbalanced backtick — {intro!r}"

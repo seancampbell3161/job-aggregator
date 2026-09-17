@@ -19,7 +19,7 @@ _DOC_PATH = Path(__file__).resolve().parents[2] / "docs" / "CONFIG.md"
 _PATH_RE = re.compile(r"[a-z_][a-z_0-9]*(?:\.[a-z_0-9]+)+")
 _HEADING_RE = re.compile(r"^##\s+(\S+)\s*$")
 _CODE_RE = re.compile(r"`([^`]+)`")
-_BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 _LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
 
 # Abbreviations whose period does not end a sentence.
@@ -35,7 +35,7 @@ class Help:
 def render_inline(markdown: str) -> str:
     """Escape, then re-introduce the inline markup CONFIG.md actually uses.
     Deliberately not a markdown dependency — three constructs, one pass each."""
-    out = html.escape(markdown, quote=False)
+    out = html.escape(markdown)
     out = _LINK_RE.sub(lambda m: f'<a href="{m.group(2)}">{m.group(1)}</a>', out)
     out = _BOLD_RE.sub(r"<strong>\1</strong>", out)
     out = _CODE_RE.sub(r"<code>\1</code>", out)
@@ -74,6 +74,7 @@ def parse(text: str) -> tuple[dict[str, Help], dict[str, str]]:
     intros: dict[str, str] = {}
     section: str | None = None
     intro_lines: list[str] = []
+    table_seen = False
 
     def flush() -> None:
         if section is not None:
@@ -83,17 +84,22 @@ def parse(text: str) -> tuple[dict[str, Help], dict[str, str]]:
         heading = _HEADING_RE.match(line)
         if heading:
             flush()
-            section, intro_lines = heading.group(1), []
+            section, intro_lines, table_seen = heading.group(1), [], False
             continue
-        parsed = _row(line)
-        if parsed is not None:
-            path, description = parsed
-            helps[path] = Help(
-                summary=render_inline(_first_sentence(description)),
-                full=render_inline(description),
-            )
+        if line.startswith("|"):
+            # The first table line — header, separator, or a flag row — ends
+            # the section's intro prose; anything after it (trailing notes,
+            # fenced examples) is not "the prose under the heading".
+            table_seen = True
+            parsed = _row(line)
+            if parsed is not None:
+                path, description = parsed
+                helps[path] = Help(
+                    summary=render_inline(_first_sentence(description)),
+                    full=render_inline(description),
+                )
             continue
-        if section is not None and not helps.get(f"{section}.") and line.strip() and not line.startswith("|"):
+        if section is not None and not table_seen and line.strip():
             intro_lines.append(line.strip())
     flush()
     return helps, intros
