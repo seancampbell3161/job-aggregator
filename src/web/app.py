@@ -93,7 +93,17 @@ def create_app(
         from src.config import load_config
         cfg = load_config(os.environ.get("JOB_AGG_CONFIG_PATH", "config.yaml"))
         from src.handler import _build_gap_analyzer, _build_relevance_scorer
-        app.state.audit_llm = (_build_relevance_scorer(cfg), _build_gap_analyzer(cfg))
+
+        def _read_or_none(path: str) -> str | None:  # transitional — Task 11 uses documents
+            try:
+                return Path(path).read_text()
+            except OSError:
+                return None
+
+        app.state.audit_llm = (
+            _build_relevance_scorer(cfg, _read_or_none(cfg.relevance.profile_path)),
+            _build_gap_analyzer(cfg, _read_or_none(cfg.gap_analysis.resume_path)),
+        )
         if coach is None:
             from src.handler import _build_coach
             app.state.coach = CoachProvider(

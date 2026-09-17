@@ -569,6 +569,11 @@ def load_config(path: Path | str = "config.yaml") -> AppConfig:
     raw = yaml.safe_load(text)
     raw["secrets"] = _load_secrets().model_dump()
     cfg = AppConfig.model_validate(raw)
+    # Transitional (deleted with load_config in Task 16): mirror the settings
+    # service, where a non-empty JOB_AGG_OLLAMA_HOST overrides relevance.ollama_host.
+    host = os.environ.get("JOB_AGG_OLLAMA_HOST", "")
+    if host:
+        cfg = cfg.model_copy(update={"relevance": cfg.relevance.model_copy(update={"ollama_host": host})})
     # Single place the operator's UA override takes effect; every module reads
     # it lazily via src.user_agent, so this covers callers that never see cfg.
     set_user_agent(cfg.http.user_agent)

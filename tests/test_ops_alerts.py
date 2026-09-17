@@ -192,3 +192,16 @@ def test_tier_staleness_ignores_tiers_with_no_history():
     _insert_cycle(conn, ts_ms=now - 60_000, tier="slow")
     alerts = ev.evaluate_tier_staleness(tier_intervals=_TIERS, now_ms=now)
     assert [a.condition for a in alerts] == ["tier_stopped:ats"]
+
+
+def test_config_fallback_fires_respects_cooldown_and_recovers():
+    _, _, _, ev = _fixture()
+    now = _now_ms()
+    alerts = ev.evaluate_cycle(now_ms=now, config_invalid_version_id=12)
+    assert [a.condition for a in alerts] == ["config_fallback"]
+    assert "12" in alerts[0].body
+    assert alerts[0].recovered is False
+    assert ev.evaluate_cycle(now_ms=now + 1000, config_invalid_version_id=12) == []  # cooldown
+    recovered = ev.evaluate_cycle(now_ms=now + 2000)
+    assert [a.condition for a in recovered] == ["config_fallback"]
+    assert recovered[0].recovered is True

@@ -4,7 +4,6 @@ import argparse
 import asyncio
 import json
 import logging
-import os
 import sys
 import time
 from dataclasses import asdict
@@ -12,7 +11,7 @@ from typing import Any
 
 import httpx
 
-from src.config import AppConfig, load_config
+from src.config import AppConfig
 from src.connectors.base import build_connectors
 from src.digest import format_gap_digest, send_gap_digest, tally_gaps
 from src.discovery import DiscoveryConfig, make_yc_oss_fetcher, run_board_discovery, run_discovery, run_vc_discovery
@@ -28,27 +27,22 @@ from src.orchestrator import run_once
 from src.coach import AnthropicCoach, CoachEngine, GeminiCoach, OllamaCoach
 from src.gaps import AnthropicGapAnalyzer, GapAnalyzer, GeminiGapAnalyzer, OllamaGapAnalyzer
 from src.relevance import GeminiRelevanceScorer, OllamaRelevanceScorer, RelevanceScorer
+from src.settings.service import ConfigService
 from src.stores import build_stores
 
 log = logging.getLogger(__name__)
 
 _VALID_TIERS = {"ats", "slow", "discovery", "digest", "headless"}
-_OLLAMA_HOST = "https://ollama.com"
-
-
-def _ollama_host() -> str:
-    return os.environ.get("JOB_AGG_OLLAMA_HOST", _OLLAMA_HOST)
-
-
-def _ollama_is_local() -> bool:
-    return "ollama.com" not in _ollama_host()
 
 
 def _build_sinks(cfg: AppConfig) -> list[Sink]:
-    return [
-        NtfySink(topic_url=cfg.secrets.ntfy_topic_url, quiet_hours=cfg.quiet_hours),
-        DiscordSink(webhook_url=cfg.secrets.discord_webhook_url),
-    ]
+    """One sink per configured notification URL; an unset URL omits its sink."""
+    sinks: list[Sink] = []
+    if cfg.secrets.ntfy_topic_url:
+        sinks.append(NtfySink(topic_url=cfg.secrets.ntfy_topic_url, quiet_hours=cfg.quiet_hours))
+    if cfg.secrets.discord_webhook_url:
+        sinks.append(DiscordSink(webhook_url=cfg.secrets.discord_webhook_url))
+    return sinks
 
 
 def _discovery_seeds(eu_seeds_enabled: bool) -> list:
@@ -72,11 +66,13 @@ async def _ping_heartbeat(url: str, *, client_factory=None) -> None:
         log.warning("heartbeat_ping_failed", extra={"error": str(exc)})
 
 
-def _build_relevance_scorer(cfg: AppConfig) -> RelevanceScorer | GeminiRelevanceScorer | OllamaRelevanceScorer | None:
+def _build_relevance_scorer(
+    cfg: AppConfig, profile_text: str | None
+) -> RelevanceScorer | GeminiRelevanceScorer | OllamaRelevanceScorer | None:
     """Construct the scorer if relevance is enabled and the matching API key
     is set. Returns None if relevance is disabled, the API key is missing, or
-    profile.md is unreadable — the orchestrator passes through with score=None
-    in that case."""
+    there is no profile document — the orchestrator passes through with
+    score=None in that case."""
     if not cfg.relevance.enabled:
         return None
 
@@ -93,7 +89,7 @@ def _build_relevance_scorer(cfg: AppConfig) -> RelevanceScorer | GeminiRelevance
     else:  # pragma: no cover — Pydantic Literal prevents this branch
         return None
 
-    needs_key = not (provider == "ollama" and _ollama_is_local())
+    needs_key = not (provider == "ollama" and cfg.relevance.ollama_is_local)
     if needs_key and not api_key:
         log.warning(
             "relevance_disabled_at_runtime",
@@ -101,16 +97,10 @@ def _build_relevance_scorer(cfg: AppConfig) -> RelevanceScorer | GeminiRelevance
         )
         return None
 
-    from pathlib import Path
-    try:
-        profile_text = Path(cfg.relevance.profile_path).read_text()
-    except OSError as exc:
-        # Soft-fail symmetric with missing API key: don't crash the cycle if
-        # profile.md is absent or unreadable. Disable relevance for this run.
-        log.warning(
-            "relevance_disabled_at_runtime",
-            extra={"reason": "profile_path unreadable", "error": str(exc)},
-        )
+    if profile_text is None:
+        # Soft-fail symmetric with a missing API key: no profile document means
+        # nothing to grade against, so relevance is off for this run.
+        log.warning("relevance_disabled_at_runtime", extra={"reason": "profile document missing"})
         return None
 
     if provider == "anthropic":
@@ -126,7 +116,7 @@ def _build_relevance_scorer(cfg: AppConfig) -> RelevanceScorer | GeminiRelevance
     if provider == "ollama":
         from ollama import AsyncClient
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        client = AsyncClient(host=_ollama_host(), headers=headers)
+        client = AsyncClient(host=cfg.relevance.ollama_host, headers=headers)
         return OllamaRelevanceScorer(
             client=client,
             model=cfg.relevance.model,
@@ -145,11 +135,12 @@ def _build_relevance_scorer(cfg: AppConfig) -> RelevanceScorer | GeminiRelevance
     )
 
 
-def _build_gap_analyzer(cfg: AppConfig) -> GapAnalyzer | None:
+def _build_gap_analyzer(cfg: AppConfig, resume_text: str | None) -> GapAnalyzer | None:
     """Construct the gap analyzer if gap_analysis is enabled and its inputs are
     present. Returns None (feature inert) when disabled, the provider API key is
-    missing, or resume.md is unreadable — symmetric with _build_relevance_scorer.
-    Provider/model fall back to the relevance settings when unset."""
+    missing, or there is no resume document — symmetric with
+    _build_relevance_scorer. Provider/model fall back to the relevance
+    settings when unset."""
     if not cfg.gap_analysis.enabled:
         return None
 
@@ -165,7 +156,7 @@ def _build_gap_analyzer(cfg: AppConfig) -> GapAnalyzer | None:
     else:  # pragma: no cover — Pydantic Literal prevents this
         return None
 
-    needs_key = not (provider == "ollama" and _ollama_is_local())
+    needs_key = not (provider == "ollama" and cfg.relevance.ollama_is_local)
     if needs_key and not api_key:
         log.warning(
             "gap_analysis_disabled_at_runtime",
@@ -173,14 +164,8 @@ def _build_gap_analyzer(cfg: AppConfig) -> GapAnalyzer | None:
         )
         return None
 
-    from pathlib import Path
-    try:
-        resume_text = Path(cfg.gap_analysis.resume_path).read_text()
-    except OSError as exc:
-        log.warning(
-            "gap_analysis_disabled_at_runtime",
-            extra={"reason": "resume_path unreadable", "error": str(exc)},
-        )
+    if resume_text is None:
+        log.warning("gap_analysis_disabled_at_runtime", extra={"reason": "resume document missing"})
         return None
 
     common = dict(
@@ -197,7 +182,7 @@ def _build_gap_analyzer(cfg: AppConfig) -> GapAnalyzer | None:
     if provider == "ollama":
         from ollama import AsyncClient
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        client = AsyncClient(host=_ollama_host(), headers=headers)
+        client = AsyncClient(host=cfg.relevance.ollama_host, headers=headers)
         return OllamaGapAnalyzer(client=client, **common)
 
     from google import genai  # type: ignore
@@ -209,8 +194,8 @@ def _build_coach(cfg: AppConfig) -> CoachEngine | None:
     is present. Returns None (feature inert) otherwise — symmetric with
     _build_gap_analyzer. Provider/model fall back to the relevance settings
     when unset. Unlike the scorer/analyzer factories there are no file inputs
-    here: profile/resume are loaded at snapshot time by the web provider,
-    missing files degrade the snapshot instead of disabling the feature."""
+    here: profile/content come from the settings snapshot's documents at run
+    time; a missing document degrades the coach snapshot."""
     if not cfg.coach.enabled:
         return None
 
@@ -226,7 +211,7 @@ def _build_coach(cfg: AppConfig) -> CoachEngine | None:
     else:  # pragma: no cover — Pydantic Literal prevents this
         return None
 
-    needs_key = not (provider == "ollama" and _ollama_is_local())
+    needs_key = not (provider == "ollama" and cfg.relevance.ollama_is_local)
     if needs_key and not api_key:
         log.warning(
             "coach_disabled_at_runtime",
@@ -243,7 +228,7 @@ def _build_coach(cfg: AppConfig) -> CoachEngine | None:
     if provider == "ollama":
         from ollama import AsyncClient
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        return OllamaCoach(client=AsyncClient(host=_ollama_host(), headers=headers), **common)
+        return OllamaCoach(client=AsyncClient(host=cfg.relevance.ollama_host, headers=headers), **common)
 
     from google import genai  # type: ignore
     return GeminiCoach(client=genai.Client(api_key=api_key), **common)
@@ -262,11 +247,12 @@ def _build_gap_digest(cfg: AppConfig, store: Any, *, days: int | None = None):
 
 
 async def _gaps_report(*, days: int | None = None) -> dict[str, Any]:
-    cfg = load_config(os.environ.get("JOB_AGG_CONFIG_PATH", "config.yaml"))
-    store = build_stores(cfg).seen
-    content, matches, tally = _build_gap_digest(cfg, store, days=days)
+    stores = build_stores()
+    snap = ConfigService(stores.settings).snapshot()
+    cfg = snap.cfg if snap is not None else AppConfig()  # not set up: model defaults
+    content, matches, tally = _build_gap_digest(cfg, stores.seen, days=days)
     return {
-        "enabled": cfg.gap_analysis.enabled,
+        "enabled": snap is not None and cfg.gap_analysis.enabled,
         "window_days": days or cfg.gap_analysis.digest_window_days,
         "matches": matches,
         "gaps": tally,
@@ -274,9 +260,17 @@ async def _gaps_report(*, days: int | None = None) -> dict[str, Any]:
     }
 
 
-async def _run(tier: str, dry_run: bool = False, calibrate: bool = False) -> dict[str, Any]:
-    cfg = load_config(os.environ.get("JOB_AGG_CONFIG_PATH", "config.yaml"))
-    stores = build_stores(cfg)
+async def _run(
+    tier: str, dry_run: bool = False, calibrate: bool = False, *,
+    service: ConfigService | None = None,
+) -> dict[str, Any]:
+    stores = build_stores()
+    service = service if service is not None else ConfigService(stores.settings)
+    snap = service.snapshot()  # one snapshot for the whole cycle
+    if snap is None:
+        log.info("awaiting_setup", extra={"tier": tier})
+        return {"tier": tier, "skipped": True, "reason": "not_configured"}
+    cfg = snap.cfg
     discovered = stores.discovered
     health = stores.health
 
@@ -364,6 +358,9 @@ async def _run(tier: str, dry_run: bool = False, calibrate: bool = False) -> dic
         if not cfg.gap_analysis.enabled:
             log.info("digest_skipped", extra={"reason": "gap_analysis disabled in config"})
             return {"tier": "digest", "skipped": True}
+        if not cfg.secrets.discord_webhook_url:
+            log.info("digest_skipped", extra={"reason": "discord_webhook_url not set"})
+            return {"tier": "digest", "skipped": True}
         store = stores.seen
         content, matches, tally = _build_gap_digest(cfg, store)
         async with httpx.AsyncClient() as client:
@@ -399,8 +396,8 @@ async def _run(tier: str, dry_run: bool = False, calibrate: bool = False) -> dic
         sightings = []
     connectors = build_connectors(cfg, tier=tier, discovered=discovered, boards=stores.boards, suppressed=suppressed, sightings=sightings)  # type: ignore[arg-type]
     sinks = _build_sinks(cfg)
-    relevance_scorer = _build_relevance_scorer(cfg)
-    gap_analyzer = _build_gap_analyzer(cfg)
+    relevance_scorer = _build_relevance_scorer(cfg, snap.documents.profile)
+    gap_analyzer = _build_gap_analyzer(cfg, snap.documents.resume_text)
     dry_run = dry_run or calibrate  # calibrate never writes or notifies
     result = await run_once(
         cfg=cfg, tier=tier, store=store, source_state=source_state,  # type: ignore[arg-type]
@@ -460,7 +457,11 @@ async def _run(tier: str, dry_run: bool = False, calibrate: bool = False) -> dic
                     ),
                     rejected=stores.rejected,
                 )
-                alerts = evaluator.evaluate_cycle()
+                alerts = evaluator.evaluate_cycle(
+                    config_invalid_version_id=(
+                        snap.degraded.invalid_version_id if snap.degraded is not None else None
+                    ),
+                )
                 if alerts:
                     async with httpx.AsyncClient() as client:
                         for alert in alerts:
