@@ -8,6 +8,7 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from src.settings.documents import DOCUMENT_KINDS
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import (
     KIND_BOOL, KIND_CHIPS, KIND_MULTI_CHOICE, KIND_READ_ONLY, optional_groups, value_at,
@@ -16,6 +17,9 @@ from src.settings.help import field_help, group_intro
 from src.web.settings.forms import apply_patch, decode, errors_by_path
 from src.web.settings.readiness import check
 from src.web.settings.sections import Section, SECTIONS, section_by_slug, section_fields
+
+# profile has its own page; the rest share the generic editor.
+EDITABLE_KINDS: tuple[str, ...] = tuple(k for k in DOCUMENT_KINDS if k != "profile")
 
 
 def page_ctx(request: Request, section, **extra) -> dict:
@@ -142,6 +146,56 @@ def register_settings_routes(app: FastAPI) -> None:
             request, section_by_slug("overview"),
             warnings=warnings, snapshot=snap,
         )
+
+    @app.get("/settings/profile", response_class=HTMLResponse)
+    def profile_page(request: Request):
+        return _render(request, section_by_slug("profile"),
+                       body=request.state.snapshot.documents.profile or "")
+
+    @app.post("/settings/profile", response_class=HTMLResponse)
+    async def profile_save(request: Request):
+        form = await request.form()
+        body = str(form.get("body", ""))
+        section = section_by_slug("profile")
+        try:
+            request.app.state.service.save_document("profile", body, source="ui")
+        except SettingsInvalid as exc:
+            _, form_level = errors_by_path(exc, known=set())
+            return request.app.state.templates.TemplateResponse(
+                request, section.template,
+                page_ctx(request, section, form_errors=form_level, body=body),
+            )
+        request.state.snapshot = request.app.state.service.snapshot()
+        return _render(request, section, saved=True,
+                       body=request.state.snapshot.documents.profile or "")
+
+    @app.get("/settings/documents", response_class=HTMLResponse)
+    def documents_page(request: Request, kind: str = EDITABLE_KINDS[0]):
+        if kind not in EDITABLE_KINDS:
+            raise HTTPException(status_code=400, detail="unknown document kind")
+        return _render(request, section_by_slug("documents"), kind=kind,
+                       kinds=EDITABLE_KINDS,
+                       body=getattr(request.state.snapshot.documents, kind) or "")
+
+    @app.post("/settings/documents", response_class=HTMLResponse)
+    async def documents_save(request: Request):
+        form = await request.form()
+        kind, body = str(form.get("kind", "")), str(form.get("body", ""))
+        if kind not in EDITABLE_KINDS:
+            raise HTTPException(status_code=400, detail="unknown document kind")
+        section = section_by_slug("documents")
+        try:
+            request.app.state.service.save_document(kind, body, source="ui")
+        except SettingsInvalid as exc:
+            _, form_level = errors_by_path(exc, known=set())
+            return request.app.state.templates.TemplateResponse(
+                request, section.template,
+                page_ctx(request, section, form_errors=form_level,
+                         kind=kind, kinds=EDITABLE_KINDS, body=body),
+            )
+        request.state.snapshot = request.app.state.service.snapshot()
+        return _render(request, section, saved=True, kind=kind, kinds=EDITABLE_KINDS,
+                       body=getattr(request.state.snapshot.documents, kind) or "")
 
     @app.get("/settings/{slug}", response_class=HTMLResponse)
     def section_page(request: Request, slug: str):

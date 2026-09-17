@@ -300,3 +300,5 @@ header { display: flex; align-items: baseline; gap: 16px; }
 .probe-ok { color: var(--probe-ok); }
 .probe-bad { color: var(--probe-bad); }
 @media (max-width: 40rem) { .settings { grid-template-columns: 1fr; } }
+.doc-edit { width: 100%; font-family: ui-monospace, monospace; font-size: .85rem; }
+.doc-picker { margin-bottom: .75rem; }
