@@ -4,10 +4,8 @@ from dataclasses import replace
 from datetime import datetime, time, timezone
 from zoneinfo import ZoneInfo
 
-import boto3
 import httpx
 import pytest
-from moto import mock_aws
 
 from src.logging_setup import configure_logging
 
@@ -18,7 +16,9 @@ from src.config import (
 from src.models import ConnectorState, FetchResult, RawPosting
 from src.notify.base import NotificationPayload
 from src.orchestrator import run_once
-from src.state import SeenJobsStore
+from src.sqlite_db import connect
+from src.state_sqlite import SqliteConnectorHealthStore, SqliteSeenJobsStore, SqliteSourceStateStore
+from tests.sqlite_helpers import raw_seen_item, raw_seen_items
 
 
 def _cfg() -> AppConfig:
@@ -67,22 +67,8 @@ class _RecordingSink:
 
 @pytest.fixture
 def store():
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        ddb.create_table(
-            TableName="seen_jobs_test",
-            AttributeDefinitions=[{"AttributeName": "job_id", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "job_id", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        ddb.create_table(
-            TableName="source_state_test",
-            AttributeDefinitions=[{"AttributeName": "connector_name", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "connector_name", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        from src.state import SourceStateStore
-        yield SeenJobsStore(table_name="seen_jobs_test"), SourceStateStore(table_name="source_state_test")
+    conn = connect(":memory:")
+    yield SqliteSeenJobsStore(conn), SqliteSourceStateStore(conn)
 
 
 @pytest.mark.asyncio
@@ -356,8 +342,7 @@ async def test_run_once_persists_score_on_claimed_row(store):
         relevance_scorer=scorer,
     )
 
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    items = ddb.Table("seen_jobs_test").scan()["Items"]
+    items = raw_seen_items(seen)
     assert len(items) == 1  # only the notified posting is claimed
     assert int(items[0]["score"]) == 8
     assert items[0]["rationale"] == "Strong"
@@ -620,8 +605,7 @@ async def test_run_once_computes_and_surfaces_gaps(store):
 
     assert analyzer.analyze.await_count == 1
     assert sink.received[0].gaps == ["Kubernetes"]
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    items = ddb.Table("seen_jobs_test").scan()["Items"]
+    items = raw_seen_items(seen)
     assert items[0]["gaps"] == ["Kubernetes"]
 
 
@@ -679,8 +663,7 @@ async def test_run_once_gap_fallback_does_not_block_notify(store):
 
     assert len(sink.received) == 1
     assert sink.received[0].gaps == []
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table("seen_jobs_test").scan()["Items"][0]
+    item = raw_seen_items(seen)[0]
     assert "gaps" not in item
 
 
@@ -728,8 +711,7 @@ async def test_run_once_persists_display_fields_on_claimed_row(store):
         connectors=[conn], sinks=[_RecordingSink()],
         client_factory=lambda: httpx.AsyncClient(),
     )
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table("seen_jobs_test").scan()["Items"][0]
+    item = raw_seen_items(seen)[0]
     assert item["title"] == "Senior Backend Engineer"
     assert item["company"] == "Stripe"
     assert item["location_text"]  # normalized from RawPosting.location
@@ -825,8 +807,7 @@ async def test_run_once_marks_suppressed_posting_and_stops_rescoring(store):
     assert sink.received == []                 # suppressed: not notified
     assert scorer.score.await_count == 1
 
-    ddb = boto3.resource("dynamodb", region_name="us-east-1")
-    item = ddb.Table("seen_jobs_test").get_item(Key={"job_id": "greenhouse:stripe:1"})["Item"]
+    item = raw_seen_item(seen, "greenhouse:stripe:1")
     assert item["notified"] is False
     assert int(item["score"]) == 2
     assert item["title"] == "Senior Backend Engineer"  # audit view, not triage
@@ -866,15 +847,8 @@ async def test_run_once_dry_run_does_not_mark_suppressed(store):
 
 
 def _make_health():
-    """Create a connector_health table in the ambient moto mock and return a store."""
-    boto3.client("dynamodb", region_name="us-east-1").create_table(
-        TableName="connector_health_test",
-        AttributeDefinitions=[{"AttributeName": "connector_name", "AttributeType": "S"}],
-        KeySchema=[{"AttributeName": "connector_name", "KeyType": "HASH"}],
-        BillingMode="PAY_PER_REQUEST",
-    )
-    from src.state import ConnectorHealthStore
-    return ConnectorHealthStore(table_name="connector_health_test")
+    """Create a fresh in-memory connector_health store."""
+    return SqliteConnectorHealthStore(connect(":memory:"))
 
 
 class _DeadConnector:
@@ -1202,7 +1176,7 @@ async def test_suppressed_row_carries_rationale_and_title(store):
         sinks=[_RecordingSink()], client_factory=lambda: httpx.AsyncClient(),
         relevance_scorer=_StubScorer(cfg.relevance.score_low),  # at threshold -> suppressed
     )
-    item = seen._table.get_item(Key={"job_id": "greenhouse:stripe:1"})["Item"]
+    item = raw_seen_item(seen, "greenhouse:stripe:1")
     assert item["notified"] is False
     assert item["rationale"] == "Weak fit"
     assert item["title"] == "Senior Backend Engineer"

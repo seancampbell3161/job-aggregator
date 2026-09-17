@@ -1,28 +1,19 @@
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
-import boto3
 import httpx
 import pytest
 import respx
-from moto import mock_aws
 
 from src.discovery import DiscoveryConfig, _PROBES_PER_CANDIDATE, _SUPPORTED_ATS, _probe_one_ats, run_discovery
-from src.state import DiscoveredSlugsStore
+from src.sqlite_db import connect
+from src.state_sqlite import SqliteDiscoveredSlugsStore
 from src.yc_oss import YcCompany
 
 
 @pytest.fixture
 def discovered_store():
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        ddb.create_table(
-            TableName="discovered_slugs_test",
-            AttributeDefinitions=[{"AttributeName": "connector_name", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "connector_name", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        yield DiscoveredSlugsStore(table_name="discovered_slugs_test")
+    yield SqliteDiscoveredSlugsStore(connect(":memory:"))
 
 
 def _yc(name: str, *, slug: str = "", team_size: int = 50) -> YcCompany:
@@ -287,7 +278,7 @@ async def test_run_discovery_caps_at_max_validations_per_run(discovered_store):
 async def test_run_discovery_revalidates_stale_ok_rows(discovered_store):
     """After candidate-probing, run revalidation on stale ok rows."""
     old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
-    discovered_store._table.put_item(Item={
+    discovered_store._put({
         "connector_name": "greenhouse:stale",
         "ats_family": "greenhouse",
         "slug": "stale",
@@ -329,7 +320,7 @@ async def test_run_discovery_revalidates_stale_ok_rows(discovered_store):
 async def test_revalidation_quarantines_after_threshold_failures(discovered_store):
     """A stale ok row that 404s on revalidation increments consecutive_failures."""
     old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
-    discovered_store._table.put_item(Item={
+    discovered_store._put({
         "connector_name": "greenhouse:dying",
         "ats_family": "greenhouse",
         "slug": "dying",
@@ -367,7 +358,7 @@ async def test_revalidation_quarantines_after_threshold_failures(discovered_stor
 async def test_revalidation_skipped_when_budget_consumed(discovered_store):
     """If candidate-probing fully consumes the budget, revalidation is skipped."""
     old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
-    discovered_store._table.put_item(Item={
+    discovered_store._put({
         "connector_name": "greenhouse:stale-but-skipped",
         "ats_family": "greenhouse",
         "slug": "stale-but-skipped",
