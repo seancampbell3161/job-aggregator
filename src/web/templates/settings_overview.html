@@ -1,0 +1,27 @@
+{% extends "settings_base.html" %}
+{% block section %}
+{% if warnings %}
+<ul class="readiness">
+  {% for w in warnings %}
+  <li class="warn"><span>{{ w.message }}</span>
+    <a class="btn small" href="/settings/{{ w.fix_slug }}">Fix</a></li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="ok">Everything needed to deliver alerts is configured.</p>
+{% endif %}
+
+{% if snapshot.degraded %}
+<div class="panel bad-panel">
+  <h3>Newest settings version is invalid</h3>
+  <p>Version {{ snapshot.degraded.invalid_version_id }} failed validation, so
+    version {{ snapshot.version_id }} is what is running.</p>
+  <ul>{% for e in snapshot.degraded.errors %}
+    <li><code>{{ e.loc }}</code> {{ e.msg }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<p class="muted">Version {{ snapshot.version_id }} is in effect.
+  Settings changes apply live to the poller, the scheduler, and this UI — no
+  restart, no <code>--force-recreate</code>.</p>
+{% endblock %}

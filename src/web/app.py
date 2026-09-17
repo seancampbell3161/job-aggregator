@@ -144,6 +144,9 @@ def create_app(
     register_kit_routes(app)
     register_builder_routes(app)
 
+    from src.web.settings import register_settings_routes
+    register_settings_routes(app)
+
     from src.web.tailor import register_tailor_routes
 
     register_tailor_routes(app)

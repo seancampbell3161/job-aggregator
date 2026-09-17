@@ -1,0 +1,66 @@
+{% macro help_for(path) %}
+  {% set h = field_help(path) %}
+  {% if h %}
+  <p class="field-help">{{ h.summary|safe }}</p>
+  {% if h.full != h.summary %}
+  <details class="field-more"><summary>more</summary>{{ h.full|safe }}</details>
+  {% endif %}
+  {% endif %}
+{% endmacro %}
+
+{% macro chips(path, values) %}
+  <div class="chips" data-path="{{ path }}">
+    {% for v in values %}<input type="text" name="{{ path }}" value="{{ v }}">{% endfor %}
+    <input type="text" name="{{ path }}" value="" placeholder="add one…">
+  </div>
+  <button type="button" class="btn small" onclick="addChip(this)">+ add another</button>
+{% endmacro %}
+
+{% macro field(spec, value, errors) %}
+<div class="field {{ 'has-error' if spec.path in errors }}">
+  {% if spec.kind == 'bool' %}
+    <label class="check"><input type="checkbox" name="{{ spec.path }}"
+      {% if value %}checked{% endif %}> {{ spec.label }}</label>
+  {% elif spec.kind == 'read_only' %}
+    <span class="field-label">{{ spec.label }}</span>
+    <p class="muted">{{ value|length }} configured — managed with
+      <code>python -m src.settings add-source</code> until the Companies page lands.</p>
+  {% else %}
+    <label class="field-label" for="f-{{ spec.path }}">{{ spec.label }}</label>
+    {% if spec.kind == 'choice' %}
+      <select id="f-{{ spec.path }}" name="{{ spec.path }}">
+        {% if spec.optional %}<option value="">(unset)</option>{% endif %}
+        {% for c in spec.choices %}
+        <option value="{{ c }}" {% if value == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    {% elif spec.kind == 'multi_choice' %}
+      <div class="checks">
+      {% for c in spec.choices %}
+        <label class="check"><input type="checkbox" name="{{ spec.path }}" value="{{ c }}"
+          {% if value and c in value %}checked{% endif %}> {{ c }}</label>
+      {% endfor %}
+      </div>
+    {% elif spec.kind == 'chips' %}
+      {{ chips(spec.path, value or []) }}
+    {% elif spec.kind == 'int' %}
+      <input id="f-{{ spec.path }}" type="number" name="{{ spec.path }}"
+        value="{{ '' if value is none else value }}"
+        {% if spec.ge is not none %}min="{{ spec.ge }}"{% endif %}
+        {% if spec.le is not none %}max="{{ spec.le }}"{% endif %}
+        {% if spec.optional %}placeholder="unset"{% endif %}>
+    {% elif spec.kind == 'time' %}
+      <input id="f-{{ spec.path }}" type="time" name="{{ spec.path }}"
+        value="{{ value or '' }}">
+    {% else %}
+      <input id="f-{{ spec.path }}" type="text" name="{{ spec.path }}"
+        value="{{ value if value is not none else '' }}">
+    {% endif %}
+    <span class="field-meta">
+      {%- if spec.default is not none and spec.kind not in ('chips', 'multi_choice', 'read_only') %}default {{ spec.default }}{% endif -%}
+    </span>
+  {% endif %}
+  {{ help_for(spec.path) }}
+  {% if spec.path in errors %}<p class="bad field-error">{{ errors[spec.path] }}</p>{% endif %}
+</div>
+{% endmacro %}
