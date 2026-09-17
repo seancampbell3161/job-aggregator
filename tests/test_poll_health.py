@@ -39,11 +39,39 @@ def test_classify_rate_limited_for_429():
     assert classify_outcome(_http_error(429)) == "rate_limited"
 
 
-def test_classify_blocked_for_401_and_403():
+def test_classify_blocked_for_400_401_and_403():
     """A bot challenge / WAF rule / revoked key is not 'transient': it does not
-    clear on its own, so it must not silently no-op the way a timeout does."""
+    clear on its own, so it must not silently no-op the way a timeout does.
+
+    400 counts too. Workday answers 400 rather than 403 to a client it will not
+    serve, so without this a board that permanently refuses us would land in
+    'transient' (a no-op) and never show up in connector_health — the operator
+    would see only a slow decline to zero yield, with the 400 indistinguishable
+    from 5xx noise in the dashboard's by-error-type tally."""
+    assert classify_outcome(_http_error(400)) == "blocked"
     assert classify_outcome(_http_error(401)) == "blocked"
     assert classify_outcome(_http_error(403)) == "blocked"
+
+
+def test_classify_400_does_not_auto_suppress_the_connector():
+    """Filing 400 as 'blocked' must stay cheap when it really was a malformed
+    request of ours: 'blocked' records a streak and warns, but never suppresses
+    (a refusal can be lifted as easily as it was applied)."""
+    from src.poll_health import DEAD_AFTER_CYCLES, update_poll_health
+
+    class _Health:
+        def __init__(self): self.dead = 0; self.suppressed = []
+        def tracked_names(self): return set()
+        def clear(self, name): pass
+        def record_dead(self, name): self.dead += 1; return self.dead
+        def mark_suppressed(self, name): self.suppressed.append(name)
+        def mark_backoff(self, name, until_ms): pass
+
+    h = _Health()
+    for _ in range(DEAD_AFTER_CYCLES + 2):
+        update_poll_health(h, [("workday:acme", "blocked")], set(), suppress_dead=True)
+    assert h.dead == DEAD_AFTER_CYCLES + 2   # streak recorded
+    assert h.suppressed == []                # but never auto-suppressed
 
 
 def test_retry_after_seconds_parses_integer_and_handles_missing():
