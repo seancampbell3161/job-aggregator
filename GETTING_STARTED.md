@@ -59,23 +59,34 @@ everything that passes the filters notifies, **unscored**. Pick one provider
 
 ## 2. Tailor it to your job preferences
 
-This is what turns a generic scraper into *your* job alert. Two files do almost
-all the work: **`config.yaml`** (hard filters + sources + thresholds) and
-**`profile.md`** (the prose the LLM grades each posting against).
+This is what turns a generic scraper into *your* job alert. Two inputs do almost
+all the work: your **settings** — `config.yaml` (hard filters + sources +
+thresholds) — and your **profile** — `profile.md` (the prose the LLM grades each
+posting against).
 
-Neither file is tracked by git — they're personal, so `git pull` never
-conflicts with your edits. Seed them from the tracked templates first:
+The app keeps both in its database; the files are how you edit them. Start from
+the tracked templates — your copies are gitignored, so `git pull` never
+conflicts with them:
 
 ```sh
 cp config.example.yaml config.yaml
 cp profile.example.md profile.md
 ```
 
-> **Applying changes.** `docker compose restart poller web` — both `config.yaml`
-> and `profile.md` are bind-mounted, so edits apply on restart with no rebuild.
+> **Applying changes.** Import the directory holding your files. Changes apply
+> live in the poller and web UI — no restart:
+>
+> ```sh
+> docker compose run --rm -v "$PWD:/import:ro" web python -m src.settings import /import
+> ```
+>
+> Every import is a new settings version: `python -m src.settings history` lists
+> them, `restore ID` rolls back, and `export DIR` writes the current settings
+> back to files. (Tip: `alias settings='docker compose run --rm -v "$PWD:/import:ro" web python -m src.settings'`,
+> then `settings import /import`, `settings status`, …)
 
-Every `config.yaml` flag — including the ones this guide doesn't narrate —
-is catalogued with its default in **[docs/CONFIG.md](docs/CONFIG.md)**.
+Every settings flag — including the ones this guide doesn't narrate — is
+catalogued with its default in **[docs/CONFIG.md](docs/CONFIG.md)**.
 
 ### 2a. Hard filters (`config.yaml` → `filters`)
 
@@ -123,7 +134,6 @@ relevance:
   model: claude-haiku-4-5        # ollama: gpt-oss:120b · gemini: gemini-2.0-flash
   score_high: 7                  # >= this gets a "strong fit" marker in the notification
   score_low: 4                   # <= this is suppressed entirely (no notification)
-  profile_path: profile.md
   timeout_seconds: 10            # per-call timeout; on exceed the posting fails open (unscored)
 ```
 
@@ -195,20 +205,24 @@ The "slug" is the path component on the company's careers URL:
 | Teamtailor | `tibber.teamtailor.com/jobs` | `tibber` |
 
 ```bash
-./scripts/add_company.sh greenhouse stripe
-# Workday tenants are added by hand in config.yaml:
-#   workday:
-#   - tenant: microsoft
-#     region: wd1
-#     site: External
+docker compose run --rm web python -m src.settings add-source greenhouse stripe
+# Structured boards (Workday, Oracle Cloud, …) go in config.yaml, then re-import:
+#   sources:
+#     workday:
+#     - tenant: microsoft
+#       region: wd1
+#       site: External
 ```
 
 `scripts/discover_enterprise.py` auto-detects **iCIMS** boards (scraped via
 their static in_iframe listings + each job's schema.org JSON-LD) and merges
 them into `sources.jsonld_boards` — review the dry-run report, then `--merge`
-and `docker compose restart poller`. **SuccessFactors and TalentBrew** boards
-use the same connector but live on branded careers domains that aren't
-machine-derivable, so add them by hand under `sources.jsonld_boards`:
+— matched boards are saved into your settings and apply live. (The discovery
+scripts run on the host — `uv run python scripts/…` — against
+`./data/job_aggregator.db`, the same database the containers use.)
+**SuccessFactors and TalentBrew** boards use the same connector but live on
+branded careers domains that aren't machine-derivable, so add them by hand
+under `sources.jsonld_boards`:
 
 ```yaml
 sources:
@@ -220,8 +234,8 @@ sources:
 `scripts/discover_enterprise.py` also auto-detects **Eightfold.ai** boards
 (native JSON API — pcsx/apply_v2 flavors probed automatically, the required
 `domain=` param scraped from each careers page). Matched tenants merge into
-`sources.eightfold`; review the dry-run report, then `--merge` and
-`docker compose restart poller`.
+`sources.eightfold`; review the dry-run report, then `--merge` — matched
+boards are saved into your settings and apply live.
 
 `scripts/discover_enterprise.py` also auto-detects **modern Oracle Taleo**
 career sections (the `searchjobs` REST API). It probes and verifies each
@@ -297,6 +311,8 @@ schedules:                              # drives the poller cadence
   discovery_hours: 24
 ```
 
+Put these in `config.yaml` and re-import.
+
 ### 2f. Résumé gap flags (optional, off by default)
 
 When `gap_analysis.enabled: true`, every posting that survives filtering *and*
@@ -307,12 +323,11 @@ so recall is unchanged.
 
 ```bash
 cp resume.md.example resume.md        # then fill in your real experience
-# set gap_analysis.enabled: true in config.yaml
+# set gap_analysis.enabled: true in config.yaml, then re-import (resume.md is picked up too)
 ```
 
 `resume.md` is gitignored PII. No new key is needed — it reuses your
-`relevance.provider`. (Locally, also bind-mount it: uncomment the
-`./resume.md:/app/resume.md:ro` lines in `docker-compose.yml`.)
+`relevance.provider`.
 
 ---
 
@@ -329,24 +344,22 @@ Everything else — Python, SQLite, WeasyPrint — lives inside the image.
 
 ### A1. Configure
 
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and set at least your notification secrets:
+Create `config.yaml` + `profile.md` per [§2](#2-tailor-it-to-your-job-preferences).
+Secrets can go in an optional `.env` (`cp .env.example .env`, then uncomment what
+you use) or straight into the database once the stack is built (A3):
 
 ```bash
-JOB_AGG_NTFY_TOPIC_URL=https://ntfy.sh/your-topic
-JOB_AGG_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+docker compose run --rm -it web python -m src.settings set-secret ntfy_topic_url
+docker compose run --rm -it web python -m src.settings set-secret discord_webhook_url
 ```
 
-Then tailor `config.yaml` + `profile.md` per
-[§2](#2-tailor-it-to-your-job-preferences). Both are bind-mounted into the
-containers, so edits apply on restart — no rebuild.
+Both notification channels are optional — without them, matches still land in the web UI.
 
-### A2. Set your LLM key in `.env`
+### A2. Set your LLM key
 
-Match whatever `relevance.provider` you chose in `config.yaml`:
+Match your `relevance.provider`. Store the key with `set-secret` (for example
+`docker compose run --rm -it web python -m src.settings set-secret anthropic_api_key`)
+or put it in `.env`:
 
 ```bash
 # Anthropic
@@ -354,10 +367,10 @@ JOB_AGG_ANTHROPIC_API_KEY=sk-ant-...
 # or Gemini
 JOB_AGG_GOOGLE_API_KEY=...
 # or Ollama Cloud (hosted — runs big models without local GPU/RAM):
-JOB_AGG_OLLAMA_HOST=https://ollama.com
+# set relevance.ollama_host: https://ollama.com in config.yaml, or override with JOB_AGG_OLLAMA_HOST
 JOB_AGG_OLLAMA_API_KEY=...
-# or fully-local Ollama: leave the key empty, keep the default host
-JOB_AGG_OLLAMA_HOST=http://ollama:11434
+# or fully-local Ollama: leave the key empty
+# relevance.ollama_host defaults to http://ollama:11434 — override with JOB_AGG_OLLAMA_HOST
 JOB_AGG_OLLAMA_API_KEY=
 ```
 
@@ -371,6 +384,14 @@ docker compose exec ollama ollama pull llama3.1:8b   # pull your model once
 ```
 
 The first build takes a few minutes (it installs WeasyPrint's native libraries).
+
+Then load your settings (the web UI shows a setup page and the poller logs
+`awaiting_setup` until you do):
+
+```bash
+docker compose run --rm -v "$PWD:/import:ro" web python -m src.settings import /import
+docker compose run --rm web python -m src.settings status
+```
 
 ### A4. Open the web UI
 
@@ -387,8 +408,9 @@ laptop on the same network.
 > port-forwarding. To restrict it to this machine only,
 > publish `127.0.0.1:8000:8000` in `docker-compose.yml`.
 
-Everything persists in **`./data`** (the SQLite DB + generated PDFs), which is
-git-ignored. Back it up by copying that folder. Jump to
+Everything persists in **`./data`** — settings, secrets you stored, jobs,
+generated PDFs, template packs — which is git-ignored. Back it up by copying
+that folder. Jump to
 [Operating it](#operating-it) for day-to-day commands.
 
 ---
@@ -397,7 +419,8 @@ git-ignored. Back it up by copying that folder. Jump to
 
 ```bash
 docker compose logs -f poller          # follow the poller (or: web)
-docker compose restart poller web      # apply config.yaml / profile.md edits
+docker compose run --rm -v "$PWD:/import:ro" web python -m src.settings import /import   # apply edits (live)
+docker compose run --rm web python -m src.settings status       # setup state + secret origins
 docker compose up -d --build           # apply new code (after git pull)
 docker compose down                    # stop everything (add --profile ollama
                                        # if you started Ollama). Data survives in ./data
@@ -413,12 +436,13 @@ docker compose down                    # stop everything (add --profile ollama
 
 ### Mobile "tap alert → tailored résumé" loop
 
-Set both `JOB_AGG_TAILOR_SIGNING_SECRET` (any long random string) and
-`JOB_AGG_TAILOR_ENDPOINT_URL` in `.env`, pointing the URL at this box's web app —
+Set `tailor_endpoint_url` (`set-secret tailor_endpoint_url`, or
+`JOB_AGG_TAILOR_ENDPOINT_URL` in `.env`), pointing the URL at this box's web app —
 `http://<lan-ip>:8000/tailor` on your LAN, or a Tailscale / Cloudflare-Tunnel URL
-to reach it off-network. Alerts then carry a signed deep-link that renders a
-tailored résumé PDF on demand. (This requires the résumé tailoring artifacts —
-see [`resume/README.md`](resume/README.md).)
+to reach it off-network. The signing secret is generated automatically on first
+boot. Alerts then carry a signed deep-link that renders a tailored résumé PDF on
+demand. (This requires the résumé tailoring artifacts — see
+[`resume/README.md`](resume/README.md).)
 
 The PDF renders through your **active template pack** — manage packs and
 rendering settings (bullet caps, max pages, page size/margins) on the web UI's
@@ -446,15 +470,19 @@ fine).
    [admin console](https://login.tailscale.com/admin/dns) and use its stable
    `<hostname>.<tailnet>.ts.net` name (preferred — it survives IP changes).
 
-3. **Point the env var at it** in `.env` (note the `:8000` host port and the
-   `/tailor` path), alongside the signing secret:
+3. **Point the endpoint URL at it** (note the `:8000` host port and the
+   `/tailor` path). No-recreate route — applies live:
    ```bash
-   JOB_AGG_TAILOR_SIGNING_SECRET=<any long random string>
-   JOB_AGG_TAILOR_ENDPOINT_URL=http://<hostname>.<tailnet>.ts.net:8000/tailor
+   docker compose run --rm -it web python -m src.settings set-secret tailor_endpoint_url
+   # http://<hostname>.<tailnet>.ts.net:8000/tailor
    ```
+   or set `JOB_AGG_TAILOR_ENDPOINT_URL` in `.env` (step 4 applies to this route
+   only). The signing secret is generated automatically on first boot — nothing
+   to set.
 
-4. **Recreate the containers** so they pick up the new env — Compose reads
-   `.env` only at container *creation*, so a plain `restart` won't see the change:
+4. **If you used `.env`, recreate the containers** so they pick up the new env —
+   Compose reads `.env` only at container *creation*, so a plain `restart` won't
+   see the change:
    ```bash
    docker compose up -d            # recreates containers with the new env
    ```
@@ -480,16 +508,15 @@ python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e '.[dev,web,render]'
 pytest                        # ~40 s; PDF tests skip if WeasyPrint's native libs are missing
 
-JOB_AGG_NTFY_TOPIC_URL=https://ntfy.sh/your-topic \
-JOB_AGG_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/... \
-JOB_AGG_OLLAMA_API_KEY=ol-...  \
-python -m src.handler --tier ats --dry-run
+python -m src.settings import .              # loads config.yaml + profile.md into ./data/job_aggregator.db
+JOB_AGG_OLLAMA_API_KEY=ol-... python -m src.handler --tier ats --dry-run
 ```
 
-`--dry-run` skips state writes and notifications, logging `would_notify` (with
-score + rationale) for each posting that would have been sent. Set the key that
-matches `relevance.provider`, or omit it entirely to skip scoring. Add
-`--calibrate` to print the score histogram (see
+No ntfy/Discord secrets are needed for a dry-run. `--dry-run` skips state writes
+and notifications, logging `would_notify` (with score + rationale) for each
+posting that would have been sent. Set the key that matches
+`relevance.provider`, or omit it entirely to skip scoring. Add `--calibrate` to
+print the score histogram (see
 [§2c](#2c-pick-your-llm-provider--and-re-calibrate-after-switching)).
 
 ### Rejection audit & ops alerts (optional)
@@ -497,10 +524,11 @@ matches `relevance.provider`, or omit it entirely to skip scoring. Add
 The local runtime records every filter-gate rejection; browse them at
 `/audit` (filter by gate, rescue wrongly-rejected postings into the inbox,
 or confirm the rejection — those judgments feed future threshold tuning).
-Retention defaults to 90 days (`audit.retention_days` in config.yaml).
+Retention defaults to 90 days (`audit.retention_days`).
 
 Pipeline-health push alerts are off until you configure a separate ops
-channel in `.env`:
+channel — `set-secret ops_ntfy_topic_url` / `set-secret ops_discord_webhook_url`
+(applies live), or in `.env`:
 
     JOB_AGG_OPS_NTFY_TOPIC_URL=https://ntfy.sh/your-ops-topic
     # and/or JOB_AGG_OPS_DISCORD_WEBHOOK_URL=...
@@ -508,9 +536,10 @@ channel in `.env`:
     # JOB_AGG_HEARTBEAT_URL=https://hc-ping.com/<your-uuid>
 
 Conditions: pipeline stopped (web-container watchdog), zero new postings for
-12h, LLM degraded for 2 consecutive cycles. Thresholds live under
-`ops_notify:` in config.yaml; each alert has a 6h cooldown and sends a
-recovery notice when the condition clears. Remember: after editing `.env`,
+12h, LLM degraded for 2 consecutive cycles, and settings fallback (the newest
+settings version is invalid). Thresholds live under `ops_notify:`; each alert
+has a 6h cooldown and sends a recovery notice when the condition clears.
+Settings changes apply live; `.env` edits need
 `docker compose up -d --force-recreate`; after pulling this code change,
 `docker compose up -d --build`.
 
@@ -526,11 +555,11 @@ uv run python scripts/tune_thresholds.py            # all-time
 uv run python scripts/tune_thresholds.py --since 2026-06-01 --min-verdicts 15
 ```
 
-Run it on the box whose SQLite DB holds the verdicts. It never edits config —
-copy the suggested lines into `config.yaml` and `docker compose restart
-poller`. With few verdicts it honestly reports "insufficient data"; it can
-only recommend *lowering* `score_low` (verdicts exist only on suppressed
-jobs), never raising it.
+Run it on the box whose SQLite DB holds the verdicts. It never edits settings —
+`export` to a directory, copy the suggested values into `config.yaml`, and
+re-import (applies live). With few verdicts it honestly reports "insufficient
+data"; it can only recommend *lowering* `score_low` (verdicts exist only on
+suppressed jobs), never raising it.
 
 ### Board automation (optional)
 
@@ -538,7 +567,7 @@ The board maintains itself daily: a posting-closed sweep (04:30 UTC) badges
 cards whose req has verifiably disappeared (two consecutive daily misses;
 soft-404s don't count), and a board digest (15:00 UTC) pushes stale cards
 and newly-closed postings to the job-alert channel — only when there's
-something to report. Tune the crons under `board:` in config.yaml; set
+something to report. Tune the crons under `board:`; set
 `board.web_base_url` (e.g. a Tailscale URL) to make the digest tap through
 to /board.
 
@@ -548,14 +577,10 @@ to /board.
 authorization, EEO responses) with one-tap copy buttons — a cheat sheet to
 keep beside any application form.
 
-```bash
-cp resume/facts.example.yaml resume/facts.yaml   # gitignored — edit freely
-```
-
-`resume/` is bind-mounted, so edits show up on the next refresh — no
-restart. Groups and labels are free-form: add any question you find
-yourself answering repeatedly. Configurable via `kit.facts_path` in
-`config.yaml` (default `resume/facts.yaml`).
+`resume/facts.example.yaml` ships as a template — copy it to
+`resume/facts.yaml`, fill it in, and re-import — `/kit` shows it on the next
+refresh. Groups and labels are free-form: add any question you find yourself
+answering repeatedly.
 
 ### Gmail ingestion (optional)
 
@@ -569,21 +594,27 @@ Setup (requires 2-Step Verification on the Google account):
 
 1. Google Account → Security → 2-Step Verification → App passwords →
    generate one for "Mail".
-2. Add to `.env`:
+2. Store the credentials — `set-secret` (applies live, no recreate):
+
+```bash
+docker compose run --rm -it web python -m src.settings set-secret gmail_address
+docker compose run --rm -it web python -m src.settings set-secret gmail_app_password
+```
+
+   or add to `.env`:
 
 ```bash
 JOB_AGG_GMAIL_ADDRESS=you@gmail.com
 JOB_AGG_GMAIL_APP_PASSWORD=abcdabcdabcdabcd
 ```
 
-3. `docker compose up -d --force-recreate` (compose snapshots `.env` at
-   container creation).
+3. If you used `.env`: `docker compose up -d --force-recreate` (compose
+   snapshots `.env` at container creation).
 
-Both vars empty = feature off. Tunables under `gmail:` in `config.yaml`
-(`check_cron`, `first_run_days`, `lookback_max_days`,
-`max_messages_per_run`). The first run sweeps the last 3 days, so pending
-rejections surface immediately; the daily board digest counts unconfirmed
-suggestions.
+Both empty = feature off. Tunables under `gmail:` (`check_cron`,
+`first_run_days`, `lookback_max_days`, `max_messages_per_run`). The first run
+sweeps the last 3 days, so pending rejections surface immediately; the daily
+board digest counts unconfirmed suggestions.
 
 ### Avature / headless connector (optional)
 
@@ -609,7 +640,7 @@ sources:
 ```
 
 **Verify each site passes headless first** — some Avature tenants sit behind a
-WAF that blocks even a real browser. `docker compose restart poller`, then watch
+WAF that blocks even a real browser. Re-import, then watch
 the `headless` cycle logs for that company's job count. The tier runs every
 `schedules.headless_minutes` (default 45).
 
@@ -618,12 +649,12 @@ the `headless` cycle logs for that company's job count. The tier runs every
 Beyond validating startup slugs, the daily `discovery` tier **fingerprints a
 seed list of ~490 enterprise careers pages** (`scripts/seeds/`), and any board it
 can classify **and** live-verify (Workday, Oracle Cloud, Eightfold, Taleo,
-iCIMS) joins the `ats` poll set automatically — no `config.yaml` write, no review
+iCIMS) joins the `ats` poll set automatically — no settings change, no review
 gate. Dead or false-positive boards get suppressed by poll-health, exactly like
 auto-discovered slugs.
 
 It's **on by default**; the budget rotates through the seed list over several
-days (60 fingerprints per run). Tune under `discovery:` in `config.yaml`
+days (60 fingerprints per run). Tune under `discovery:`
 (defaults shown — you don't need to add these unless you want to change them):
 
 ```yaml
@@ -721,4 +752,4 @@ The `/kit` page renders an **"📋 Apply Autofill"** bookmarklet built from your
 Greenhouse / Lever / Ashby application form, click it to autofill the standard
 fields (name, email, links, work authorization) from your facts. It's a static
 `javascript:` bookmarklet — no extension and no network calls. Re-drag it after
-editing `facts.yaml` to pick up new answers.
+re-importing your facts to pick up new answers.

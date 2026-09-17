@@ -10,13 +10,13 @@ It runs on a machine you own — Docker Compose with SQLite state, no cloud acco
 
 ## What it does
 
-- **Polls many sources, often.** Company boards across fifteen ATS families (Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Workday, Rippling, Personio, Recruitee, Teamtailor, Oracle Cloud, Eightfold, Phenom, Taleo, and iCIMS / JSON-LD boards) — plus an optional **headless-browser tier** (Avature) for JS-gated sites, HN "Who Is Hiring," Remotive, RemoteOK, and an optional Adzuna API connector for off-ATS inventory — small companies and staffing agencies that don't run a major ATS (free self-service API key). A handful of boards ship in `config.example.yaml`; add or remove companies by editing `config.yaml`, or let discovery grow the list to hundreds over time. A Hiring.cafe connector also ships but is disabled: hiring.cafe now disallows the search endpoint it relied on, and the project does not work around that.
+- **Polls many sources, often.** Company boards across fifteen ATS families (Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Workday, Rippling, Personio, Recruitee, Teamtailor, Oracle Cloud, Eightfold, Phenom, Taleo, and iCIMS / JSON-LD boards) — plus an optional **headless-browser tier** (Avature) for JS-gated sites, HN "Who Is Hiring," Remotive, RemoteOK, and an optional Adzuna API connector for off-ATS inventory — small companies and staffing agencies that don't run a major ATS (free self-service API key). A handful of boards ship in `config.example.yaml`; add companies with `python -m src.settings add-source` or by importing an edited `config.yaml`, or let discovery grow the list to hundreds over time. A Hiring.cafe connector also ships but is disabled: hiring.cafe now disallows the search endpoint it relied on, and the project does not work around that.
 - **Hard-filters on your criteria.** Title regex, seniority, location (a config-driven country allowlist — remote postings must be reachable from an allowed country — plus a city allowlist for onsite/hybrid), comp floor, stack-keyword overlap, and a freshness window (`max_age_days`).
 - **LLM-scores survivors** against `profile.md`. Postings scoring at or below `relevance.score_low` are suppressed; the rest get notified with the score and a one-line rationale.
 - **Flags résumé gaps (opt-in, off by default).** When `gap_analysis.enabled` is set, each notify-worthy posting gets a second LLM pass listing the hard skills the role wants but your résumé doesn't show — surfaced per-posting as a Discord "Stretch areas" field and rolled into a weekly digest. The résumé only annotates; it never feeds the relevance score, so recall is unchanged.
 - **Notifies twice per match.** ntfy.sh (push to your phone) + Discord webhook. Quiet hours mute ntfy overnight in your timezone.
 - **Dedups across runs.** A state table tracks every job_id ever notified, so you see each posting exactly once.
-- **Self-expands, hands-off.** A daily discovery tier validates ATS slugs (yc-oss + a manual list) *and* fingerprints a seed list of enterprise careers pages, adding healthy boards to the active poll set with no code or `config.yaml` changes. Name-based candidates run a **conversion chain**: up to 3 slug variants (normalized name, website domain label, source slug) probed across all 6 slug ATSs, then a careers-page fingerprint fallback — so a YC company on Workday still converts. Misses record what was tried and retry the full chain after 90 days. Aggregator sightings (Adzuna) double as a discovery source: postings from companies you don't poll directly are classified from their apply URLs and staged as candidates for the same validation pipeline. Configured VC portfolios (a16z today) are re-fetched weekly and staged into the same candidate pipeline. A poll-health circuit breaker suppresses boards that go dead.
+- **Self-expands, hands-off.** A daily discovery tier validates ATS slugs (yc-oss + a manual list) *and* fingerprints a seed list of enterprise careers pages, adding healthy boards to the active poll set with no code or settings changes. Name-based candidates run a **conversion chain**: up to 3 slug variants (normalized name, website domain label, source slug) probed across all 6 slug ATSs, then a careers-page fingerprint fallback — so a YC company on Workday still converts. Misses record what was tried and retry the full chain after 90 days. Aggregator sightings (Adzuna) double as a discovery source: postings from companies you don't poll directly are classified from their apply URLs and staged as candidates for the same validation pipeline. Configured VC portfolios (a16z today) are re-fetched weekly and staged into the same candidate pipeline. A poll-health circuit breaker suppresses boards that go dead.
 - **Explains every rejection.** Every posting the filters drop or the scorer suppresses is written to an audit trail with the reason, browsable at `/audit` — rescue a wrongly-dropped posting or confirm the call. Optional **ops push-alerts** fire when the pipeline stalls, yields nothing for 12h, or the LLM degrades.
 - **Self-tunes (opt-in).** `scripts/tune_thresholds.py` mines your `/audit` verdicts into suggested `score_low` / title-regex changes — it never edits config, it recommends.
 - **Tracks applications end-to-end.** A kanban board with a daily closed-posting sweep + digest, an optional read-only Gmail sweep that badges rejections/receipts as suggestions, and an apply-kit page (`/kit`) of tap-to-copy form answers.
@@ -70,11 +70,11 @@ Five tiers run on independent schedules:
 
 ### State and secrets
 
-SQLite keeps **eight tables** — `seen_jobs` (dedup; also stores each notified posting's relevance score, résumé gaps, and triage/board status + application history), `source_state` (per-connector ETag / cursor), `discovered_slugs` and `discovered_boards` (auto-discovered startup slugs and enterprise boards, with health), `connector_health` (a poll-health circuit breaker that auto-suppresses connectors which 404/410 repeatedly, re-probed daily), `rejected_postings` (the audit trail — what was filtered/suppressed and why), `pipeline_events` (per-cycle telemetry behind `/pipeline`), and `ops_alert_state` (cooldowns for the degraded / zero-yield / pipeline-stopped push alerts).
+SQLite holds everything — including your settings (`settings_versions`, `documents`, `secrets`, `config_generation`) and `seen_jobs` (dedup; also stores each notified posting's relevance score, résumé gaps, and triage/board status + application history), `source_state` (per-connector ETag / cursor), `discovered_slugs` and `discovered_boards` (auto-discovered startup slugs and enterprise boards, with health), `connector_health` (a poll-health circuit breaker that auto-suppresses connectors which 404/410 repeatedly, re-probed daily), `rejected_postings` (the audit trail — what was filtered/suppressed and why), `pipeline_events` (per-cycle telemetry behind `/pipeline`), and `ops_alert_state` (cooldowns for the degraded / zero-yield / pipeline-stopped push alerts).
 
 State lives in a single SQLite file at `./data/job_aggregator.db`.
 
-Secrets (ntfy URL, Discord webhook, and the LLM API key for your provider) come from a git-ignored `.env`.
+Secrets (ntfy URL, Discord webhook, your provider's API key) come from `JOB_AGG_*` environment variables (`.env`) or the database (`python -m src.settings set-secret`); a non-empty env var wins.
 
 ### Cost
 
@@ -128,21 +128,20 @@ src/
   vc_portfolio.py     VC portfolio drivers (a16z, Sequoia, CSV) — shared by the CLI and weekly auto-discovery
   digest.py           résumé-gap tally + weekly Discord digest
   stores.py           build_stores() — wires the SQLite stores
+  settings/           settings service: versions, documents, secrets, import/export CLI
   state.py            shared row types + item shaping for the SQLite stores
   state_sqlite.py     SQLite stores
   web/                local UI (FastAPI + HTMX): triage, board, /audit, /pipeline ops, /analytics, /coach, /kit, /builder
   tailor/             résumé tailoring engine + render/ (template packs → PDF via WeasyPrint) + endpoint/ (deep-link auth, loading page, run orchestration)
 scripts/
-  add_company.sh            appends a slug to config.yaml
   capture_fixture.py        saves an ATS response for connector tests
   discover.py               one-shot local discovery run
   discover_enterprise.py    fingerprint a seed CSV of enterprise careers pages (dry-run + --merge)
   tune_thresholds.py        mine /audit verdicts into suggested score_low / title changes
-  import_vc_portfolio.py    bulk-import a VC's portfolio into config.yaml
+  import_vc_portfolio.py    bulk-import a VC's portfolio into settings
   build_evidence_bank.py    Jira CSV → resume/evidence.json skeleton (for tailoring)
 docker-compose.yml    local stack: poller + web + (opt-in) ollama
-config.yaml           filters + sources + schedules + thresholds
-profile.md            the prose the LLM scores postings against
+config.yaml / profile.md   your settings files (gitignored) — load with python -m src.settings import
 resume.md.example     template résumé for gap analysis (copy to resume.md — gitignored)
 GETTING_STARTED.md    end-to-end setup and tailoring
 TROUBLESHOOTING.md    common setup and runtime issues
@@ -150,15 +149,15 @@ TROUBLESHOOTING.md    common setup and runtime issues
 
 ## Configuration
 
-Two files do almost all the customization — no code changes needed:
+Two files do almost all the customization — you edit them, then import them
+into the app database (`python -m src.settings import`); changes apply live:
 
 - **`config.yaml`** — hard filters (titles, seniority, location, comp, stack, freshness), the source lists (companies per ATS + aggregator toggles), LLM provider + score thresholds, quiet hours, schedules, and feature toggles (gap analysis, tailoring, board automation, audit retention, ops alerts, board discovery).
 - **`profile.md`** — the prose the LLM grades each surviving posting against (0–10). This is the highest-leverage knob for match quality.
 - **`resume.md`** (optional, gitignored) — your markdown résumé, used only by gap analysis.
 
-`config.yaml` and `profile.md` are untracked personal copies — seed them once
-with `cp config.example.yaml config.yaml && cp profile.example.md profile.md`;
-`git pull` never touches them.
+Seed them once with `cp config.example.yaml config.yaml && cp profile.example.md profile.md`
+— both are gitignored, so `git pull` never touches them.
 
 Step-by-step tuning — filters, the relevance profile, providers and calibration, adding companies, gap analysis — is in **[GETTING_STARTED.md §2](GETTING_STARTED.md#2-tailor-it-to-your-job-preferences)**.
 
@@ -172,7 +171,7 @@ The codebase is ~13,000 lines of Python with strict typing (Pydantic) and a larg
 
 | You want to… | Skill needed | Where |
 |---|---|---|
-| Change titles, stack, comp, locations, companies, quiet hours, LLM provider/thresholds, the LLM judgment criteria, résumé gap analysis | None — YAML/Markdown only | `config.yaml`, `profile.md`, `resume.md` ([Getting Started §2](GETTING_STARTED.md#2-tailor-it-to-your-job-preferences)) |
+| Change titles, stack, comp, locations, companies, quiet hours, LLM provider/thresholds, the LLM judgment criteria, résumé gap analysis | None — edit + import | `config.yaml`, `profile.md`, `resume.md` ([Getting Started §2](GETTING_STARTED.md#2-tailor-it-to-your-job-preferences)) |
 | Change polling cadence | None — YAML only | `config.yaml` `schedules:` |
 | Add a new notification target (Slack, email, SMS, Telegram) | Beginner Python | `src/notify/` |
 | Add a new filter (reject by company, require remote-only) | Beginner Python | `src/filters.py` |
@@ -202,7 +201,7 @@ def _build_sinks(cfg: AppConfig) -> list[Sink]:
     ]
 ```
 
-Add `slack_webhook_url: str = ""` to `Secrets` in `src/config.py` and read it from `JOB_AGG_SLACK_WEBHOOK_URL` in `_load_secrets()`. Discord is the cleanest template. Write a test that mocks `httpx.AsyncClient.post`; `tests/notify/test_discord.py` is the template.
+Add `slack_webhook_url: str = ""` to `Secrets` in `src/config.py` — the settings service resolves it automatically (`JOB_AGG_SLACK_WEBHOOK_URL`, else `python -m src.settings set-secret slack_webhook_url`); add its row to the secrets table in docs/CONFIG.md. Discord is the cleanest template. Write a test that mocks `httpx.AsyncClient.post`; `tests/notify/test_discord.py` is the template.
 
 ### Recipe: add a new filter
 
@@ -221,7 +220,7 @@ def evaluate(p, f):
     v = filter_blocked_companies(p, f); rec(v, "blocked_companies")
 ```
 
-Add `blocked_companies: list[str] = Field(default_factory=list)` to `FiltersConfig` in `src/config.py`, set it in `config.yaml`, and write a test in `tests/test_filters.py`.
+Add `blocked_companies: list[str] = Field(default_factory=list)` to `FiltersConfig` in `src/config.py`, set it in `config.yaml` and import, and write a test in `tests/test_filters.py`.
 
 ### Recipe: add a new LLM provider
 
@@ -243,7 +242,7 @@ The hardest common extension — you're learning that platform's API quirks (pag
 3. **Capture a fixture.** `scripts/capture_fixture.py <ats> <slug>` saves a JSON file under `tests/fixtures/` to replay without network.
 4. **Write tests** mirroring `tests/connectors/test_greenhouse.py` (use `respx` to mock HTTP).
 5. **Wire into `build_connectors`** in `src/connectors/base.py` — add it to `ctor_for` and the per-tier section.
-6. **Add a config field.** `SourcesConfig.<your_ats>: list[str]` in `src/config.py`; populate `config.yaml`.
+6. **Add a config field.** `SourcesConfig.<your_ats>: list[str]` in `src/config.py`; for a slug-list family, also add it to `SLUG_SOURCE_FAMILIES` (so `add-source` accepts it); populate via `config.yaml` + import.
 
 Optionally add the family to the validator in `src/discovery.py` so discovery probes it too, or — for enterprise boards with a machine-classifiable URL shape — to `src/fingerprint.py` so the daily sweep auto-discovers it.
 

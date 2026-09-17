@@ -1,6 +1,6 @@
 # Calibrating relevance scores after a model/provider change
 
-`score_low` (in `config.yaml`) is the suppression cutoff: postings scored at or
+`relevance.score_low` is the suppression cutoff: postings scored at or
 below it are not notified (they're still recorded — suppression only affects the
 alert). Different models produce different score distributions, so re-tune
 `score_low` whenever you change `relevance.model` or `relevance.provider`.
@@ -11,8 +11,9 @@ calibrating, as a deliberate separate deploy.
 
 ## 0. One-time: provision the Ollama API key
 
-Put the Ollama API key in `.env` as `JOB_AGG_OLLAMA_API_KEY`, then
-`docker compose up -d --force-recreate`.
+Store the Ollama API key: `docker compose run --rm -it web python -m src.settings
+set-secret ollama_api_key` (or `JOB_AGG_OLLAMA_API_KEY` in `.env` +
+`docker compose up -d --force-recreate`).
 
 ## 1. Run a calibration pass
 
@@ -26,8 +27,8 @@ sends alerts.)
 Calibration must run against the model you're evaluating, so point the config at
 Ollama for the run. Two ways:
 
-**A. Temporarily set the provider in `config.yaml`** (this is also the eventual
-production change — see step 3):
+**A. Temporarily set the provider in `config.yaml` and re-import** (this is also
+the eventual production change — see step 3):
 
 ```yaml
 relevance:
@@ -35,19 +36,19 @@ relevance:
   model: gpt-oss:120b
 ```
 
-**B. Or use a throwaway config** without touching `config.yaml`:
+**B. Or calibrate against a copy of the database** without touching live settings:
 
 ```
-cp config.yaml /tmp/calib.yaml   # then edit provider/model in /tmp/calib.yaml
-export JOB_AGG_CONFIG_PATH=/tmp/calib.yaml
+cp data/job_aggregator.db /tmp/calib.db
+export JOB_AGG_SQLITE_PATH=/tmp/calib.db
+python -m src.settings export /tmp/calib        # edit provider/model in /tmp/calib/config.yaml
+python -m src.settings import /tmp/calib
 ```
 
-Then run (the ntfy/discord env vars are required by config loading but unused in
-dry-run):
+Then run:
 
 ```
 export JOB_AGG_OLLAMA_API_KEY=ol-...
-export JOB_AGG_NTFY_TOPIC_URL=x JOB_AGG_DISCORD_WEBHOOK_URL=x
 
 .venv/bin/python -m src.handler --tier ats --calibrate 2>&1 | grep calibration_
 ```
@@ -71,7 +72,7 @@ export JOB_AGG_NTFY_TOPIC_URL=x JOB_AGG_DISCORD_WEBHOOK_URL=x
 
 Choose the cutoff in `would_suppress_at` that drops the postings you would *not*
 pursue without dropping ones you would. Then make the production change in
-`config.yaml`:
+`config.yaml` and re-import:
 
 ```yaml
 relevance:
@@ -83,7 +84,7 @@ relevance:
   ...
 ```
 
-Deploy: `docker compose restart poller web` — config.yaml is bind-mounted.
+Import it — changes apply live.
 
 Re-run `--calibrate` against production config after deploy to confirm the
 distribution looks as expected.
@@ -93,11 +94,11 @@ distribution looks as expected.
 If `gpt-oss:120b` scores poorly, in increasing order of change:
 
 1. **Try a different model** — set `model:` to another accessible Cloud model
-   (one line), then `docker compose restart poller web`. (Avoid `gpt-oss:20b` —
-   it returns empty content on Cloud today.)
+   (one line), then re-import. (Avoid `gpt-oss:20b` — it returns empty content
+   on Cloud today.)
 2. **Revert the provider** — set `provider: anthropic` (or `gemini`), then
-   `docker compose restart poller web`. The Anthropic and Gemini scorers remain
-   fully wired; this is a one-line change with no code revert needed.
+   re-import. The Anthropic and Gemini scorers remain fully wired; this is a
+   one-line change with no code revert needed.
 
 ## Troubleshooting: high `fallbacks` count
 
@@ -116,7 +117,7 @@ not enforce a schema). If `fallbacks` is high:
   (a 403 "this model requires a subscription, upgrade for access").
 - Confirm `JOB_AGG_OLLAMA_API_KEY` is set and the plan quota isn't exhausted. A
   per-call cold-start can exceed the 10s `timeout_seconds`; bump it (e.g. to 30)
-  in the config if early calls time out.
+  in `config.yaml` and re-import if early calls time out.
 - As a further reliability lever, try adding `format="json"` to the `chat(...)`
   call in `OllamaRelevanceScorer.score` (`src/relevance.py`) and re-calibrate.
   Left off because Cloud's structured-output support was documented as

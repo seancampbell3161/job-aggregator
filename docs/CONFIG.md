@@ -1,22 +1,24 @@
 # Configuration Reference
 
-Every configuration flag in the `AppConfig` tree — `config.yaml` plus the env
-secrets — one row per flag. (Runtime-only env vars such as `JOB_AGG_OLLAMA_HOST`
-or the web host/port are not config flags and are covered in GETTING_STARTED
-where their features are set up.) Configuration comes from two places:
+Every flag in the settings document (the `AppConfig` tree) plus the secrets,
+one row per flag.
 
-- **`config.yaml`** — everything below except secrets — untracked and personal;
-  seed it from `config.example.yaml`. The file is
-  bind-mounted into the containers: edit, then
-  `docker compose restart poller web` (no `--build` needed).
-- **Environment secrets** — the [secrets](#secrets) table at the bottom:
-  `JOB_AGG_*` env vars in `.env` (for Docker Compose).
+Settings live in the app database (`./data/job_aggregator.db`), not in files.
+YAML is the import/export format:
 
-Sections omitted from config.yaml run entirely on the defaults listed here.
-Setup narrative lives in [GETTING_STARTED.md](../GETTING_STARTED.md); this
-page is the lookup table. The drift-guard test `tests/test_config_docs.py`
-fails CI whenever a flag is added to `src/config.py` without a row here (or
-a row outlives its flag).
+- **Settings document** — everything below except secrets. Load or replace it
+  with `python -m src.settings import DIR` (reads `DIR/config.yaml`, plus
+  `profile.md`, `resume.md`, and `resume/` when present); write the settings in
+  effect back out with `python -m src.settings export DIR` (non-default values
+  only). Every import is a new settings version (`history`, `restore ID`), and
+  **changes apply live** in the poller, scheduler, and web UI — no restart.
+- **Secrets** — the [secrets](#secrets) table at the bottom. Never part of the
+  settings document or an export.
+
+Sections omitted from `config.yaml` run on the defaults listed here. Setup
+narrative lives in [GETTING_STARTED.md](../GETTING_STARTED.md); this page is the
+lookup table. The drift-guard test `tests/test_config_docs.py` fails CI whenever
+a flag is added to `src/config.py` without a row here (or a row outlives its flag).
 
 ## filters
 
@@ -53,7 +55,7 @@ quiet window. When set, all three keys are required.
 ## sources
 
 What gets polled. Two kinds of entries: **slug-list families** (one string
-per company board, added with `./scripts/add_company.sh <family> <slug>`)
+per company board, added with `python -m src.settings add-source <family> <slug>`)
 and **structured families** (hand-curated mapping entries — see the example
 block below the table). Adding/removing companies: GETTING_STARTED §2d.
 
@@ -268,19 +270,29 @@ How the poller identifies itself to every site it fetches.
 
 ## secrets
 
-Never in config.yaml. `JOB_AGG_*` env vars (Docker Compose reads
-`.env` — note Compose snapshots it at container creation; `--force-recreate`
-after edits).
+Never part of the settings document. Each secret resolves in this order:
+
+1. a non-empty `JOB_AGG_*` environment variable (Docker Compose reads `.env` and
+   snapshots it at container creation — run `docker compose up -d --force-recreate`
+   after editing);
+2. the value stored in the database — `python -m src.settings set-secret NAME`
+   (prompts; values are never taken from the command line), or
+   `python -m src.settings import-env-secrets` to copy every non-empty
+   `JOB_AGG_*` value once;
+3. empty.
+
+`python -m src.settings status` shows where each secret comes from (`env`,
+`stored`, or `unset`); `clear-secret NAME` removes a stored value.
 
 | Flag | Env var | What it does |
 |---|---|---|
-| `secrets.ntfy_topic_url` | `JOB_AGG_NTFY_TOPIC_URL` | (required) ntfy topic for phone pushes. |
-| `secrets.discord_webhook_url` | `JOB_AGG_DISCORD_WEBHOOK_URL` | (required) Discord webhook for the match feed. |
+| `secrets.ntfy_topic_url` | `JOB_AGG_NTFY_TOPIC_URL` | ntfy topic for phone pushes. Empty = no pushes. |
+| `secrets.discord_webhook_url` | `JOB_AGG_DISCORD_WEBHOOK_URL` | Discord webhook for the match feed and the weekly gap digest. Empty = neither. |
 | `secrets.anthropic_api_key` | `JOB_AGG_ANTHROPIC_API_KEY` | For `provider: anthropic`. Empty OK otherwise. |
 | `secrets.google_api_key` | `JOB_AGG_GOOGLE_API_KEY` | For `provider: gemini`. Empty OK otherwise. |
 | `secrets.ollama_api_key` | `JOB_AGG_OLLAMA_API_KEY` | For hosted Ollama Cloud; leave empty for fully-local Ollama. |
 | `secrets.tailor_endpoint_url` | `JOB_AGG_TAILOR_ENDPOINT_URL` | Tailor endpoint base URL for alert deep links. Empty = no deep links. |
-| `secrets.tailor_signing_secret` | `JOB_AGG_TAILOR_SIGNING_SECRET` | HMAC secret signing the deep-link tokens. |
+| `secrets.tailor_signing_secret` | `JOB_AGG_TAILOR_SIGNING_SECRET` | HMAC secret signing the deep-link tokens. Generated and stored automatically on first boot when unset. |
 | `secrets.ops_ntfy_topic_url` | `JOB_AGG_OPS_NTFY_TOPIC_URL` | Separate ntfy topic for [ops alerts](#ops_notify). Empty (and no ops webhook) = ops alerts off. |
 | `secrets.ops_discord_webhook_url` | `JOB_AGG_OPS_DISCORD_WEBHOOK_URL` | Separate Discord webhook for ops alerts. |
 | `secrets.heartbeat_url` | `JOB_AGG_HEARTBEAT_URL` | healthchecks.io-style dead-man's-switch ping after each cycle. Empty = no ping. |
