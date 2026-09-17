@@ -16,11 +16,22 @@ JOB_AGG_WEB_PORT=8901 \
 - Use `.venv/bin/python` / `.venv/bin/pytest` (or `uv run …`) so the project
   venv is the interpreter that runs.
 - `src.sqlite_db.connect(path)` creates the full schema on first open, so a
-  fresh scratch path just works; `config.yaml` is read fail-soft (no secrets
-  needed for the web UI).
+  fresh scratch path just works; a fresh DB is **not set up** — every page
+  redirects to `/setup` until you import settings.
 - Server binds 127.0.0.1; ready within ~2s (poll with curl).
 - The poller/scheduler is separate (`python -m src.scheduler`) — the web app
   alone renders everything from whatever is in the DB.
+
+## Seed settings
+
+```bash
+mkdir -p /tmp/verify-settings && cp config.example.yaml /tmp/verify-settings/config.yaml
+JOB_AGG_SQLITE_PATH=/path/to/scratch.db .venv/bin/python -m src.settings import /tmp/verify-settings
+```
+
+Settings changes (import, `add-source`, `set-secret`) apply to the running app
+on the next request — no restart. `python -m src.settings status` shows the
+state.
 
 ## Seed telemetry / jobs
 
@@ -44,5 +55,5 @@ Insert rows directly with `src.sqlite_db.connect()` + SQL (see
 
 ## Gotchas
 
-- SQLite is WAL — external `sqlite3` writes are visible to the running app
-  immediately; no restart needed.
+- SQLite runs in rollback-journal mode — external `sqlite3` writes are visible
+  to the running app immediately; no restart needed.

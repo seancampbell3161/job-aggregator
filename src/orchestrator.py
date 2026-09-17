@@ -465,9 +465,12 @@ async def run_once(
             )
             if any_ok:
                 result.notified_count += 1
-            else:
+            elif sinks:
                 # All sinks failed; release the claim so a later cycle retries.
                 store.release_claim(n.job_id)
+            # No sinks configured is a valid setup, not a send failure: the
+            # claim stays, so the match lands in the web UI and isn't re-scored
+            # next cycle. Nothing was sent, so it doesn't count as notified.
 
     result.duration_ms = int((time.monotonic() - t_start) * 1000)
     log.info(

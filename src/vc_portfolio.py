@@ -14,10 +14,10 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterable
 from urllib.parse import urlparse
 
 import httpx
-import yaml
 
 from src.discovery import _SUPPORTED_ATS, _probe_one_ats
 from src.fingerprint import FingerprintResult, Seed, connector_name, fingerprint_company
@@ -217,15 +217,6 @@ _SLUG_CONCURRENCY = 10
 _FP_CONCURRENCY = 5
 
 
-def _manual_company_slugs(config_path: Path) -> set[str]:
-    """Bare slugs queued in discovery.manual_companies (family-agnostic)."""
-    try:
-        cfg = yaml.safe_load(config_path.read_text()) or {}
-    except FileNotFoundError:
-        return set()
-    return set((cfg.get("discovery") or {}).get("manual_companies") or [])
-
-
 def _all_slugs_polled(company: PortfolioCompany, manual: set[str]) -> bool:
     """True iff every candidate slug is already queued — skip to avoid double-cover."""
     return bool(company.slug_candidates) and all(s in manual for s in company.slug_candidates)
@@ -256,17 +247,19 @@ async def _slug_probe(company: PortfolioCompany, client: httpx.AsyncClient) -> F
 
 
 async def discover_portfolio(
-    firm: str, *, client: httpx.AsyncClient, config_path: Path,
+    firm: str, *, client: httpx.AsyncClient, manual_companies: Iterable[str] = (),
     limit: int | None = None, only: str | None = None, csv_path: Path | None = None,
 ) -> list[FingerprintResult]:
     """Two-stage VC discovery → deduped matched FingerprintResults, ready for
-    merge_results_into_config. Stage 1 slug-probe (primary); Stage 2 fingerprint
-    the residual companies that have a domain."""
+    merge_results_into_settings. Stage 1 slug-probe (primary); Stage 2
+    fingerprint the residual companies that have a domain. Companies whose
+    every slug candidate is in ``manual_companies`` (discovery.manual_companies)
+    are skipped."""
     companies = await _run_driver(firm, client, csv_path)
     if only:
         needle = only.lower()
         companies = [c for c in companies if needle in c.name.lower()]
-    manual = _manual_company_slugs(config_path)
+    manual = set(manual_companies)
     companies = [c for c in companies if not _all_slugs_polled(c, manual)]
     if limit is not None:
         companies = companies[:limit]

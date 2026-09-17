@@ -2,9 +2,9 @@
 
 Reads the accumulated /audit rescue/confirm verdicts and prints suggested
 adjustments to `relevance.score_low` and `filters.titles`. NEVER writes
-config — copy the suggested lines into config.yaml by hand, then
-`docker compose restart poller`. Run on the box whose SQLite DB holds the
-verdicts (production).
+settings — apply a suggestion with `python -m src.settings export DIR`, edit
+DIR/config.yaml, then `python -m src.settings import DIR` (applies live, no
+restart). Run on the box whose SQLite DB holds the verdicts (production).
 
   uv run python scripts/tune_thresholds.py
   uv run python scripts/tune_thresholds.py --since 2026-06-01 --min-verdicts 15
@@ -17,8 +17,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
-
-import yaml
 
 from src.tuning import (
     analyze_role_titles, analyze_score_low, analyze_snippet_pairs, analyze_source_scores,
@@ -36,11 +34,18 @@ def _iso_or_empty(s: str) -> str:
     return s
 
 
-def _load_config(config_path: str) -> tuple[int, list[str]]:
-    raw = yaml.safe_load(Path(config_path).read_text()) or {}
-    score_low = int((raw.get("relevance") or {}).get("score_low", 4))
-    titles = list((raw.get("filters") or {}).get("titles", []))
-    return score_low, titles
+def _current_thresholds() -> tuple[int, list[str]]:
+    """relevance.score_low and filters.titles from the app DB's settings; the
+    model defaults when not set up or unreadable."""
+    from src.config import AppConfig
+    from src.settings import open_service
+    try:
+        snap = open_service().snapshot()
+    except Exception as exc:  # noqa: BLE001 — read-only tool degrades gracefully
+        print(f"note: could not read settings ({type(exc).__name__}: {exc}); using defaults")
+        snap = None
+    cfg = snap.cfg if snap is not None else AppConfig()
+    return cfg.relevance.score_low, list(cfg.filters.titles)
 
 
 def _read_verdict_rows(since_iso: str):
@@ -90,7 +95,6 @@ def _read_verdict_rows(since_iso: str):
 
 def run(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Verdict-driven threshold tuning report (read-only).")
-    ap.add_argument("--config", default="config.yaml")
     ap.add_argument(
         "--since", default="", type=_iso_or_empty,
         help="ISO date/datetime; only verdicts on/after are used",
@@ -98,7 +102,7 @@ def run(argv: list[str] | None = None) -> int:
     ap.add_argument("--min-verdicts", type=int, default=10)
     args = ap.parse_args(argv)
 
-    score_low, titles = _load_config(args.config)
+    score_low, titles = _current_thresholds()
     suppressed, rejected = _read_verdict_rows(args.since)
 
     sl = analyze_score_low(suppressed, current=score_low, min_verdicts=args.min_verdicts)

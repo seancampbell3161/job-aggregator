@@ -1,19 +1,16 @@
-"""Load + validate config.yaml and the JOB_AGG_* env secrets."""
+"""Settings models: the settings document (stored in SQLite and validated by
+src/settings/service.py) plus the Secrets it resolves."""
 
 from __future__ import annotations
 
-import os
 import warnings
 from datetime import time
-from pathlib import Path
 from typing import Literal
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src import geo
-from src.user_agent import set_user_agent
 
 
 EmploymentType = Literal[
@@ -21,25 +18,15 @@ EmploymentType = Literal[
 ]
 
 
-class FiltersConfig(BaseModel):
-    titles: list[str]
-    seniority_allow: list[Literal["junior", "mid", "senior", "staff"]]
-    location: "LocationFilterConfig"
-    comp_floor_usd: int = Field(ge=0)
-    stack_any_of: list[str]
-    max_age_days: int | None = None  # None = no age filter; otherwise reject postings older than N days
-    # Employment types to hard-reject when a posting's type is *known*. Postings
-    # with an unknown type (most connectors don't expose it) are never rejected
-    # here — the filter fails open. "contract_to_hire" and "full_time" are
-    # intentionally absent from the default (the profile accepts both).
-    blocked_employment_types: list[EmploymentType] = Field(
-        default_factory=lambda: ["contract", "temporary", "part_time", "internship"]
-    )
-    # Companies to hard-reject, whatever source surfaced them. Matched on
-    # whole-word tokens rather than substrings, so "microsoft" also catches
-    # "Microsoft Corporation" and the slug-derived "Eightfold:Microsoft" while
-    # "apple" leaves "Applebee's" alone. Empty (the default) disables the gate.
-    blocked_companies: list[str] = Field(default_factory=list)
+def _check_crontab(value: str) -> str:
+    """Reject crontab strings APScheduler can't parse. The scheduler applies
+    these live, so a bad value must fail at save time, not at reschedule."""
+    from apscheduler.triggers.cron import CronTrigger
+    try:
+        CronTrigger.from_crontab(value, timezone="UTC")
+    except ValueError as exc:
+        raise ValueError(f"invalid crontab {value!r}: {exc}") from exc
+    return value
 
 
 class LocationFilterConfig(BaseModel):
@@ -63,7 +50,10 @@ class LocationFilterConfig(BaseModel):
     def _translate_legacy_key(cls, data):
         if isinstance(data, dict):
             data = dict(data)  # never mutate the caller's dict
-            if data.get("remote_must_be_us") is not None:
+            # Popped, not just read: a dumped document must never carry the
+            # legacy key alongside remote_policy (re-validation would fail).
+            legacy = data.pop("remote_must_be_us", None)
+            if legacy is not None:
                 if "remote_policy" in data:
                     raise ValueError(
                         "location: set remote_policy or the deprecated "
@@ -75,10 +65,33 @@ class LocationFilterConfig(BaseModel):
                     DeprecationWarning,
                     stacklevel=2,
                 )
-                data["remote_policy"] = (
-                    "allowed_countries" if data["remote_must_be_us"] else "anywhere"
-                )
+                data["remote_policy"] = "allowed_countries" if legacy else "anywhere"
         return data
+
+
+class FiltersConfig(BaseModel):
+    # An empty titles list matches nothing (see filters._build_role_regex) —
+    # safe but silent; the settings UI surfaces it as a readiness warning.
+    titles: list[str] = Field(default_factory=list)
+    seniority_allow: list[Literal["junior", "mid", "senior", "staff"]] = Field(
+        default_factory=lambda: ["mid", "senior"]
+    )
+    location: LocationFilterConfig = Field(default_factory=LocationFilterConfig)
+    comp_floor_usd: int = Field(default=0, ge=0)
+    stack_any_of: list[str] = Field(default_factory=list)
+    max_age_days: int | None = None  # None = no age filter; otherwise reject postings older than N days
+    # Employment types to hard-reject when a posting's type is *known*. Postings
+    # with an unknown type (most connectors don't expose it) are never rejected
+    # here — the filter fails open. "contract_to_hire" and "full_time" are
+    # intentionally absent from the default (the profile accepts both).
+    blocked_employment_types: list[EmploymentType] = Field(
+        default_factory=lambda: ["contract", "temporary", "part_time", "internship"]
+    )
+    # Companies to hard-reject, whatever source surfaced them. Matched on
+    # whole-word tokens rather than substrings, so "microsoft" also catches
+    # "Microsoft Corporation" and the slug-derived "Eightfold:Microsoft" while
+    # "apple" leaves "Applebee's" alone. Empty (the default) disables the gate.
+    blocked_companies: list[str] = Field(default_factory=list)
 
 
 class QuietHoursConfig(BaseModel):
@@ -93,7 +106,10 @@ class QuietHoursConfig(BaseModel):
     def _coerce_tz(cls, v: object) -> ZoneInfo:
         if isinstance(v, ZoneInfo):
             return v
-        return ZoneInfo(str(v))
+        try:
+            return ZoneInfo(str(v))
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError(f"unknown timezone {v!r}") from exc
 
     @field_validator("start", "end", mode="before")
     @classmethod
@@ -241,13 +257,19 @@ class RelevanceConfig(BaseModel):
     model: str = "claude-haiku-4-5"
     score_high: int = Field(default=7, ge=0, le=10)
     score_low: int = Field(default=3, ge=0, le=10)
-    profile_path: str = "profile.md"
     timeout_seconds: int = Field(default=10, ge=1)
+    # Base URL for every Ollama-backed feature. "https://ollama.com" is hosted
+    # Ollama Cloud (needs secrets.ollama_api_key); anything else is a local
+    # server that needs no key. JOB_AGG_OLLAMA_HOST, when non-empty, overrides it.
+    ollama_host: str = "http://ollama:11434"
+
+    @property
+    def ollama_is_local(self) -> bool:
+        return "ollama.com" not in self.ollama_host
 
 
 class GapAnalysisConfig(BaseModel):
     enabled: bool = False
-    resume_path: str = "resume.md"
     # provider/model default to the relevance values when None (see _build_gap_analyzer)
     provider: Literal["anthropic", "gemini", "ollama"] | None = None
     model: str | None = None
@@ -258,8 +280,6 @@ class GapAnalysisConfig(BaseModel):
 
 class TailoringConfig(BaseModel):
     enabled: bool = False
-    content_path: str = "resume/content.json"
-    evidence_path: str = "resume/evidence.json"
     # provider/model default to the relevance values when None (see build_tailor_engine)
     provider: Literal["anthropic", "gemini", "ollama"] | None = None
     model: str | None = None
@@ -274,6 +294,11 @@ class BoardConfig(BaseModel):
     closed_check_cron: str = "30 4 * * *"
     digest_cron: str = "0 15 * * *"
     web_base_url: str = ""
+
+    @field_validator("closed_check_cron", "digest_cron")
+    @classmethod
+    def _check_cron(cls, v: str) -> str:
+        return _check_crontab(v)
 
 
 class HttpConfig(BaseModel):
@@ -416,17 +441,29 @@ class SourcesConfig(BaseModel):
     adzuna: AdzunaConfig = Field(default_factory=AdzunaConfig)
 
 
+# Source families whose entries are bare slug strings (vs. structured boards).
+SLUG_SOURCE_FAMILIES: tuple[str, ...] = (
+    "greenhouse", "lever", "ashby", "workable", "smartrecruiters",
+    "rippling", "personio", "recruitee", "teamtailor",
+)
+
+
 class SchedulesConfig(BaseModel):
-    ats_minutes: int = Field(ge=1)
-    slow_minutes: int = Field(ge=1)
+    ats_minutes: int = Field(default=10, ge=1)
+    slow_minutes: int = Field(default=15, ge=1)
     discovery_hours: int = Field(default=24, ge=1)
     headless_minutes: int = Field(default=45, ge=1)
     digest_cron: str = "0 13 * * 1"  # APScheduler cron: Mondays 13:00 UTC
 
+    @field_validator("digest_cron")
+    @classmethod
+    def _check_cron(cls, v: str) -> str:
+        return _check_crontab(v)
+
 
 class Secrets(BaseModel):
-    ntfy_topic_url: str
-    discord_webhook_url: str
+    ntfy_topic_url: str = ""       # empty -> no ntfy sink
+    discord_webhook_url: str = ""  # empty -> no Discord sink, no gap digest
     anthropic_api_key: str = ""  # empty string allowed when relevance is disabled
     google_api_key: str = ""     # empty string allowed when not using provider=gemini
     ollama_api_key: str = ""     # empty string allowed when not using provider=ollama
@@ -450,21 +487,20 @@ class GmailConfig(BaseModel):
     lookback_max_days: int = Field(default=7, ge=1)
     max_messages_per_run: int = Field(default=200, ge=1)
 
-
-class KitConfig(BaseModel):
-    # Apply kit (/kit): gitignored label/value facts file rendered with
-    # copy buttons. resume/ is bind-mounted, so edits are save + refresh.
-    facts_path: str = "resume/facts.yaml"
+    @field_validator("check_cron")
+    @classmethod
+    def _check_cron(cls, v: str) -> str:
+        return _check_crontab(v)
 
 
 class AppConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    filters: FiltersConfig
-    quiet_hours: QuietHoursConfig
-    sources: SourcesConfig
-    schedules: SchedulesConfig
-    secrets: Secrets
+    filters: FiltersConfig = Field(default_factory=FiltersConfig)
+    quiet_hours: QuietHoursConfig | None = None
+    sources: SourcesConfig = Field(default_factory=SourcesConfig)
+    schedules: SchedulesConfig = Field(default_factory=SchedulesConfig)
+    secrets: Secrets = Field(default_factory=Secrets)
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
     relevance: RelevanceConfig = Field(default_factory=RelevanceConfig)
     gap_analysis: GapAnalysisConfig = Field(default_factory=GapAnalysisConfig)
@@ -474,53 +510,4 @@ class AppConfig(BaseModel):
     coach: CoachConfig = Field(default_factory=CoachConfig)
     ops_notify: OpsNotifyConfig = Field(default_factory=OpsNotifyConfig)
     http: HttpConfig = Field(default_factory=HttpConfig)
-    kit: KitConfig = Field(default_factory=KitConfig)
     gmail: GmailConfig = Field(default_factory=GmailConfig)
-
-
-def _load_secrets() -> Secrets:
-    """Read secrets from JOB_AGG_* env vars."""
-    return Secrets(
-        ntfy_topic_url=os.environ["JOB_AGG_NTFY_TOPIC_URL"],
-        discord_webhook_url=os.environ["JOB_AGG_DISCORD_WEBHOOK_URL"],
-        anthropic_api_key=os.environ.get("JOB_AGG_ANTHROPIC_API_KEY", ""),
-        google_api_key=os.environ.get("JOB_AGG_GOOGLE_API_KEY", ""),
-        ollama_api_key=os.environ.get("JOB_AGG_OLLAMA_API_KEY", ""),
-        tailor_endpoint_url=os.environ.get("JOB_AGG_TAILOR_ENDPOINT_URL", ""),
-        tailor_signing_secret=os.environ.get("JOB_AGG_TAILOR_SIGNING_SECRET", ""),
-        ops_ntfy_topic_url=os.environ.get("JOB_AGG_OPS_NTFY_TOPIC_URL", ""),
-        ops_discord_webhook_url=os.environ.get("JOB_AGG_OPS_DISCORD_WEBHOOK_URL", ""),
-        heartbeat_url=os.environ.get("JOB_AGG_HEARTBEAT_URL", ""),
-        gmail_address=os.environ.get("JOB_AGG_GMAIL_ADDRESS", ""),
-        gmail_app_password=os.environ.get("JOB_AGG_GMAIL_APP_PASSWORD", ""),
-        adzuna_app_id=os.environ.get("JOB_AGG_ADZUNA_APP_ID", ""),
-        adzuna_app_key=os.environ.get("JOB_AGG_ADZUNA_APP_KEY", ""),
-    )
-
-
-def load_config(path: Path | str = "config.yaml") -> AppConfig:
-    """Load config from YAML; raises FileNotFoundError/IsADirectoryError with
-    copy instructions when the file is absent or a compose-created directory stub."""
-    try:
-        text = Path(path).read_text()
-    except FileNotFoundError:
-        raise FileNotFoundError(
-            f"{path} not found — copy config.example.yaml to config.yaml and "
-            "profile.example.md to profile.md, then personalize them "
-            "(GETTING_STARTED.md §2)."
-        ) from None
-    except IsADirectoryError:
-        raise IsADirectoryError(
-            f"{path} is a directory, not a file — Docker Compose creates a "
-            "directory stub when the file is missing at first start. Remove it "
-            f"(rm -r {path}; repeat for any other path that is a directory), then copy the templates: "
-            "cp config.example.yaml config.yaml && cp profile.example.md "
-            "profile.md (GETTING_STARTED.md §2)."
-        ) from None
-    raw = yaml.safe_load(text)
-    raw["secrets"] = _load_secrets().model_dump()
-    cfg = AppConfig.model_validate(raw)
-    # Single place the operator's UA override takes effect; every module reads
-    # it lazily via src.user_agent, so this covers callers that never see cfg.
-    set_user_agent(cfg.http.user_agent)
-    return cfg

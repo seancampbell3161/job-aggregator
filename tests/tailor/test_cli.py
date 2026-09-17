@@ -19,8 +19,8 @@ def test_cli_writes_three_files(tmp_path, monkeypatch):
     jd.write_text("Go backend role")
     fake_engine = MagicMock()
     fake_engine.tailor = AsyncMock(return_value=_result())
-    monkeypatch.setattr(cli, "load_config", lambda: MagicMock())
-    monkeypatch.setattr(cli, "build_tailor_engine", lambda cfg: fake_engine)
+    monkeypatch.setattr(cli, "_snapshot", lambda: MagicMock())
+    monkeypatch.setattr(cli, "build_tailor_engine", lambda cfg, content, evidence: fake_engine)
     monkeypatch.chdir(tmp_path)
 
     rc = cli.main(["--jd", str(jd), "--job-id", "acme-1"])
@@ -39,6 +39,14 @@ def test_cli_writes_three_files(tmp_path, monkeypatch):
 def test_cli_returns_1_when_engine_unavailable(tmp_path, monkeypatch):
     jd = tmp_path / "jd.txt"
     jd.write_text("x")
-    monkeypatch.setattr(cli, "load_config", lambda: MagicMock())
-    monkeypatch.setattr(cli, "build_tailor_engine", lambda cfg: None)
+    monkeypatch.setattr(cli, "_snapshot", lambda: MagicMock())
+    monkeypatch.setattr(cli, "build_tailor_engine", lambda cfg, content, evidence: None)
     assert cli.main(["--jd", str(jd), "--job-id", "x"]) == 1
+
+
+def test_cli_returns_1_when_not_set_up(tmp_path, monkeypatch, capsys):
+    jd = tmp_path / "jd.txt"
+    jd.write_text("x")
+    monkeypatch.setattr(cli, "_snapshot", lambda: None)
+    assert cli.main(["--jd", str(jd), "--job-id", "x"]) == 1
+    assert "not set up" in capsys.readouterr().err

@@ -44,5 +44,5 @@ def test_state_module_has_no_aws_dependency():
 def test_stores_requires_every_store():
     import dataclasses
     fields = dataclasses.fields(Stores)
-    assert len(fields) == 10
+    assert len(fields) == 11
     assert all(f.default is dataclasses.MISSING for f in fields)

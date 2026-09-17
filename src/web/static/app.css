@@ -251,3 +251,5 @@ header { display: flex; align-items: baseline; gap: 16px; }
 .template-card.pending { border-color: rgba(245,158,11,.55); margin-top: 12px; }
 .upload-form { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.config-banner { padding: 10px 16px; font-size: 14px; color: #f4c77a;
+                 background: rgba(245,158,11,.12); border-bottom: 1px solid rgba(245,158,11,.55); }

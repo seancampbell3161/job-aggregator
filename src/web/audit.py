@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.state import posting_from_item
+from src.web.context import config_ctx
 
 log = logging.getLogger(__name__)
 
@@ -143,6 +144,25 @@ class AuditProvider:
             return None
 
 
+def audit_llm(request: Request) -> tuple[object | None, object | None]:
+    """(relevance scorer, gap analyzer) for rescues, built from the request's
+    snapshot and cached per settings generation. Fail-soft: a broken
+    client/API key degrades to (None, None) — the rescue route already
+    tolerates that — instead of raising on every request until the
+    generation moves."""
+    def build(snap):
+        from src.handler import _build_gap_analyzer, _build_relevance_scorer
+        try:
+            return (
+                _build_relevance_scorer(snap.cfg, snap.documents.profile),
+                _build_gap_analyzer(snap.cfg, snap.documents.resume_text),
+            )
+        except Exception as exc:  # noqa: BLE001 — rescue must not 500
+            log.warning("audit_llm_build_failed", extra={"error": str(exc)})
+            return (None, None)
+    return request.app.state.cache.get("audit_llm", request.state.snapshot, build)
+
+
 def register_audit_routes(app: FastAPI) -> None:
     @app.get("/audit", response_class=HTMLResponse)
     def audit(request: Request, gate: str = "", q: str = "", days: int = 7,
@@ -151,8 +171,7 @@ def register_audit_routes(app: FastAPI) -> None:
         return request.app.state.templates.TemplateResponse(
             request, "audit.html",
             {
-                "score_high": request.app.state.score_high,
-                "score_low": request.app.state.score_low,
+                **config_ctx(request),
                 "available": prov.available,
                 "tally": prov.tally(days=days),
                 "rows": prov.rows(days=days, gate=gate, q=q, show_judged=judged),
@@ -176,7 +195,7 @@ def register_audit_routes(app: FastAPI) -> None:
         # only when origin is score_low (the filter-origin item has no score).
         suppressed_score = item.get("score") if origin == "score_low" else None
         posting = posting_from_item(item)
-        scorer, analyzer = getattr(request.app.state, "audit_llm", (None, None))
+        scorer, analyzer = audit_llm(request)
         score_val = rationale = None
         gaps = None
         if scorer is not None and posting.description:

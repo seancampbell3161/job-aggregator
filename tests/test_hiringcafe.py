@@ -166,12 +166,13 @@ async def test_connector_without_sightings_list_behaves_as_before():
     assert len(result.postings) == 1
 
 
-def test_build_connectors_threads_sightings_to_hiringcafe(tmp_path, monkeypatch):
-    from src.config import load_config
+def test_build_connectors_threads_sightings_to_hiringcafe():
+    import yaml
+
+    from src.config import AppConfig
     from src.connectors.base import build_connectors
 
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text("""
+    cfg = AppConfig.model_validate(yaml.safe_load("""
 filters:
   titles: ["software engineer"]
   seniority_allow: ["mid", "senior"]
@@ -186,10 +187,7 @@ sources:
   workable: []
   hiringcafe: {enabled: true}
 schedules: {ats_minutes: 10, slow_minutes: 15}
-""")
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    cfg = load_config(str(cfg_path))
+"""))
     sightings: list = []
     conns = build_connectors(cfg, "slow", sightings=sightings)
     cafe = [c for c in conns if c.name == "hiringcafe"]
@@ -197,16 +195,17 @@ schedules: {ats_minutes: 10, slow_minutes: 15}
     assert cafe[0]._sightings is sightings
 
 
-def test_build_connectors_active_set_includes_promoted_boards(tmp_path, monkeypatch):
+def test_build_connectors_active_set_includes_promoted_boards():
     """A promoted (ok) board must suppress hiring.cafe's duplicate emission:
     its (family, token) pair joins the connector's active_set."""
-    from src.config import load_config
+    import yaml
+
+    from src.config import AppConfig
     from src.connectors.base import build_connectors
     from src.sqlite_db import connect
     from src.state_sqlite import SqliteDiscoveredBoardsStore
 
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text("""
+    cfg = AppConfig.model_validate(yaml.safe_load("""
 filters:
   titles: ["software engineer"]
   seniority_allow: ["mid", "senior"]
@@ -221,10 +220,7 @@ sources:
   workable: []
   hiringcafe: {enabled: true}
 schedules: {ats_minutes: 10, slow_minutes: 15}
-""")
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    cfg = load_config(str(cfg_path))
+"""))
     boards = SqliteDiscoveredBoardsStore(connect(":memory:"))
     boards.upsert_ok("acme.wd5.myworkdayjobs.com", name="Acme", family="workday",
                      identity={"tenant": "acme", "region": "wd5", "site": "Ext"},
@@ -415,15 +411,16 @@ async def test_fetch_jobs_multi_threads_locations_through():
     ]
 
 
-def test_build_connectors_builds_search_pairs(tmp_path, monkeypatch):
+def test_build_connectors_builds_search_pairs():
     """Primary query carries cfg.location; extra entries mix strings and
     {query, location} mappings, in order."""
-    from src.config import load_config
+    import yaml
+
+    from src.config import AppConfig
     from src.connectors.base import build_connectors
     from src.hiringcafe import DEFAULT_QUERY as _DQ
 
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text("""
+    cfg = AppConfig.model_validate(yaml.safe_load("""
 filters:
   titles: ["software engineer"]
   seniority_allow: ["mid", "senior"]
@@ -443,10 +440,7 @@ sources:
       - staff platform engineer
       - {query: software engineer, location: Europe}
 schedules: {ats_minutes: 10, slow_minutes: 15}
-""")
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    cfg = load_config(str(cfg_path))
+"""))
     conns = build_connectors(cfg, "slow")
     cafe = [c for c in conns if c.name == "hiringcafe"][0]
     assert cafe._cafe._searches == [

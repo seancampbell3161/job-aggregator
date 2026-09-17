@@ -1,14 +1,11 @@
+from pathlib import Path
+
 import httpx
 import pytest
 
+from tests.settings_helpers import make_service, seed_settings
 
-@pytest.fixture(autouse=True)
-def _env(monkeypatch, tmp_path):
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "https://ntfy.test/x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "https://discord.test/x")
-    monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(tmp_path / "config.yaml"))
-    # Minimal config with no sources → handler should produce a zero-result run.
-    (tmp_path / "config.yaml").write_text("""
+_MINIMAL_SETTINGS = """
 filters:
   titles: ["software engineer"]
   seniority_allow: ["mid", "senior"]
@@ -23,7 +20,15 @@ sources:
   workable: []
   hn_who_is_hiring: {enabled: false}
 schedules: {ats_minutes: 2, slow_minutes: 15}
-""")
+"""
+
+
+@pytest.fixture(autouse=True)
+def _env(monkeypatch):
+    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "https://ntfy.test/x")
+    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "https://discord.test/x")
+    # Minimal settings with no sources → the handler produces a zero-result run.
+    seed_settings(_MINIMAL_SETTINGS)
 
 
 def test_run_returns_zero_result_summary_for_empty_sources():
@@ -48,8 +53,7 @@ async def test_handler_routes_discovery_tier_to_discovery_routine(tmp_path, monk
     run_discovery/recover_suppressed, not the real (network-bound) board
     sweep — leaving board_discovery_enabled at its default (True) would make
     it sweep real seed-file domains over the network."""
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
+    seed_settings(
         """
 filters:
   titles: ["software engineer"]
@@ -77,7 +81,6 @@ schedules:
   discovery_hours: 24
         """
     )
-    monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
 
@@ -120,7 +123,7 @@ def _minimal_app_config(*, relevance_kwargs=None, secrets_kwargs=None):
 def test_build_relevance_scorer_returns_none_when_disabled():
     from src.handler import _build_relevance_scorer
     cfg = _minimal_app_config(relevance_kwargs={"enabled": False})
-    assert _build_relevance_scorer(cfg) is None
+    assert _build_relevance_scorer(cfg, "# profile") is None
 
 
 def test_build_relevance_scorer_returns_none_when_api_key_missing():
@@ -129,102 +132,90 @@ def test_build_relevance_scorer_returns_none_when_api_key_missing():
         relevance_kwargs={"enabled": True},
         secrets_kwargs={"anthropic_api_key": ""},
     )
-    assert _build_relevance_scorer(cfg) is None
+    assert _build_relevance_scorer(cfg, "# profile") is None
 
 
-def test_build_relevance_scorer_returns_none_when_profile_missing(tmp_path):
-    """relevance enabled + key set + profile path missing → soft-fail to None,
+def test_build_relevance_scorer_returns_none_when_profile_missing():
+    """relevance enabled + key set + no profile document → soft-fail to None,
     don't crash the whole pipeline run."""
     from src.handler import _build_relevance_scorer
 
-    nonexistent = tmp_path / "absent.md"
     cfg = _minimal_app_config(
-        relevance_kwargs={"enabled": True, "profile_path": str(nonexistent)},
+        relevance_kwargs={"enabled": True},
         secrets_kwargs={"anthropic_api_key": "sk-ant-test"},
     )
     # Should not raise — soft-fails to None, the cycle continues unscored.
-    assert _build_relevance_scorer(cfg) is None
+    assert _build_relevance_scorer(cfg, None) is None
 
 
-def test_build_relevance_scorer_returns_anthropic_scorer_by_default(tmp_path):
+def test_build_relevance_scorer_returns_anthropic_scorer_by_default():
     """provider unspecified → AnthropicRelevanceScorer (the current default)."""
     from src.handler import _build_relevance_scorer
     from src.relevance import RelevanceScorer
 
-    profile = tmp_path / "p.md"
-    profile.write_text("# profile")
     cfg = _minimal_app_config(
-        relevance_kwargs={"enabled": True, "profile_path": str(profile)},
+        relevance_kwargs={"enabled": True},
         secrets_kwargs={"anthropic_api_key": "sk-ant-test"},
     )
-    scorer = _build_relevance_scorer(cfg)
+    scorer = _build_relevance_scorer(cfg, "# profile")
     assert isinstance(scorer, RelevanceScorer)
 
 
-def test_build_relevance_scorer_returns_gemini_scorer_when_provider_gemini(tmp_path):
+def test_build_relevance_scorer_returns_gemini_scorer_when_provider_gemini():
     """provider='gemini' + google_api_key set → GeminiRelevanceScorer."""
     from src.handler import _build_relevance_scorer
     from src.relevance import GeminiRelevanceScorer
 
-    profile = tmp_path / "p.md"
-    profile.write_text("# profile")
     cfg = _minimal_app_config(
         relevance_kwargs={
             "enabled": True,
             "provider": "gemini",
             "model": "gemini-2.0-flash",
-            "profile_path": str(profile),
         },
         secrets_kwargs={"google_api_key": "g-test-123"},
     )
-    scorer = _build_relevance_scorer(cfg)
+    scorer = _build_relevance_scorer(cfg, "# profile")
     assert isinstance(scorer, GeminiRelevanceScorer)
 
 
-def test_build_relevance_scorer_returns_none_when_provider_gemini_but_key_missing(tmp_path):
+def test_build_relevance_scorer_returns_none_when_provider_gemini_but_key_missing():
     """provider='gemini' + empty google_api_key → None (soft-disable, log warning)."""
     from src.handler import _build_relevance_scorer
 
-    profile = tmp_path / "p.md"
-    profile.write_text("# profile")
     cfg = _minimal_app_config(
-        relevance_kwargs={"enabled": True, "provider": "gemini", "profile_path": str(profile)},
+        relevance_kwargs={"enabled": True, "provider": "gemini"},
         secrets_kwargs={"google_api_key": ""},  # missing
     )
-    assert _build_relevance_scorer(cfg) is None
+    assert _build_relevance_scorer(cfg, "# profile") is None
 
 
-def test_build_relevance_scorer_returns_ollama_scorer_when_provider_ollama(tmp_path):
+def test_build_relevance_scorer_returns_ollama_scorer_when_provider_ollama():
     """provider='ollama' + ollama_api_key set → OllamaRelevanceScorer."""
     from src.handler import _build_relevance_scorer
     from src.relevance import OllamaRelevanceScorer
 
-    profile = tmp_path / "p.md"
-    profile.write_text("# profile")
     cfg = _minimal_app_config(
         relevance_kwargs={
             "enabled": True,
             "provider": "ollama",
             "model": "gpt-oss:20b",
-            "profile_path": str(profile),
+            "ollama_host": "https://ollama.com",
         },
         secrets_kwargs={"ollama_api_key": "ol-test-123"},
     )
-    scorer = _build_relevance_scorer(cfg)
+    scorer = _build_relevance_scorer(cfg, "# profile")
     assert isinstance(scorer, OllamaRelevanceScorer)
 
 
-def test_build_relevance_scorer_returns_none_when_provider_ollama_but_key_missing(tmp_path):
-    """provider='ollama' + empty ollama_api_key → None (soft-disable)."""
+def test_build_relevance_scorer_returns_none_when_provider_ollama_but_key_missing():
+    """provider='ollama' + empty ollama_api_key + cloud host → None (soft-disable)."""
     from src.handler import _build_relevance_scorer
 
-    profile = tmp_path / "p.md"
-    profile.write_text("# profile")
     cfg = _minimal_app_config(
-        relevance_kwargs={"enabled": True, "provider": "ollama", "profile_path": str(profile)},
+        relevance_kwargs={"enabled": True, "provider": "ollama", "ollama_host": "https://ollama.com"},
         secrets_kwargs={"ollama_api_key": ""},  # missing
     )
-    assert _build_relevance_scorer(cfg) is None
+    assert _build_relevance_scorer(cfg, "# profile") is None
 
 
 def _minimal_app_config_with_gaps(*, gap_kwargs=None, secrets_kwargs=None, relevance_kwargs=None):
@@ -252,60 +243,53 @@ def _minimal_app_config_with_gaps(*, gap_kwargs=None, secrets_kwargs=None, relev
 def test_build_gap_analyzer_none_when_disabled():
     from src.handler import _build_gap_analyzer
     cfg = _minimal_app_config_with_gaps(gap_kwargs={"enabled": False})
-    assert _build_gap_analyzer(cfg) is None
+    assert _build_gap_analyzer(cfg, "# resume") is None
 
 
-def test_build_gap_analyzer_none_when_resume_missing(tmp_path):
+def test_build_gap_analyzer_none_when_resume_missing():
     from src.handler import _build_gap_analyzer
     cfg = _minimal_app_config_with_gaps(
-        gap_kwargs={"enabled": True, "resume_path": str(tmp_path / "absent.md")},
+        gap_kwargs={"enabled": True},
         secrets_kwargs={"anthropic_api_key": "sk-ant-test"},
     )
-    assert _build_gap_analyzer(cfg) is None
+    assert _build_gap_analyzer(cfg, None) is None
 
 
-def test_build_gap_analyzer_none_when_key_missing(tmp_path):
+def test_build_gap_analyzer_none_when_key_missing():
     from src.handler import _build_gap_analyzer
-    resume = tmp_path / "r.md"
-    resume.write_text("# resume")
     cfg = _minimal_app_config_with_gaps(
-        gap_kwargs={"enabled": True, "resume_path": str(resume)},
+        gap_kwargs={"enabled": True},
         secrets_kwargs={"anthropic_api_key": ""},
     )
-    assert _build_gap_analyzer(cfg) is None
+    assert _build_gap_analyzer(cfg, "# resume") is None
 
 
-def test_build_gap_analyzer_anthropic_by_default(tmp_path):
+def test_build_gap_analyzer_anthropic_by_default():
     from src.handler import _build_gap_analyzer
     from src.gaps import AnthropicGapAnalyzer
-    resume = tmp_path / "r.md"
-    resume.write_text("# resume")
     cfg = _minimal_app_config_with_gaps(
-        gap_kwargs={"enabled": True, "resume_path": str(resume)},
+        gap_kwargs={"enabled": True},
         relevance_kwargs={"provider": "anthropic"},
         secrets_kwargs={"anthropic_api_key": "sk-ant-test"},
     )
-    assert isinstance(_build_gap_analyzer(cfg), AnthropicGapAnalyzer)
+    assert isinstance(_build_gap_analyzer(cfg, "# resume"), AnthropicGapAnalyzer)
 
 
-def test_build_gap_analyzer_uses_own_provider_over_relevance(tmp_path):
+def test_build_gap_analyzer_uses_own_provider_over_relevance():
     """gap_analysis.provider overrides relevance.provider when set."""
     from src.handler import _build_gap_analyzer
     from src.gaps import GeminiGapAnalyzer
-    resume = tmp_path / "r.md"
-    resume.write_text("# resume")
     cfg = _minimal_app_config_with_gaps(
-        gap_kwargs={"enabled": True, "provider": "gemini", "resume_path": str(resume)},
+        gap_kwargs={"enabled": True, "provider": "gemini"},
         relevance_kwargs={"provider": "anthropic"},
         secrets_kwargs={"google_api_key": "g-test"},
     )
-    assert isinstance(_build_gap_analyzer(cfg), GeminiGapAnalyzer)
+    assert isinstance(_build_gap_analyzer(cfg, "# resume"), GeminiGapAnalyzer)
 
 
 @pytest.mark.asyncio
-async def test_run_digest_skipped_when_disabled(tmp_path, monkeypatch):
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
+async def test_run_digest_skipped_when_disabled(monkeypatch):
+    seed_settings(
         """
 filters:
   titles: ["software engineer"]
@@ -318,7 +302,6 @@ sources: {greenhouse: []}
 schedules: {ats_minutes: 1, slow_minutes: 15}
 """
     )
-    monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
     from src.handler import _run
@@ -328,9 +311,8 @@ schedules: {ats_minutes: 1, slow_minutes: 15}
 
 
 @pytest.mark.asyncio
-async def test_run_digest_posts_when_enabled(tmp_path, monkeypatch):
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
+async def test_run_digest_posts_when_enabled(monkeypatch):
+    seed_settings(
         """
 filters:
   titles: ["software engineer"]
@@ -341,10 +323,9 @@ filters:
 quiet_hours: {timezone: "UTC", start: "23:00", end: "07:00"}
 sources: {greenhouse: []}
 schedules: {ats_minutes: 1, slow_minutes: 15}
-gap_analysis: {enabled: true, resume_path: "/nonexistent-resume-ok-for-digest.md"}
+gap_analysis: {enabled: true}
 """
     )
-    monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "https://discord.test/wh")
 
@@ -369,9 +350,8 @@ gap_analysis: {enabled: true, resume_path: "/nonexistent-resume-ok-for-digest.md
 
 
 @pytest.mark.asyncio
-async def test_gaps_report_returns_tally(tmp_path, monkeypatch):
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
+async def test_gaps_report_returns_tally(monkeypatch):
+    seed_settings(
         """
 filters:
   titles: ["software engineer"]
@@ -385,7 +365,6 @@ schedules: {ats_minutes: 1, slow_minutes: 15}
 gap_analysis: {enabled: true, digest_window_days: 30}
 """
     )
-    monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
 
@@ -405,7 +384,7 @@ gap_analysis: {enabled: true, digest_window_days: 30}
 def test_run_uses_sqlite_backend(monkeypatch, tmp_path):
     db_path = tmp_path / "t.db"
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(db_path))
-    monkeypatch.setenv("JOB_AGG_CONFIG_PATH", "config.example.yaml")
+    seed_settings(Path("config.example.yaml").read_text())
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "https://ntfy.sh/x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "https://discord.test/x")
     # gap_analysis defaults to disabled (GapAnalysisConfig.enabled=False) and
@@ -420,44 +399,40 @@ def test_run_uses_sqlite_backend(monkeypatch, tmp_path):
     assert db_path.exists()
 
 
-def test_ollama_local_builds_without_api_key(monkeypatch, tmp_path):
-    monkeypatch.setenv("JOB_AGG_OLLAMA_HOST", "http://ollama:11434")
+def test_ollama_local_builds_without_api_key(monkeypatch):
     monkeypatch.delenv("JOB_AGG_OLLAMA_API_KEY", raising=False)
-    profile = tmp_path / "profile.md"
-    profile.write_text("# profile")
     from src import handler
     cfg = _minimal_app_config(
-        relevance_kwargs={"enabled": True, "provider": "ollama", "profile_path": str(profile)},
+        relevance_kwargs={
+            "enabled": True, "provider": "ollama", "ollama_host": "http://ollama:11434",
+        },
     )
-    scorer = handler._build_relevance_scorer(cfg)
-    assert scorer is not None  # built despite no API key (local host — _ollama_host() reads env at call time)
+    scorer = handler._build_relevance_scorer(cfg, "# profile")
+    assert scorer is not None  # built despite no API key (local host)
 
 
-def test_ollama_cloud_still_requires_key(monkeypatch, tmp_path):
-    monkeypatch.setenv("JOB_AGG_OLLAMA_HOST", "https://ollama.com")
+def test_ollama_cloud_still_requires_key(monkeypatch):
     monkeypatch.delenv("JOB_AGG_OLLAMA_API_KEY", raising=False)
-    profile = tmp_path / "profile.md"
-    profile.write_text("# profile")
     from src import handler
     cfg = _minimal_app_config(
-        relevance_kwargs={"enabled": True, "provider": "ollama", "profile_path": str(profile)},
+        relevance_kwargs={
+            "enabled": True, "provider": "ollama", "ollama_host": "https://ollama.com",
+        },
     )
-    assert handler._build_relevance_scorer(cfg) is None  # no key + cloud host -> disabled
+    assert handler._build_relevance_scorer(cfg, "# profile") is None  # no key + cloud host -> disabled
 
 
-def test_ollama_local_gap_analyzer_builds_without_api_key(monkeypatch, tmp_path):
+def test_ollama_local_gap_analyzer_builds_without_api_key(monkeypatch):
     """Local Ollama host + no API key → gap analyzer builds successfully (symmetric with relevance scorer test)."""
-    monkeypatch.setenv("JOB_AGG_OLLAMA_HOST", "http://ollama:11434")
     monkeypatch.delenv("JOB_AGG_OLLAMA_API_KEY", raising=False)
-    resume = tmp_path / "resume.md"
-    resume.write_text("# resume")
     from src import handler
     from src.gaps import OllamaGapAnalyzer
     cfg = _minimal_app_config_with_gaps(
-        gap_kwargs={"enabled": True, "provider": "ollama", "resume_path": str(resume)},
+        gap_kwargs={"enabled": True, "provider": "ollama"},
+        relevance_kwargs={"ollama_host": "http://ollama:11434"},
     )
-    analyzer = handler._build_gap_analyzer(cfg)
-    assert analyzer is not None  # built despite no API key (local host — _ollama_host() reads env at call time)
+    analyzer = handler._build_gap_analyzer(cfg, "# resume")
+    assert analyzer is not None  # built despite no API key (local host)
     assert isinstance(analyzer, OllamaGapAnalyzer)
 
 
@@ -498,15 +473,13 @@ def _minimal_cfg_yaml() -> str:
 
 
 def _sqlite_env(monkeypatch, tmp_path):
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(_minimal_cfg_yaml())
-    monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "https://ntfy.test/x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "https://discord.test/x")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
     monkeypatch.delenv("JOB_AGG_OPS_NTFY_TOPIC_URL", raising=False)
     monkeypatch.delenv("JOB_AGG_OPS_DISCORD_WEBHOOK_URL", raising=False)
     monkeypatch.delenv("JOB_AGG_HEARTBEAT_URL", raising=False)
+    seed_settings(_minimal_cfg_yaml())
 
 
 @pytest.mark.asyncio
@@ -637,8 +610,10 @@ async def test_discovery_tier_runs_board_sweep(tmp_path, monkeypatch):
     board_discovery_enabled and the boards store is present (unlike
     test_handler_routes_discovery_tier_to_discovery_routine, whose config
     disables board_discovery_enabled so the sweep stays inert)."""
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
+    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
+    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
+    monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
+    seed_settings(
         """
 filters:
   titles: ["software engineer"]
@@ -666,10 +641,6 @@ schedules:
   discovery_hours: 24
         """
     )
-    monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
 
     from src.handler import _run
     from src.state_sqlite import SqliteDiscoveredBoardsStore
@@ -729,12 +700,10 @@ async def test_discovery_tier_board_sweep_failure_does_not_skip_recovery(tmp_pat
     """A raising board sweep (e.g. load_seeds's FileNotFoundError when the seed
     CSV isn't shipped in the image) must not prevent recover_suppressed from
     running — regression test for the fail-soft wrap around the sweep."""
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(_board_sweep_cfg_yaml())
-    monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
+    seed_settings(_board_sweep_cfg_yaml())
 
     from src.handler import _run
 
@@ -752,8 +721,8 @@ async def test_slow_tier_stages_hiringcafe_candidates(tmp_path, monkeypatch):
     """Prod-shaped smoke (PR #24 lesson): the real _run('slow') path — real
     build_connectors, run_once, and sighting drain — with only the
     hiring.cafe HTTP search stubbed at the client seam."""
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text("""
+    monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
+    seed_settings("""
 filters:
   titles: ["zzz-no-title-matches-this"]
   seniority_allow: ["mid", "senior"]
@@ -773,8 +742,6 @@ sources:
 schedules: {ats_minutes: 10, slow_minutes: 15}
 discovery: {enabled: true}
 """)
-    monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
-    monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
 
     payload = {"pageProps": {"ssrHits": [
         {
@@ -809,8 +776,8 @@ discovery: {enabled: true}
 
 @pytest.mark.asyncio
 async def test_slow_tier_mining_disabled_stages_nothing(tmp_path, monkeypatch):
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text("""
+    monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
+    seed_settings("""
 filters:
   titles: ["zzz"]
   seniority_allow: ["mid", "senior"]
@@ -830,8 +797,6 @@ sources:
 schedules: {ats_minutes: 10, slow_minutes: 15}
 discovery: {enabled: true, hiringcafe_mining_enabled: false}
 """)
-    monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
-    monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
     from unittest.mock import AsyncMock
     monkeypatch.setattr("src.hiringcafe.HiringCafeClient.search",
                         AsyncMock(return_value={"pageProps": {"ssrHits": []}}))
@@ -846,12 +811,10 @@ discovery: {enabled: true, hiringcafe_mining_enabled: false}
 async def test_discovery_tier_board_sweep_exception_does_not_skip_recovery(tmp_path, monkeypatch):
     """Same guarantee when run_board_discovery itself raises (not just
     load_seeds) — the whole sweep block is fail-soft."""
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(_board_sweep_cfg_yaml())
-    monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
+    seed_settings(_board_sweep_cfg_yaml())
 
     from src.handler import _run
 
@@ -876,8 +839,7 @@ async def test_discovery_active_set_includes_rippling_config_slugs(tmp_path, mon
     test_handler_routes_discovery_tier_to_discovery_routine's docstring for
     why: stores.boards is a real SqliteDiscoveredBoardsStore here, and this test doesn't
     mock run_board_discovery)."""
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
+    seed_settings(
         """
 filters:
   titles: ["software engineer"]
@@ -906,7 +868,6 @@ schedules:
   discovery_hours: 24
         """
     )
-    monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
 
@@ -949,12 +910,10 @@ schedules:
 
 
 def _vc_handler_env(tmp_path, monkeypatch, yaml_text):
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(yaml_text)
-    monkeypatch.setenv("JOB_AGG_CONFIG_PATH", str(cfg_path))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
+    seed_settings(yaml_text)
 
 
 @pytest.mark.asyncio
@@ -1023,3 +982,150 @@ def test_discovery_seeds_eu_flag_appends_eu_file():
     from src.handler import _discovery_seeds
     seeds = _discovery_seeds(True)
     assert seeds == load_seeds(DEFAULT_SEEDS) + load_seeds(EU_SEEDS)
+
+
+@pytest.mark.asyncio
+async def test_run_skips_when_not_set_up(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "never-configured.db"))
+    from src.handler import _run
+    with caplog.at_level("INFO", logger="src.handler"):
+        result = await _run(tier="ats")
+    assert result == {"tier": "ats", "skipped": True, "reason": "not_configured"}
+    assert any(r.message == "awaiting_setup" for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_run_uses_an_injected_service():
+    from src.handler import _run
+    # The per-test DB is seeded by _env; the injected service is not set up.
+    result = await _run(tier="ats", service=make_service())
+    assert result == {"tier": "ats", "skipped": True, "reason": "not_configured"}
+
+
+def test_build_sinks_omits_unset_urls():
+    from src.config import AppConfig, Secrets
+    from src.handler import _build_sinks
+    from src.notify.discord import DiscordSink
+    from src.notify.ntfy import NtfySink
+    assert _build_sinks(AppConfig()) == []
+    only_discord = _build_sinks(AppConfig(secrets=Secrets(discord_webhook_url="https://discord.test/x")))
+    assert [type(s) for s in only_discord] == [DiscordSink]
+    both = _build_sinks(AppConfig(secrets=Secrets(
+        ntfy_topic_url="https://ntfy.test/x", discord_webhook_url="https://discord.test/x",
+    )))
+    assert [type(s) for s in both] == [NtfySink, DiscordSink]
+
+
+@pytest.mark.asyncio
+async def test_run_digest_skips_without_a_discord_url(monkeypatch):
+    monkeypatch.delenv("JOB_AGG_DISCORD_WEBHOOK_URL", raising=False)
+    seed_settings({"gap_analysis": {"enabled": True}})
+    from src.handler import _run
+    assert await _run(tier="digest") == {"tier": "digest", "skipped": True}
+
+
+@pytest.mark.asyncio
+async def test_run_builds_llm_features_from_documents(tmp_path, monkeypatch):
+    from src.handler import _run
+    from src.orchestrator import RunResult
+    _sqlite_env(monkeypatch, tmp_path)
+    seed_settings(_minimal_cfg_yaml(), documents={"profile": "# my profile", "resume_text": "# my resume"})
+    got: dict = {}
+
+    def fake_scorer(cfg, profile_text):
+        got["profile"] = profile_text
+
+    def fake_analyzer(cfg, resume_text):
+        got["resume"] = resume_text
+
+    async def fake_run_once(**kwargs):
+        return RunResult(duration_ms=1)
+
+    monkeypatch.setattr("src.handler._build_relevance_scorer", fake_scorer)
+    monkeypatch.setattr("src.handler._build_gap_analyzer", fake_analyzer)
+    monkeypatch.setattr("src.handler.run_once", fake_run_once)
+    await _run(tier="ats")
+    assert got == {"profile": "# my profile", "resume": "# my resume"}
+
+
+@pytest.mark.asyncio
+async def test_run_alerts_config_fallback_when_settings_are_degraded(tmp_path, monkeypatch):
+    from src.handler import _run
+    from src.orchestrator import RunResult
+    from src.stores import build_stores
+    _sqlite_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("JOB_AGG_OPS_NTFY_TOPIC_URL", "https://ntfy.test/ops")
+    bad = build_stores().settings.insert_settings(
+        doc={"schedules": {"ats_minutes": 0}}, source="ui", note=None, schema_version=1,
+    )
+    sent: list = []
+
+    async def fake_send(client, alert, **kwargs):
+        sent.append(alert)
+        return True
+
+    async def fake_run_once(**kwargs):
+        return RunResult(duration_ms=1)
+
+    monkeypatch.setattr("src.handler.send_ops_alert", fake_send)
+    monkeypatch.setattr("src.handler.run_once", fake_run_once)
+    await _run(tier="ats")
+    fallback = [a for a in sent if a.condition == "config_fallback"]
+    assert len(fallback) == 1
+    assert str(bad) in fallback[0].body
+
+
+def test_ollama_builders_use_the_configured_host(monkeypatch):
+    captured = {}
+
+    class FakeClient:
+        def __init__(self, host=None, headers=None):
+            captured["host"] = host
+
+    monkeypatch.setattr("ollama.AsyncClient", FakeClient)
+    from src import handler
+    cfg = _minimal_app_config(relevance_kwargs={
+        "enabled": True, "provider": "ollama", "ollama_host": "http://gpu-box:11434",
+    })
+    assert handler._build_relevance_scorer(cfg, "# profile") is not None
+    assert captured["host"] == "http://gpu-box:11434"
+
+
+@pytest.mark.asyncio
+async def test_run_without_notification_secrets_keeps_matches_for_the_web_ui(monkeypatch):
+    """No ntfy/Discord secrets means no sinks. A match must still land in the
+    inbox (seen_jobs) and must not be re-fetched as new and re-scored next cycle."""
+    from datetime import datetime, timezone
+
+    from src.handler import _run
+    from src.models import FetchResult, RawPosting
+    from src.stores import build_stores
+
+    for name in ("NTFY_TOPIC_URL", "DISCORD_WEBHOOK_URL", "OPS_NTFY_TOPIC_URL",
+                 "OPS_DISCORD_WEBHOOK_URL", "HEARTBEAT_URL"):
+        monkeypatch.delenv(f"JOB_AGG_{name}", raising=False)
+
+    posting = RawPosting(
+        source="greenhouse:acme", external_id="1",
+        title="Senior Software Engineer", description="Python services.",
+        apply_url="https://boards.greenhouse.io/acme/jobs/1", location="Remote, US",
+        posted_at=datetime.now(timezone.utc), comp_min=180_000, comp_max=240_000,
+    )
+
+    class OnePostingConnector:
+        name = "greenhouse:acme"
+        tier = "ats"
+
+        async def fetch(self, client, state):
+            return FetchResult(postings=[posting], new_state=None, not_modified=False)
+
+    monkeypatch.setattr("src.handler.build_connectors",
+                        lambda *args, **kwargs: [OnePostingConnector()])
+
+    first = await _run(tier="ats")
+    assert (first["new_count"], first["matched_count"], first["notified_count"]) == (1, 1, 0)
+    assert [m["job_id"] for m in build_stores().seen.list_matches()] == ["greenhouse:acme:1"]
+
+    second = await _run(tier="ats")
+    assert second["new_count"] == 0
+    assert second["matched_count"] == 0

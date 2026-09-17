@@ -27,6 +27,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
 DEFAULT_DB = REPO_ROOT / "data" / "job_aggregator.db"
 
 # hiring.cafe delivered nothing between these dates (Cloudflare challenge on the
@@ -58,15 +59,19 @@ def _canonical(name: str) -> str:
     return " ".join(words) or name.lower()
 
 
-def _blocked_companies() -> list[list[str]]:
-    """filters.blocked_companies from config.yaml, tokenized. Best-effort — the
-    report is still useful without it, so a missing or unreadable config is not
-    an error."""
+def _blocked_companies(db: Path) -> list[list[str]]:
+    """filters.blocked_companies from the settings stored in this DB,
+    tokenized. Best-effort — the report is still useful without it, so a
+    missing DB or an instance that isn't set up is not an error."""
     try:
-        import yaml
-        raw = yaml.safe_load((REPO_ROOT / "config.yaml").read_text())
-        return [e.lower().split() for e in (raw["filters"]["blocked_companies"] or []) if e]
-    except Exception:  # noqa: BLE001 — config is optional context, not input
+        from src.settings.service import ConfigService
+        from src.settings.store import SqliteSettingsStore
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        snap = ConfigService(SqliteSettingsStore(conn), env={}).snapshot()
+        entries = snap.cfg.filters.blocked_companies if snap is not None else []
+        return [e.lower().split() for e in entries if e]
+    except Exception:  # noqa: BLE001 — settings are optional context, not input
         return []
 
 
@@ -167,7 +172,7 @@ def main() -> int:
     fresh = cur["names"] - prev["names"]
     print(f"{'employers new this window':<26}{len(fresh):>10}")
 
-    blocked = _blocked_companies()
+    blocked = _blocked_companies(db)
     print(f"\nTOP {args.top} EMPLOYERS")
     stale = 0
     for name, n in cur["top"]:

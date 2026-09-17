@@ -29,8 +29,9 @@ _current = DEFAULT_USER_AGENT
 def set_user_agent(ua: str | None) -> None:
     """Install the operator's override; ``None``/blank restores the default.
 
-    Called once from ``load_config`` so every module picks it up without
-    threading config through call sites that never otherwise need it."""
+    Called by the settings service whenever it builds a snapshot, so every
+    module picks it up without threading config through call sites that never
+    otherwise need it."""
     global _current
     _current = ua.strip() if ua and ua.strip() else DEFAULT_USER_AGENT
 

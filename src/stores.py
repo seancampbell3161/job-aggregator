@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from src.settings.store import SqliteSettingsStore
     from src.state_sqlite import (
         SqliteBuilderSettingsStore,
         SqliteCoachRunsStore,
@@ -35,15 +36,17 @@ class Stores:
     boards: SqliteDiscoveredBoardsStore
     coach: SqliteCoachRunsStore
     builder: SqliteBuilderSettingsStore
+    settings: SqliteSettingsStore
 
 
 def build_stores(cfg: Any = None) -> Stores:
     """Construct every store over one shared SQLite connection
-    (JOB_AGG_SQLITE_PATH). cfg is accepted for forward compatibility but
-    unused today."""
+    (JOB_AGG_SQLITE_PATH), except `settings` (see below). cfg is accepted for
+    forward compatibility but unused today."""
     backend = os.environ.get("JOB_AGG_BACKEND")
     if backend and backend != "sqlite":
         log.warning("legacy_backend_env_ignored", extra={"value": backend})
+    from src.settings.store import SqliteSettingsStore
     from src.sqlite_db import connect
     from src.state_sqlite import (
         SqliteBuilderSettingsStore,
@@ -69,4 +72,9 @@ def build_stores(cfg: Any = None) -> Stores:
         boards=SqliteDiscoveredBoardsStore(conn),
         coach=SqliteCoachRunsStore(conn),
         builder=SqliteBuilderSettingsStore(conn),
+        # Its own connection: SqliteSettingsStore.read()/_write() BEGIN their
+        # own transactions, which would collide ("cannot start a transaction
+        # within a transaction") with any other store's BEGIN IMMEDIATE on a
+        # shared connection.
+        settings=SqliteSettingsStore(connect()),
     )

@@ -12,6 +12,7 @@ from src.web.analytics import MatchAnalytics, MatchAnalyticsSummary, WeekBucket
 from src.web.app import create_app
 from src.web.funnel import build_funnel, build_pipeline, pipeline_rates
 from src.web.repo import TriageRepo
+from tests.settings_helpers import WEB_TEST_SETTINGS, configured_stores, make_service
 
 
 @pytest.fixture
@@ -51,8 +52,8 @@ def client():
     disc.upsert_failed("greenhouse:acme")
     ops = OpsProvider(discovered=disc, seen=store)
     app = create_app(
-        repo=TriageRepo(store), score_high=7, score_low=4, ops=ops,
-        match_analytics=MatchAnalytics(seen=store),
+        repo=TriageRepo(store), ops=ops, match_analytics=MatchAnalytics(seen=store),
+        service=make_service(WEB_TEST_SETTINGS),
     )
     yield TestClient(app)
 
@@ -288,13 +289,12 @@ def status_suggestion_client(tmp_path, monkeypatch):
     """Minimal sqlite-backed app. Mirrors tests/web/test_board.py's
     board_client fixture."""
     from src.sqlite_db import connect
-    from tests.sqlite_helpers import sqlite_stores
 
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
     monkeypatch.delenv("JOB_AGG_OPS_NTFY_TOPIC_URL", raising=False)
     monkeypatch.delenv("JOB_AGG_OPS_DISCORD_WEBHOOK_URL", raising=False)
     conn = connect(":memory:")
-    stores = sqlite_stores(conn)
+    stores = configured_stores(conn)
     seen = stores.seen
     seen.claim_for_notify(
         "greenhouse:acme:1", score=7, rationale="Good fit",
@@ -329,7 +329,7 @@ def test_main_module_builds_app(monkeypatch, tmp_path):
 
     Also asserts the triage UI starts WITHOUT notification secrets set — it never
     notifies, so it must not require ntfy/Discord env vars (regression guard for
-    the load_config coupling)."""
+    the old YAML-loader coupling)."""
     import src.web.__main__ as entry
 
     monkeypatch.delenv("JOB_AGG_NTFY_TOPIC_URL", raising=False)

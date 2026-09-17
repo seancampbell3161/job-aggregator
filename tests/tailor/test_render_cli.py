@@ -20,9 +20,8 @@ def _fake_render_with_fallback(content, result, *, pack, settings):
 def _setup(monkeypatch, tmp_path, *, pdf=True):
     jd = tmp_path / "jd.txt"; jd.write_text("role")
     fake_engine = MagicMock(); fake_engine.tailor = AsyncMock(return_value=_result())
-    monkeypatch.setattr(cli, "load_config", lambda: MagicMock())
-    monkeypatch.setattr(cli, "build_tailor_engine", lambda cfg: fake_engine)
-    monkeypatch.setattr(cli, "load_content", lambda path: MagicMock())
+    monkeypatch.setattr(cli, "_snapshot", lambda: MagicMock())
+    monkeypatch.setattr(cli, "build_tailor_engine", lambda cfg, content, evidence: fake_engine)
     if pdf:
         # render_with_fallback is imported locally (lazy, keeps WeasyPrint out of
         # CLI startup) so it must be patched at its source, not on `cli`.

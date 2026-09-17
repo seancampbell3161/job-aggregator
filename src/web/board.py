@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.state import VALID_STATUSES
+from src.web.context import config_ctx
 from src.web.repo import TriageMatch, TriageRepo
 
 ACTIVE_COLUMNS: tuple[str, ...] = ("interested", "applied", "interviewing", "offer")
@@ -76,9 +77,7 @@ def parse_comp(raw: str) -> int | None:
 
 def _board_ctx(request: Request, **extra) -> dict:
     return {
-        "score_high": request.app.state.score_high,
-        "score_low": request.app.state.score_low,
-        "stale_after_days": request.app.state.stale_after_days,
+        **config_ctx(request),
         "active_columns": ACTIVE_COLUMNS,
         "addable_statuses": ADDABLE_STATUSES,
         # Re-render state for the add form: empty on a plain GET, repopulated

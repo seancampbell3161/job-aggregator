@@ -5,6 +5,7 @@ import pytest
 
 from src.sqlite_db import connect
 from src.state_sqlite import SqliteRejectedPostingsStore, SqliteSeenJobsStore
+from tests.settings_helpers import seed_settings
 
 
 def _seed(db_path):
@@ -34,11 +35,10 @@ def _seed(db_path):
 
 def test_cli_reports_score_low_suggestion(tmp_path, monkeypatch, capsys):
     db = _seed(tmp_path / "t.db")
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text("relevance:\n  score_low: 4\nfilters:\n  titles: [software engineer]\n")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(db))
+    seed_settings({"relevance": {"score_low": 4}, "filters": {"titles": ["software engineer"]}})
     from scripts.tune_thresholds import run
-    rc = run(["--config", str(cfg), "--min-verdicts", "10"])
+    rc = run(["--min-verdicts", "10"])
     assert rc == 0
     out = capsys.readouterr().out
     assert "score_low: 3" in out  # the suggested lowered threshold
@@ -78,11 +78,10 @@ def test_cli_reads_rescued_via_transition_rows(tmp_path, monkeypatch, capsys):
     seen.claim_for_notify("r:1", score=8, posting=p("r:1", "Eng"))
     seen.mark_rescued_from_suppression("r:1", suppressed_score=4)
 
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text("relevance:\n  score_low: 4\nfilters:\n  titles: [software engineer]\n")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(db))
+    seed_settings({"relevance": {"score_low": 4}, "filters": {"titles": ["software engineer"]}})
     from scripts.tune_thresholds import run
-    rc = run(["--config", str(cfg), "--min-verdicts", "2"])
+    rc = run(["--min-verdicts", "2"])
     assert rc == 0
     out = capsys.readouterr().out
     assert "samples: 2 (rescued [4], confirmed [3])" in out
@@ -91,21 +90,25 @@ def test_cli_reads_rescued_via_transition_rows(tmp_path, monkeypatch, capsys):
 
 def test_cli_insufficient_data_exits_zero(tmp_path, monkeypatch, capsys):
     db = connect(str(tmp_path / "empty.db"))  # schema, no rows
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text("relevance:\n  score_low: 4\nfilters:\n  titles: [software engineer]\n")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "empty.db"))
+    seed_settings({"relevance": {"score_low": 4}, "filters": {"titles": ["software engineer"]}})
     from scripts.tune_thresholds import run
-    rc = run(["--config", str(cfg)])
+    rc = run([])
     assert rc == 0
     assert "insufficient" in capsys.readouterr().out.lower()
 
 
 def test_cli_since_rejects_unparseable_date(tmp_path, monkeypatch, capsys):
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text("relevance:\n  score_low: 4\nfilters:\n  titles: [software engineer]\n")
     from scripts.tune_thresholds import run
     with pytest.raises(SystemExit):
-        run(["--since", "6/1/2026", "--config", str(cfg)])
+        run(["--since", "6/1/2026"])
+
+
+def test_cli_uses_defaults_when_not_set_up(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "never-configured.db"))
+    from scripts.tune_thresholds import run
+    assert run([]) == 0
+    assert "current: 3" in capsys.readouterr().out  # RelevanceConfig.score_low default
 
 
 def test_cli_reports_source_stats_and_snippet_pairs(tmp_path, monkeypatch, capsys):
@@ -129,11 +132,10 @@ def test_cli_reports_source_stats_and_snippet_pairs(tmp_path, monkeypatch, capsy
     seen.claim_for_notify("greenhouse:acme:9", score=7,
                           posting=posting("greenhouse:acme:9", "greenhouse:acme"))
 
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text("relevance:\n  score_low: 4\nfilters:\n  titles: [software engineer]\n")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
+    seed_settings({"relevance": {"score_low": 4}, "filters": {"titles": ["software engineer"]}})
     from scripts.tune_thresholds import run
-    rc = run(["--config", str(cfg)])
+    rc = run([])
     assert rc == 0
     out = capsys.readouterr().out
     assert "=== score by source ===" in out

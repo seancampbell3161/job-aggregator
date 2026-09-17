@@ -15,6 +15,7 @@ from src.state_sqlite import (
     SqliteDiscoveredSlugsStore,
     SqliteSeenJobsStore,
 )
+from src.web.context import config_ctx
 from src.web.pipeline_activity import (
     CycleRow,
     LastCycle,
@@ -296,11 +297,7 @@ class OpsProvider:
 
 
 def _ops_ctx(request: Request, **extra) -> dict:
-    return {
-        "score_high": request.app.state.score_high,
-        "score_low": request.app.state.score_low,
-        **extra,
-    }
+    return {**config_ctx(request), **extra}
 
 
 def register_ops_routes(app: FastAPI) -> None:

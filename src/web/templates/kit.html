@@ -21,12 +21,13 @@
 
 {% if missing %}
 <div class="kit-notice">
-  No facts file yet. Copy the template and fill it in:
-  <pre>cp resume/facts.example.yaml {{ facts_path }}</pre>
-  The file is gitignored and read on every refresh — no restart needed.
+  No apply-kit facts yet. Start from <code>resume/facts.example.yaml</code>, save your
+  copy as <code>resume/facts.yaml</code> in your settings directory, and import it:
+  <pre>python -m src.settings import DIR</pre>
+  It shows here on the next refresh — no restart needed.
 </div>
 {% elif error %}
-<div class="kit-notice">Could not read {{ facts_path }}: {{ error }}</div>
+<div class="kit-notice">Could not read the saved apply-kit facts: {{ error }}</div>
 {% endif %}
 
 {% if bookmarklet %}
@@ -35,7 +36,7 @@
   on a Greenhouse/Lever/Ashby application page to fill these facts:
   <a class="kit-bm" href="{{ bookmarklet }}">📋 Apply Autofill</a>
   <div style="opacity:.7;font-size:13px;margin-top:6px;">
-    Re-drag after you edit facts.yaml. It never submits — it fills, highlights
+    Re-drag after you re-import your facts. It never submits — it fills, highlights
     what it touched, and tells you what it couldn't match.
   </div>
 </div>
