@@ -1,5 +1,5 @@
 """Settings fixtures — the replacement for writing config.yaml and pointing
-JOB_AGG_CONFIG_PATH at it."""
+the old config-path env var at it."""
 from __future__ import annotations
 
 import os

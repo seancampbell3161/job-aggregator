@@ -2,8 +2,9 @@ from pathlib import Path
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
-from src.config import AppConfig, load_config
+from src.config import AppConfig
 
 CONFIG_FIXTURE = {
     "filters": {
@@ -31,41 +32,26 @@ CONFIG_FIXTURE = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def _write_config(tmp_path: Path) -> Path:
-    p = tmp_path / "config.yaml"
-    p.write_text(yaml.safe_dump(CONFIG_FIXTURE))
-    return p
+def _validate(doc: dict | str) -> AppConfig:
+    """Validate a settings document (a dict or YAML text)."""
+    return AppConfig.model_validate(yaml.safe_load(doc) if isinstance(doc, str) else doc)
 
 
-def test_load_config_parses_valid_yaml(tmp_path, monkeypatch):
-    path = _write_config(tmp_path)
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "https://ntfy.sh/test")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "https://discord/x")
-    cfg = load_config(path)
+def test_app_config_parses_the_fixture():
+    cfg = _validate(CONFIG_FIXTURE)
     assert isinstance(cfg, AppConfig)
     assert cfg.filters.comp_floor_usd == 120_000
     assert cfg.sources.greenhouse == ["stripe"]
     assert cfg.sources.hn_who_is_hiring.enabled is True
-    assert cfg.secrets.ntfy_topic_url == "https://ntfy.sh/test"
-    assert cfg.secrets.discord_webhook_url == "https://discord/x"
 
 
-def test_load_config_rejects_invalid_values(tmp_path, monkeypatch):
-    bad = dict(CONFIG_FIXTURE)
-    bad["schedules"] = {"ats_minutes": 0, "slow_minutes": 15}
-    p = tmp_path / "bad.yaml"
-    p.write_text(yaml.safe_dump(bad))
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "x")
-    with pytest.raises(Exception):
-        load_config(p)
+def test_app_config_rejects_invalid_values():
+    with pytest.raises(ValidationError):
+        _validate({**CONFIG_FIXTURE, "schedules": {"ats_minutes": 0}})
 
 
-def test_load_config_quiet_hours_parses_times(tmp_path, monkeypatch):
-    path = _write_config(tmp_path)
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "x")
-    cfg = load_config(path)
+def test_app_config_quiet_hours_parses_times():
+    cfg = _validate(CONFIG_FIXTURE)
     assert cfg.quiet_hours.start.hour == 23
     assert cfg.quiet_hours.end.hour == 7
     assert str(cfg.quiet_hours.timezone) == "America/Los_Angeles"
@@ -111,10 +97,8 @@ def test_sources_config_accepts_workday_tenants():
     assert s.workday[1].site == "External_Career_Site"
 
 
-def test_app_config_loads_discovery_section(tmp_path, monkeypatch):
-    from src.config import load_config
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
+def test_app_config_loads_discovery_section():
+    cfg = _validate(
         """
 filters:
   titles: ["software engineer"]
@@ -145,9 +129,6 @@ schedules:
   discovery_hours: 24
         """
     )
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    cfg = load_config(cfg_path)
 
     assert cfg.discovery.enabled is True
     assert cfg.discovery.max_validations_per_run == 75
@@ -157,10 +138,8 @@ schedules:
     assert cfg.schedules.discovery_hours == 24
 
 
-def test_app_config_loads_extended_discovery_section(tmp_path, monkeypatch):
-    from src.config import load_config
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
+def test_app_config_loads_extended_discovery_section():
+    cfg = _validate(
         """
 filters:
   titles: ["software engineer"]
@@ -194,9 +173,6 @@ schedules:
   discovery_hours: 24
         """
     )
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    cfg = load_config(cfg_path)
 
     assert cfg.discovery.yc_oss_enabled is True
     assert cfg.discovery.yc_oss_min_team_size == 25
@@ -204,11 +180,9 @@ schedules:
     assert cfg.discovery.manual_companies == ["anthropic", "cohere"]
 
 
-def test_app_config_discovery_defaults_when_new_fields_absent(tmp_path, monkeypatch):
+def test_app_config_discovery_defaults_when_new_fields_absent():
     """Backwards-compat: a config without the new fields uses sensible defaults."""
-    from src.config import load_config
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
+    cfg = _validate(
         """
 filters:
   titles: ["software engineer"]
@@ -236,9 +210,6 @@ schedules:
   discovery_hours: 24
         """
     )
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    cfg = load_config(cfg_path)
 
     assert cfg.discovery.yc_oss_enabled is True   # default True
     assert cfg.discovery.yc_oss_min_team_size == 10  # default 10
@@ -246,10 +217,8 @@ schedules:
     assert cfg.discovery.manual_companies == []
 
 
-def test_app_config_loads_relevance_section(tmp_path, monkeypatch):
-    from src.config import load_config
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
+def test_app_config_loads_relevance_section():
+    cfg = _validate(
         """
 filters:
   titles: ["software engineer"]
@@ -272,7 +241,6 @@ relevance:
   model: "claude-haiku-4-5"
   score_high: 7
   score_low: 3
-  profile_path: "profile.md"
   timeout_seconds: 10
 schedules:
   ats_minutes: 1
@@ -280,24 +248,17 @@ schedules:
   discovery_hours: 24
         """
     )
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    monkeypatch.setenv("JOB_AGG_ANTHROPIC_API_KEY", "sk-ant-test")
-    cfg = load_config(cfg_path)
 
     assert cfg.relevance.enabled is True
     assert cfg.relevance.model == "claude-haiku-4-5"
     assert cfg.relevance.score_high == 7
     assert cfg.relevance.score_low == 3
     assert cfg.relevance.timeout_seconds == 10
-    assert cfg.secrets.anthropic_api_key == "sk-ant-test"
 
 
-def test_app_config_relevance_defaults_when_section_absent(tmp_path, monkeypatch):
+def test_app_config_relevance_defaults_when_section_absent():
     """Config without a relevance section uses sensible defaults."""
-    from src.config import load_config
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
+    cfg = _validate(
         """
 filters:
   titles: ["software engineer"]
@@ -320,23 +281,16 @@ schedules:
   discovery_hours: 24
         """
     )
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    monkeypatch.delenv("JOB_AGG_ANTHROPIC_API_KEY", raising=False)
-    cfg = load_config(cfg_path)
 
     assert cfg.relevance.enabled is False  # default disabled
     assert cfg.relevance.model == "claude-haiku-4-5"
     assert cfg.relevance.score_high == 7
     assert cfg.relevance.score_low == 3
-    assert cfg.secrets.anthropic_api_key == ""
 
 
-def test_app_config_relevance_provider_defaults_to_anthropic(tmp_path, monkeypatch):
+def test_app_config_relevance_provider_defaults_to_anthropic():
     """Backwards-compat: relevance.provider unspecified → 'anthropic'."""
-    from src.config import load_config
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
+    cfg = _validate(
         """
 filters:
   titles: ["software engineer"]
@@ -349,17 +303,12 @@ sources: {greenhouse: []}
 schedules: {ats_minutes: 1, slow_minutes: 15, discovery_hours: 24}
         """
     )
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    cfg = load_config(cfg_path)
     assert cfg.relevance.provider == "anthropic"
 
 
-def test_app_config_accepts_provider_gemini(tmp_path, monkeypatch):
-    """provider='gemini' is a valid value; google_api_key flows from env."""
-    from src.config import load_config
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
+def test_app_config_accepts_provider_gemini():
+    """provider='gemini' is a valid value."""
+    cfg = _validate(
         """
 filters:
   titles: ["software engineer"]
@@ -375,25 +324,18 @@ relevance:
   model: "gemini-2.0-flash"
   score_high: 7
   score_low: 3
-  profile_path: "profile.md"
   timeout_seconds: 10
 schedules: {ats_minutes: 1, slow_minutes: 15, discovery_hours: 24}
         """
     )
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    monkeypatch.setenv("JOB_AGG_GOOGLE_API_KEY", "g-test-123")
-    cfg = load_config(cfg_path)
     assert cfg.relevance.provider == "gemini"
     assert cfg.relevance.model == "gemini-2.0-flash"
-    assert cfg.secrets.google_api_key == "g-test-123"
 
 
-def test_app_config_google_api_key_defaults_to_empty(tmp_path, monkeypatch):
-    """When JOB_AGG_GOOGLE_API_KEY is unset, secrets.google_api_key is ''."""
-    from src.config import load_config
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
+def test_app_config_google_api_key_defaults_to_empty():
+    """secrets.google_api_key defaults to '' (secret resolution is covered in
+    tests/settings/test_service.py)."""
+    cfg = _validate(
         """
 filters:
   titles: ["software engineer"]
@@ -406,18 +348,12 @@ sources: {greenhouse: []}
 schedules: {ats_minutes: 1, slow_minutes: 15, discovery_hours: 24}
         """
     )
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    monkeypatch.delenv("JOB_AGG_GOOGLE_API_KEY", raising=False)
-    cfg = load_config(cfg_path)
     assert cfg.secrets.google_api_key == ""
 
 
-def test_app_config_accepts_provider_ollama(tmp_path, monkeypatch):
-    """provider='ollama' is a valid value; ollama_api_key flows from env."""
-    from src.config import load_config
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
+def test_app_config_accepts_provider_ollama():
+    """provider='ollama' is a valid value."""
+    cfg = _validate(
         """
 filters:
   titles: ["software engineer"]
@@ -433,25 +369,18 @@ relevance:
   model: "gpt-oss:20b"
   score_high: 7
   score_low: 4
-  profile_path: "profile.md"
   timeout_seconds: 10
 schedules: {ats_minutes: 1, slow_minutes: 15, discovery_hours: 24}
         """
     )
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    monkeypatch.setenv("JOB_AGG_OLLAMA_API_KEY", "ol-test-123")
-    cfg = load_config(cfg_path)
     assert cfg.relevance.provider == "ollama"
     assert cfg.relevance.model == "gpt-oss:20b"
-    assert cfg.secrets.ollama_api_key == "ol-test-123"
 
 
-def test_app_config_ollama_api_key_defaults_to_empty(tmp_path, monkeypatch):
-    """When JOB_AGG_OLLAMA_API_KEY is unset, secrets.ollama_api_key is ''."""
-    from src.config import load_config
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
+def test_app_config_ollama_api_key_defaults_to_empty():
+    """secrets.ollama_api_key defaults to '' (secret resolution is covered in
+    tests/settings/test_service.py)."""
+    cfg = _validate(
         """
 filters:
   titles: ["software engineer"]
@@ -464,19 +393,14 @@ sources: {greenhouse: []}
 schedules: {ats_minutes: 1, slow_minutes: 15, discovery_hours: 24}
         """
     )
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    monkeypatch.delenv("JOB_AGG_OLLAMA_API_KEY", raising=False)
-    cfg = load_config(cfg_path)
     assert cfg.secrets.ollama_api_key == ""
 
 
-def test_app_config_rejects_unknown_provider(tmp_path, monkeypatch):
-    """provider='openai' (or anything not anthropic/gemini) fails validation."""
-    from src.config import load_config
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
-        """
+def test_app_config_rejects_unknown_provider():
+    """provider='openai' (or anything not anthropic/gemini/ollama) fails validation."""
+    with pytest.raises(ValidationError):
+        _validate(
+            """
 filters:
   titles: ["software engineer"]
   seniority_allow: ["mid", "senior"]
@@ -487,19 +411,14 @@ quiet_hours: {timezone: "UTC", start: "23:00", end: "07:00"}
 sources: {greenhouse: []}
 relevance: {enabled: true, provider: "openai", model: "gpt-4o-mini"}
 schedules: {ats_minutes: 1, slow_minutes: 15, discovery_hours: 24}
-        """
-    )
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    with pytest.raises(Exception):
-        load_config(cfg_path)
+            """
+        )
 
 
 def test_gap_analysis_defaults_disabled():
     from src.config import GapAnalysisConfig
     cfg = GapAnalysisConfig()
     assert cfg.enabled is False
-    assert cfg.resume_path == "resume.md"
     assert cfg.provider is None          # None → reuse relevance.provider
     assert cfg.model is None
     assert cfg.timeout_seconds == 20
@@ -507,11 +426,9 @@ def test_gap_analysis_defaults_disabled():
     assert cfg.digest_window_days == 30
 
 
-def test_app_config_has_gap_analysis_default(tmp_path, monkeypatch):
+def test_app_config_has_gap_analysis_default():
     """AppConfig without a gap_analysis block defaults to a disabled feature."""
-    from src.config import load_config
-
-    (tmp_path / "config.yaml").write_text(
+    cfg = _validate(
         """
 filters:
   titles: ["software engineer"]
@@ -524,9 +441,6 @@ sources: {greenhouse: []}
 schedules: {ats_minutes: 2, slow_minutes: 15}
 """
     )
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "y")
-    cfg = load_config(tmp_path / "config.yaml")
     assert cfg.gap_analysis.enabled is False
 
 
@@ -542,14 +456,12 @@ def test_tailoring_config_defaults():
     from src.config import TailoringConfig
     c = TailoringConfig()
     assert c.enabled is False
-    assert c.content_path == "resume/content.json"
-    assert c.evidence_path == "resume/evidence.json"
     assert c.provider is None          # defaults to relevance provider at build time
     assert c.model is None
     assert c.timeout_seconds == 60     # tailoring is a long call; relevance's 20s is too tight
 
 
-def test_appconfig_has_tailoring_default(tmp_path, monkeypatch):
+def test_appconfig_has_tailoring_default():
     from src.config import AppConfig
     assert "tailoring" in AppConfig.model_fields
 
@@ -558,16 +470,6 @@ def test_secrets_have_tailor_endpoint_fields():
     from src.config import Secrets
     s = Secrets(ntfy_topic_url="x", discord_webhook_url="x")
     assert s.tailor_endpoint_url == "" and s.tailor_signing_secret == ""
-
-
-def test_load_secrets_reads_tailor_env(monkeypatch):
-    from src.config import _load_secrets
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "n")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "d")
-    monkeypatch.setenv("JOB_AGG_TAILOR_ENDPOINT_URL", "https://ep")
-    monkeypatch.setenv("JOB_AGG_TAILOR_SIGNING_SECRET", "sek")
-    s = _load_secrets()
-    assert s.tailor_endpoint_url == "https://ep" and s.tailor_signing_secret == "sek"
 
 
 def test_board_config_defaults_to_ten():
@@ -580,12 +482,8 @@ def test_board_config_accepts_override():
     assert BoardConfig(stale_after_days=21).stale_after_days == 21
 
 
-def test_app_config_board_defaults_when_absent(tmp_path, monkeypatch):
-    path = _write_config(tmp_path)
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "x")
-    from src.config import load_config
-    cfg = load_config(path)
+def test_app_config_board_defaults_when_absent():
+    cfg = _validate(CONFIG_FIXTURE)
     assert cfg.board.stale_after_days == 10
 
 
@@ -604,12 +502,9 @@ def test_ops_notify_config_defaults():
     assert o.cooldown_hours == 6
 
 
-def test_app_config_gains_audit_and_ops_notify_defaults(tmp_path, monkeypatch):
-    # minimal valid config.yaml without audit/ops_notify blocks -> defaults apply
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "https://ntfy.test/x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "https://discord.test/x")
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
+def test_app_config_gains_audit_and_ops_notify_defaults():
+    # minimal valid document without audit/ops_notify blocks -> defaults apply
+    cfg = _validate(
         "filters:\n"
         "  titles: [software engineer]\n"
         "  seniority_allow: [mid]\n"
@@ -620,36 +515,8 @@ def test_app_config_gains_audit_and_ops_notify_defaults(tmp_path, monkeypatch):
         "sources: {}\n"
         "schedules: {ats_minutes: 2, slow_minutes: 15}\n"
     )
-    from src.config import load_config
-    cfg = load_config(cfg_path)
     assert cfg.audit.retention_days == 90
     assert cfg.ops_notify.cooldown_hours == 6
-
-
-def test_secrets_ops_fields_read_from_env(monkeypatch):
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "https://ntfy.test/x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "https://discord.test/x")
-    monkeypatch.setenv("JOB_AGG_OPS_NTFY_TOPIC_URL", "https://ntfy.test/ops")
-    monkeypatch.setenv("JOB_AGG_OPS_DISCORD_WEBHOOK_URL", "https://discord.test/ops")
-    monkeypatch.setenv("JOB_AGG_HEARTBEAT_URL", "https://hc.test/ping/abc")
-    from src.config import _load_secrets
-    s = _load_secrets()
-    assert s.ops_ntfy_topic_url == "https://ntfy.test/ops"
-    assert s.ops_discord_webhook_url == "https://discord.test/ops"
-    assert s.heartbeat_url == "https://hc.test/ping/abc"
-
-
-def test_secrets_ops_fields_default_empty(monkeypatch):
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "https://ntfy.test/x")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "https://discord.test/x")
-    monkeypatch.delenv("JOB_AGG_OPS_NTFY_TOPIC_URL", raising=False)
-    monkeypatch.delenv("JOB_AGG_OPS_DISCORD_WEBHOOK_URL", raising=False)
-    monkeypatch.delenv("JOB_AGG_HEARTBEAT_URL", raising=False)
-    from src.config import _load_secrets
-    s = _load_secrets()
-    assert s.ops_ntfy_topic_url == ""
-    assert s.ops_discord_webhook_url == ""
-    assert s.heartbeat_url == ""
 
 
 def test_sources_oraclecloud_parses_tenant_triples():
@@ -693,16 +560,6 @@ def test_gmail_config_defaults():
 def test_gmail_config_accepts_override():
     from src.config import GmailConfig
     assert GmailConfig(check_cron="30 */2 * * *").check_cron == "30 */2 * * *"
-
-
-def test_kit_config_defaults_facts_path():
-    from src.config import KitConfig
-    assert KitConfig().facts_path == "resume/facts.yaml"
-
-
-def test_kit_config_accepts_override():
-    from src.config import KitConfig
-    assert KitConfig(facts_path="elsewhere/f.yaml").facts_path == "elsewhere/f.yaml"
 
 
 def test_jsonld_board_defaults_company_none():
@@ -916,24 +773,9 @@ def test_hiringcafe_location_rejects_unknown_values():
         HiringCafeSearch(query="q", location="XX")
 
 
-def test_missing_config_error_mentions_example(tmp_path):
-    with pytest.raises(FileNotFoundError, match="config.example.yaml"):
-        load_config(tmp_path / "nope.yaml")
-
-
-def test_config_path_is_directory_error_mentions_compose_stub(tmp_path):
-    stub = tmp_path / "config.yaml"
-    stub.mkdir()
-    with pytest.raises(IsADirectoryError, match="directory stub"):
-        load_config(stub)
-
-
-def test_example_config_loads(monkeypatch):
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "https://ntfy.sh/test")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "https://discord/x")
-    cfg = load_config(REPO_ROOT / "config.example.yaml")
+def test_example_config_loads():
+    cfg = _validate((REPO_ROOT / "config.example.yaml").read_text())
     assert cfg.sources.greenhouse  # starter slugs present
-    assert cfg.relevance.profile_path == "profile.md"
 
 
 def test_adzuna_defaults_are_inert():
@@ -969,17 +811,6 @@ def test_adzuna_countries_normalized_and_validated():
     with pytest.raises(ValidationError, match="must not be empty"):
         AdzunaConfig(countries=[])
 
-
-def test_adzuna_secrets_load_from_env(monkeypatch):
-    from src.config import _load_secrets
-
-    monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "https://ntfy.sh/t")
-    monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "https://d/w")
-    monkeypatch.setenv("JOB_AGG_ADZUNA_APP_ID", "my-id")
-    monkeypatch.setenv("JOB_AGG_ADZUNA_APP_KEY", "my-key")
-    s = _load_secrets()
-    assert s.adzuna_app_id == "my-id"
-    assert s.adzuna_app_key == "my-key"
 
 
 # --- settings foundation (sub-project 1): every section has a default ---
@@ -1054,3 +885,11 @@ def test_slug_source_families_are_plain_slug_lists():
     from src.config import SLUG_SOURCE_FAMILIES, SourcesConfig
     for family in SLUG_SOURCE_FAMILIES:
         assert SourcesConfig.model_fields[family].annotation == list[str]
+
+
+def test_document_path_flags_are_gone():
+    from src.config import GapAnalysisConfig, RelevanceConfig, TailoringConfig
+    assert "profile_path" not in RelevanceConfig.model_fields
+    assert "resume_path" not in GapAnalysisConfig.model_fields
+    assert {"content_path", "evidence_path"}.isdisjoint(TailoringConfig.model_fields)
+    assert "kit" not in AppConfig.model_fields

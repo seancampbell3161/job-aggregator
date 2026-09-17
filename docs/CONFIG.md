@@ -163,7 +163,6 @@ threshold calibration: GETTING_STARTED §2c and
 | `relevance.ollama_host` | `http://ollama:11434` | Ollama base URL for every Ollama-backed feature (scoring, gap analysis, coach, tailoring, .docx template import). `https://ollama.com` is hosted Ollama Cloud and needs `secrets.ollama_api_key`; any other host is treated as a local server and needs no key. A non-empty `JOB_AGG_OLLAMA_HOST` env var overrides it. |
 | `relevance.score_high` | `7` | Scores ≥ this get the instant phone push; below it (but above `score_low`) postings go to Discord/inbox only. |
 | `relevance.score_low` | `3` | Scores ≤ this are suppressed (still recorded — visible in `/audit`). Shipped: 4. Re-calibrate after any provider/model change. |
-| `relevance.profile_path` | `profile.md` | The prose profile the LLM grades against. Keep it in sync with the hard filters — it independently down-scores what it's told is a dealbreaker. |
 | `relevance.timeout_seconds` | `10` | Per-posting scoring timeout (shipped: 20 for a large local model). |
 
 ## gap_analysis
@@ -174,7 +173,6 @@ Optional résumé-gap flags on matched postings, plus a weekly skills digest
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
 | `gap_analysis.enabled` | `false` | Master switch. |
-| `gap_analysis.resume_path` | `resume.md` | Gitignored markdown résumé. |
 | `gap_analysis.provider` | `null` | LLM provider; `null` falls back to the `relevance` values. |
 | `gap_analysis.model` | `null` | Model; `null` falls back to `relevance.model`. |
 | `gap_analysis.timeout_seconds` | `20` | Per-posting analysis timeout. |
@@ -189,8 +187,6 @@ Setup: GETTING_STARTED "Mobile tap alert → tailored résumé loop".
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
 | `tailoring.enabled` | `false` | Used by the tailor endpoint + CLI; the poller ignores it (builds no engine). |
-| `tailoring.content_path` | `resume/content.json` | Gitignored structured résumé bank (bind-mounted locally). |
-| `tailoring.evidence_path` | `resume/evidence.json` | Gitignored evidence file backing the grounding guards. |
 | `tailoring.provider` | `null` | LLM provider; `null` falls back to the `relevance` values. |
 | `tailoring.model` | `null` | Model; `null` falls back to `relevance.model`. |
 | `tailoring.timeout_seconds` | `60` | Full-rewrite timeout (shipped: 180 — a ~24-bullet bank on a large local model runs 60-90s). |
@@ -261,14 +257,6 @@ Setup: GETTING_STARTED "Gmail ingestion".
 | `gmail.first_run_days` | `3` | Lookback window on the very first run. |
 | `gmail.lookback_max_days` | `7` | Hard cap on any run's lookback (e.g. after downtime). |
 | `gmail.max_messages_per_run` | `200` | Cap on messages examined per sweep. |
-
-## kit
-
-The `/kit` tap-to-copy apply helper.
-
-| Flag | Default | What it does / when to touch it |
-|---|---|---|
-| `kit.facts_path` | `resume/facts.yaml` | Gitignored label/value facts file rendered with copy buttons. `resume/` is bind-mounted — edit, save, refresh. |
 
 ## http
 

@@ -329,7 +329,7 @@ def test_main_module_builds_app(monkeypatch, tmp_path):
 
     Also asserts the triage UI starts WITHOUT notification secrets set — it never
     notifies, so it must not require ntfy/Discord env vars (regression guard for
-    the load_config coupling)."""
+    the old YAML-loader coupling)."""
     import src.web.__main__ as entry
 
     monkeypatch.delenv("JOB_AGG_NTFY_TOPIC_URL", raising=False)

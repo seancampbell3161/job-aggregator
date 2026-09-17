@@ -1,19 +1,16 @@
-"""Load + validate config.yaml and the JOB_AGG_* env secrets."""
+"""Settings models: the settings document (stored in SQLite and validated by
+src/settings/service.py) plus the Secrets it resolves."""
 
 from __future__ import annotations
 
-import os
 import warnings
 from datetime import time
-from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src import geo
-from src.user_agent import set_user_agent
 
 
 EmploymentType = Literal[
@@ -260,7 +257,6 @@ class RelevanceConfig(BaseModel):
     model: str = "claude-haiku-4-5"
     score_high: int = Field(default=7, ge=0, le=10)
     score_low: int = Field(default=3, ge=0, le=10)
-    profile_path: str = "profile.md"
     timeout_seconds: int = Field(default=10, ge=1)
     # Base URL for every Ollama-backed feature. "https://ollama.com" is hosted
     # Ollama Cloud (needs secrets.ollama_api_key); anything else is a local
@@ -274,7 +270,6 @@ class RelevanceConfig(BaseModel):
 
 class GapAnalysisConfig(BaseModel):
     enabled: bool = False
-    resume_path: str = "resume.md"
     # provider/model default to the relevance values when None (see _build_gap_analyzer)
     provider: Literal["anthropic", "gemini", "ollama"] | None = None
     model: str | None = None
@@ -285,8 +280,6 @@ class GapAnalysisConfig(BaseModel):
 
 class TailoringConfig(BaseModel):
     enabled: bool = False
-    content_path: str = "resume/content.json"
-    evidence_path: str = "resume/evidence.json"
     # provider/model default to the relevance values when None (see build_tailor_engine)
     provider: Literal["anthropic", "gemini", "ollama"] | None = None
     model: str | None = None
@@ -500,12 +493,6 @@ class GmailConfig(BaseModel):
         return _check_crontab(v)
 
 
-class KitConfig(BaseModel):
-    # Apply kit (/kit): gitignored label/value facts file rendered with
-    # copy buttons. resume/ is bind-mounted, so edits are save + refresh.
-    facts_path: str = "resume/facts.yaml"
-
-
 class AppConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -523,58 +510,4 @@ class AppConfig(BaseModel):
     coach: CoachConfig = Field(default_factory=CoachConfig)
     ops_notify: OpsNotifyConfig = Field(default_factory=OpsNotifyConfig)
     http: HttpConfig = Field(default_factory=HttpConfig)
-    kit: KitConfig = Field(default_factory=KitConfig)
     gmail: GmailConfig = Field(default_factory=GmailConfig)
-
-
-def _load_secrets() -> Secrets:
-    """Read secrets from JOB_AGG_* env vars."""
-    return Secrets(
-        ntfy_topic_url=os.environ["JOB_AGG_NTFY_TOPIC_URL"],
-        discord_webhook_url=os.environ["JOB_AGG_DISCORD_WEBHOOK_URL"],
-        anthropic_api_key=os.environ.get("JOB_AGG_ANTHROPIC_API_KEY", ""),
-        google_api_key=os.environ.get("JOB_AGG_GOOGLE_API_KEY", ""),
-        ollama_api_key=os.environ.get("JOB_AGG_OLLAMA_API_KEY", ""),
-        tailor_endpoint_url=os.environ.get("JOB_AGG_TAILOR_ENDPOINT_URL", ""),
-        tailor_signing_secret=os.environ.get("JOB_AGG_TAILOR_SIGNING_SECRET", ""),
-        ops_ntfy_topic_url=os.environ.get("JOB_AGG_OPS_NTFY_TOPIC_URL", ""),
-        ops_discord_webhook_url=os.environ.get("JOB_AGG_OPS_DISCORD_WEBHOOK_URL", ""),
-        heartbeat_url=os.environ.get("JOB_AGG_HEARTBEAT_URL", ""),
-        gmail_address=os.environ.get("JOB_AGG_GMAIL_ADDRESS", ""),
-        gmail_app_password=os.environ.get("JOB_AGG_GMAIL_APP_PASSWORD", ""),
-        adzuna_app_id=os.environ.get("JOB_AGG_ADZUNA_APP_ID", ""),
-        adzuna_app_key=os.environ.get("JOB_AGG_ADZUNA_APP_KEY", ""),
-    )
-
-
-def load_config(path: Path | str = "config.yaml") -> AppConfig:
-    """Load config from YAML; raises FileNotFoundError/IsADirectoryError with
-    copy instructions when the file is absent or a compose-created directory stub."""
-    try:
-        text = Path(path).read_text()
-    except FileNotFoundError:
-        raise FileNotFoundError(
-            f"{path} not found — copy config.example.yaml to config.yaml and "
-            "profile.example.md to profile.md, then personalize them "
-            "(GETTING_STARTED.md §2)."
-        ) from None
-    except IsADirectoryError:
-        raise IsADirectoryError(
-            f"{path} is a directory, not a file — Docker Compose creates a "
-            "directory stub when the file is missing at first start. Remove it "
-            f"(rm -r {path}; repeat for any other path that is a directory), then copy the templates: "
-            "cp config.example.yaml config.yaml && cp profile.example.md "
-            "profile.md (GETTING_STARTED.md §2)."
-        ) from None
-    raw = yaml.safe_load(text)
-    raw["secrets"] = _load_secrets().model_dump()
-    cfg = AppConfig.model_validate(raw)
-    # Transitional (deleted with load_config in Task 16): mirror the settings
-    # service, where a non-empty JOB_AGG_OLLAMA_HOST overrides relevance.ollama_host.
-    host = os.environ.get("JOB_AGG_OLLAMA_HOST", "")
-    if host:
-        cfg = cfg.model_copy(update={"relevance": cfg.relevance.model_copy(update={"ollama_host": host})})
-    # Single place the operator's UA override takes effect; every module reads
-    # it lazily via src.user_agent, so this covers callers that never see cfg.
-    set_user_agent(cfg.http.user_agent)
-    return cfg
