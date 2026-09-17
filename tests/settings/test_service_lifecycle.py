@@ -136,3 +136,40 @@ def test_import_env_secrets_copies_non_empty_values_only():
                        "JOB_AGG_UNRELATED": "x"})
     assert svc.import_env_secrets() == ["ntfy_topic_url"]
     assert store.all_secrets() == {"ntfy_topic_url": "https://n"}
+
+
+def test_parse_settings_validates_without_writing():
+    svc, store = _svc()
+    cfg = svc.parse_settings({"schedules": {"ats_minutes": 10, "slow_minutes": 20}, "bogus": 1})
+    assert (cfg.schedules.ats_minutes, cfg.schedules.slow_minutes) == (10, 20)
+    assert store.generation() == 0
+
+
+def test_parse_settings_raises_for_an_invalid_document():
+    svc, _ = _svc()
+    with pytest.raises(SettingsInvalid):
+        svc.parse_settings({"schedules": {"ats_minutes": 0}})
+
+
+def test_version_config_is_the_validated_config_of_a_stored_version():
+    svc, store = _svc()
+    vid = svc.save_settings({"schedules": {"slow_minutes": 20}}, source="cli")
+    bad = store.insert_settings(doc={"schedules": {"ats_minutes": 0}}, source="ui",
+                                note=None, schema_version=1)
+    assert svc.version_config(vid).schedules.slow_minutes == 20
+    assert svc.version_config(bad) is None
+    assert svc.version_config(999) is None
+
+
+def test_current_config_is_the_effective_config_without_overlays():
+    svc, store = _svc({"JOB_AGG_OLLAMA_HOST": "https://ollama.com",
+                       "JOB_AGG_NTFY_TOPIC_URL": "https://ntfy.sh/x"})
+    assert svc.current_config() is None
+    vid = svc.save_settings({"schedules": {"ats_minutes": 4}}, source="cli")
+    store.insert_settings(doc={"schedules": {"ats_minutes": "bad"}}, source="ui",
+                          note=None, schema_version=1)
+    version_id, cfg = svc.current_config()
+    assert version_id == vid
+    assert cfg.schedules.ats_minutes == 4
+    assert cfg.relevance.ollama_host == "http://ollama:11434"
+    assert cfg.secrets.ntfy_topic_url == ""

@@ -302,10 +302,18 @@ def test_import_refusal_lists_at_most_ten_versions(tmp_path):
     assert "and 2 more" in str(exc.value)
 
 
-def test_import_does_not_replace_a_save_that_lands_during_the_import(tmp_path, monkeypatch):
+@pytest.mark.parametrize("changed_since_the_import", [False, True])
+def test_import_does_not_replace_a_save_that_lands_during_the_import(
+    tmp_path, monkeypatch, changed_since_the_import,
+):
     svc = make_service()
     d = _config_dir(tmp_path)
     import_dir(svc, d, templates_dir=tmp_path / "t")
+    if changed_since_the_import:
+        # The guard compares the files and lets them through; the write still
+        # pins the version it compared against.
+        append_slug_sources(svc, {"greenhouse": ["stripe"]}, label="add-source")
+        (d / "config.yaml").write_text("schedules: {slow_minutes: 30}\nsources: {greenhouse: [stripe]}\n")
     real_save_bundle = svc.save_bundle
 
     def save_bundle_after_a_concurrent_write(*args, **kwargs):
@@ -317,3 +325,144 @@ def test_import_does_not_replace_a_save_that_lands_during_the_import(tmp_path, m
     with pytest.raises(ImportFailed, match="while importing"):
         import_dir(svc, d, templates_dir=tmp_path / "t")
     assert svc.snapshot().cfg.schedules.ats_minutes == 3
+
+
+# -- the guard is content-aware: it refuses only what the files would undo ----------------
+
+def _slower(minutes: int):
+    def mutate(doc):
+        doc.setdefault("schedules", {})["slow_minutes"] = minutes
+        return f"slow tier every {minutes} minutes"
+    return mutate
+
+
+def test_export_merge_import_loop_succeeds_without_force(tmp_path):
+    svc = make_service()
+    d = _config_dir(tmp_path)
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    append_slug_sources(svc, {"greenhouse": ["stripe"]}, label="add-source")
+    svc.update_settings(_slower(60), source="cli")
+
+    exported = tmp_path / "export"
+    export_dir(svc, exported, templates_dir=tmp_path / "t")
+    report = import_dir(svc, exported, templates_dir=tmp_path / "t")  # no --force
+
+    cfg = svc.snapshot().cfg
+    assert svc.snapshot().version_id == report.version_id
+    assert cfg.sources.greenhouse == ["stripe"]
+    assert cfg.schedules.slow_minutes == 60
+
+
+def test_export_merge_import_succeeds_after_a_restore_removed_an_entry(tmp_path):
+    svc = make_service()
+    d = _config_dir(tmp_path, "sources: {greenhouse: [acme]}\n")
+    first = import_dir(svc, d, templates_dir=tmp_path / "t").version_id
+    (d / "config.yaml").write_text("sources: {greenhouse: [acme, stripe]}\n")
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    svc.restore(first)
+
+    # Merged: stripe stays out, and figma is a new edit.
+    (d / "config.yaml").write_text("sources: {greenhouse: [acme, figma]}\n")
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    assert svc.snapshot().cfg.sources.greenhouse == ["acme", "figma"]
+
+
+def test_a_file_edited_after_merging_imports_without_force(tmp_path):
+    svc = make_service()
+    d = _config_dir(tmp_path)
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    append_slug_sources(svc, {"greenhouse": ["stripe"]}, label="add-source")
+    (d / "config.yaml").write_text(
+        "schedules: {slow_minutes: 30, ats_minutes: 5}\nsources: {greenhouse: [stripe, figma]}\n"
+    )
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    cfg = svc.snapshot().cfg
+    assert cfg.sources.greenhouse == ["stripe", "figma"]
+    assert cfg.schedules.ats_minutes == 5
+
+
+def test_a_new_value_for_a_setting_changed_since_the_import_is_a_deliberate_edit(tmp_path):
+    svc = make_service()
+    d = _config_dir(tmp_path)
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    svc.update_settings(_slower(60), source="cli")
+    (d / "config.yaml").write_text("schedules: {slow_minutes: 45}\n")
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    assert svc.snapshot().cfg.schedules.slow_minutes == 45
+
+
+def test_import_refusal_names_each_setting_the_files_would_undo(tmp_path):
+    svc = make_service()
+    d = _config_dir(tmp_path)
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    append_slug_sources(svc, {"greenhouse": ["stripe"]}, label="add-source")
+    svc.update_settings(_slower(60), source="cli")
+    (d / "config.yaml").write_text("schedules: {slow_minutes: 30}\nsources: {greenhouse: [figma]}\n")
+
+    with pytest.raises(ImportFailed) as exc:
+        import_dir(svc, d, templates_dir=tmp_path / "t")
+
+    msg = str(exc.value)
+    assert "schedules.slow_minutes: would change 60 back to 30" in msg
+    assert "sources.greenhouse: would drop stripe" in msg
+    assert svc.snapshot().cfg.sources.greenhouse == ["stripe"]
+
+
+def test_invalid_files_report_validation_errors_instead_of_the_guard(tmp_path):
+    svc = make_service()
+    d = _config_dir(tmp_path)
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    append_slug_sources(svc, {"greenhouse": ["stripe"]}, label="add-source")
+    (d / "config.yaml").write_text("schedules: {ats_minutes: 0}\n")
+    with pytest.raises(SettingsInvalid) as exc:
+        import_dir(svc, d, templates_dir=tmp_path / "t")
+    assert [e["loc"] for e in exc.value.errors] == ["schedules.ats_minutes"]
+
+
+def test_an_unusable_last_import_falls_back_to_a_strict_comparison(tmp_path):
+    svc = make_service()
+    d = _config_dir(tmp_path)
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    svc._store.insert_settings(doc={"schedules": {"ats_minutes": 0}}, source="import",
+                               note="broken import", schema_version=1)
+    svc.update_settings(_slower(60), source="cli")
+
+    # Against the last valid import the stale file would look like a deliberate
+    # edit; with no usable baseline every value in effect must be kept.
+    (d / "config.yaml").write_text("schedules: {slow_minutes: 45}\n")
+    with pytest.raises(ImportFailed, match="would change 60 to 45"):
+        import_dir(svc, d, templates_dir=tmp_path / "t")
+
+    (d / "config.yaml").write_text("schedules: {slow_minutes: 60, ats_minutes: 5}\n")
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    assert svc.snapshot().cfg.schedules.ats_minutes == 5
+
+
+def test_a_stale_file_cannot_bring_back_default_list_entries_removed_since_the_import(tmp_path):
+    svc = make_service()
+    d = _config_dir(tmp_path, "schedules: {slow_minutes: 30}\nfilters: {blocked_employment_types: []}\n")
+    first = import_dir(svc, d, templates_dir=tmp_path / "t").version_id
+    (d / "config.yaml").write_text("schedules: {slow_minutes: 30}\n")
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    svc.restore(first)
+
+    with pytest.raises(ImportFailed) as exc:
+        import_dir(svc, d, templates_dir=tmp_path / "t")
+
+    assert ("filters.blocked_employment_types: would bring back contract, temporary, "
+            "part_time, internship") in str(exc.value)
+    assert svc.snapshot().cfg.filters.blocked_employment_types == []
+
+
+def test_import_refusal_explains_how_to_bring_the_changes_into_the_files(tmp_path):
+    svc = make_service()
+    d = _config_dir(tmp_path)
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    append_slug_sources(svc, {"greenhouse": ["stripe"]}, label="add-source")
+    with pytest.raises(ImportFailed) as exc:
+        import_dir(svc, d, templates_dir=tmp_path / "t")
+    assert str(exc.value).splitlines()[-1] == (
+        "Nothing was written. Run `python -m src.settings export DIR`, bring those changes "
+        "into your files, then import again — or re-run the import with --force to "
+        "overwrite them."
+    )

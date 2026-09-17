@@ -207,3 +207,17 @@ def test_module_entrypoint_opens_the_app_db(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "not configured" in result.stdout
     assert db.exists()
+
+
+def test_export_then_import_after_add_source_needs_no_force(tmp_path, capsys):
+    files = tmp_path / "files"
+    files.mkdir()
+    (files / "config.yaml").write_text("schedules: {slow_minutes: 30}\n")
+    svc = make_service()
+    assert main(["import", str(files)], service=svc) == 0
+    assert main(["add-source", "greenhouse", "stripe"], service=svc) == 0
+    assert main(["export", str(tmp_path / "export")], service=svc) == 0
+    capsys.readouterr()
+
+    assert main(["import", str(tmp_path / "export")], service=svc) == 0
+    assert svc.snapshot().cfg.sources.greenhouse == ["stripe"]
