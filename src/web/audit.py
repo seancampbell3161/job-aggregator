@@ -146,13 +146,20 @@ class AuditProvider:
 
 def audit_llm(request: Request) -> tuple[object | None, object | None]:
     """(relevance scorer, gap analyzer) for rescues, built from the request's
-    snapshot and cached per settings generation."""
+    snapshot and cached per settings generation. Fail-soft: a broken
+    client/API key degrades to (None, None) — the rescue route already
+    tolerates that — instead of raising on every request until the
+    generation moves."""
     def build(snap):
         from src.handler import _build_gap_analyzer, _build_relevance_scorer
-        return (
-            _build_relevance_scorer(snap.cfg, snap.documents.profile),
-            _build_gap_analyzer(snap.cfg, snap.documents.resume_text),
-        )
+        try:
+            return (
+                _build_relevance_scorer(snap.cfg, snap.documents.profile),
+                _build_gap_analyzer(snap.cfg, snap.documents.resume_text),
+            )
+        except Exception as exc:  # noqa: BLE001 — rescue must not 500
+            log.warning("audit_llm_build_failed", extra={"error": str(exc)})
+            return (None, None)
     return request.app.state.cache.get("audit_llm", request.state.snapshot, build)
 
 

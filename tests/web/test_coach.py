@@ -199,6 +199,29 @@ def test_app_coach_follows_settings_without_restart(tmp_path, monkeypatch):
     assert 'href="/coach"' not in client.get("/").text
 
 
+def test_app_pages_survive_a_failing_coach_builder(tmp_path, monkeypatch):
+    """A broken _build_coach (bad client, missing dependency, ...) must not
+    500 every page — coach.enabled defaults to True, so coach_nav_visible
+    (called from base.html on nearly every page) would otherwise take down
+    the whole app until the settings generation moves."""
+    import src.handler
+    from tests.settings_helpers import configured_stores
+    monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
+
+    def _boom(cfg):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(src.handler, "_build_coach", _boom)
+    stores = configured_stores(connect(":memory:"))
+    client = TestClient(create_app(stores=stores))
+    r = client.get("/")
+    assert r.status_code == 200
+    assert 'href="/coach"' in r.text          # nav still renders: enabled + available
+    r2 = client.get("/coach")
+    assert r2.status_code == 200
+    assert "not configured" in r2.text        # engine is None: can_run is False
+
+
 def test_coach_page_renders_empty_state(coach_client):
     client, _, _ = coach_client
     r = client.get("/coach")

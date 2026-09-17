@@ -157,6 +157,24 @@ def test_rescue_unknown_id_404s(audit_client):
                        follow_redirects=False).status_code == 404
 
 
+def test_audit_llm_degrades_when_builders_raise(audit_client, monkeypatch):
+    """A broken _build_relevance_scorer (bad client, missing dependency, ...)
+    must not break the rescue route — it already tolerates a None scorer, and
+    audit_llm's cached build() must not raise on every request until the
+    settings generation moves."""
+    import src.handler
+
+    def _boom(cfg, profile_text):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(src.handler, "_build_relevance_scorer", _boom)
+    client, rejected, _ = audit_client
+    r = client.post("/audit/rescue", params={"id": "greenhouse:acme:1"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert rejected.get("greenhouse:acme:1")["verdict"] == "rescued"
+
+
 def test_confirm_marks_filter_reject(audit_client):
     client, rejected, _ = audit_client
     r = client.post("/audit/confirm", params={"id": "greenhouse:acme:1"},

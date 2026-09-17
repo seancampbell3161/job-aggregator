@@ -177,12 +177,20 @@ class CoachProvider:
 
 
 def build_coach_provider(stores, snap) -> CoachProvider:
-    """A CoachProvider wired to one settings snapshot."""
+    """A CoachProvider wired to one settings snapshot. The engine build is
+    fail-soft (in the CoachProvider mold): a broken client/API key degrades
+    to no engine (can_run False) instead of 500-ing every page — nav
+    visibility and the coach page's "not configured" state keep working."""
     from src.handler import _build_coach
     cfg = snap.cfg
+    try:
+        engine = _build_coach(cfg)
+    except Exception as exc:  # noqa: BLE001 — degrade, don't break every page
+        log.warning("coach_engine_build_failed", extra={"error": str(exc)})
+        engine = None
     return CoachProvider(
         store=stores.coach, seen=stores.seen, rejected=stores.rejected,
-        engine=_build_coach(cfg), cfg=cfg, documents=snap.documents,
+        engine=engine, cfg=cfg, documents=snap.documents,
         provider_name=cfg.coach.provider or cfg.relevance.provider,
         model_name=cfg.coach.model or cfg.relevance.model,
         enabled=cfg.coach.enabled,
