@@ -142,6 +142,13 @@ def create_app(
     return app
 
 
+def _setup_exempt(path: str) -> bool:
+    """Whether ``path`` is one of SETUP_EXEMPT_PREFIXES or below one — matched
+    at a "/" boundary, so /tailor-history is not exempt just because it starts
+    with /tailor."""
+    return any(path == p or path.startswith(p + "/") for p in SETUP_EXEMPT_PREFIXES)
+
+
 def _register_setup_gate(app: FastAPI) -> None:
     """Take the request's settings snapshot — one per request, per the
     snapshot rule — and, until the instance is set up, send everything outside
@@ -151,7 +158,7 @@ def _register_setup_gate(app: FastAPI) -> None:
     async def _snapshot_and_setup_gate(request: Request, call_next):
         snap = await run_in_threadpool(request.app.state.service.snapshot)
         request.state.snapshot = snap
-        if snap is None and not request.url.path.startswith(SETUP_EXEMPT_PREFIXES):
+        if snap is None and not _setup_exempt(request.url.path):
             if request.method in ("GET", "HEAD"):
                 return RedirectResponse("/setup", status_code=303)
             return PlainTextResponse("This instance is not set up yet — see /setup.", status_code=409)

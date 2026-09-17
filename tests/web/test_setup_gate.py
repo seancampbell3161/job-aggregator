@@ -42,6 +42,16 @@ def test_exempt_prefixes_are_not_redirected(tmp_path, monkeypatch):
     assert r.status_code == 200  # the route's own invalid-link page, not a redirect
 
 
+def test_exemptions_match_whole_path_segments_only(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch, make_service())
+    assert client.get("/tailored/x.pdf").status_code == 404  # served by the static mount, not gated
+    assert client.get("/static/app.css").status_code == 200
+    for path in ("/setupfoo", "/tailor-history", "/statically", "/tailoredx"):
+        r = client.get(path)
+        assert r.status_code == 303, path
+        assert r.headers["location"] == "/setup"
+
+
 def test_setup_redirects_home_once_configured(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch, make_service({}))
     r = client.get("/setup")
