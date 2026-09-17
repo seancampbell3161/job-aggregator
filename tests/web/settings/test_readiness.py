@@ -10,6 +10,15 @@ def _check(doc=None, *, has_profile=True, secrets=()):
                                   secret_source=lambda n: "stored" if n in secrets else "unset")}
 
 
+# hn_who_is_hiring/remotive/remoteok default to enabled=True (free, no config
+# needed), so any "X clears nothing_polled" test has to turn them off
+# explicitly first — otherwise it would still pass with its own signal
+# deleted, since the three free aggregators alone already clear the warning.
+_NO_AGGREGATORS = {"hn_who_is_hiring": {"enabled": False},
+                   "remotive": {"enabled": False},
+                   "remoteok": {"enabled": False}}
+
+
 def test_empty_titles_is_reported():
     assert "no_titles" in _check()
 
@@ -19,25 +28,24 @@ def test_titles_set_clears_it():
 
 
 def test_nothing_polled_when_no_sources_and_discovery_off():
-    # hn_who_is_hiring/remotive/remoteok default to enabled=True (free, no
-    # config needed), so a bare {} doc already has pollable sources — this
-    # has to turn them off explicitly to represent "nothing configured".
-    doc = {"sources": {"hn_who_is_hiring": {"enabled": False},
-                       "remotive": {"enabled": False},
-                       "remoteok": {"enabled": False}}}
-    assert "nothing_polled" in _check(doc)
+    # A bare {} doc already has pollable sources (see _NO_AGGREGATORS above),
+    # so this has to turn them off explicitly to represent "nothing configured".
+    assert "nothing_polled" in _check({"sources": _NO_AGGREGATORS})
 
 
 def test_one_slug_source_clears_nothing_polled():
-    assert "nothing_polled" not in _check({"sources": {"greenhouse": ["stripe"]}})
+    doc = {"sources": {**_NO_AGGREGATORS, "greenhouse": ["stripe"]}}
+    assert "nothing_polled" not in _check(doc)
 
 
 def test_an_enabled_aggregator_clears_nothing_polled():
-    assert "nothing_polled" not in _check({"sources": {"remotive": {"enabled": True}}})
+    doc = {"sources": {**_NO_AGGREGATORS, "remotive": {"enabled": True}}}
+    assert "nothing_polled" not in _check(doc)
 
 
 def test_discovery_enabled_clears_nothing_polled():
-    assert "nothing_polled" not in _check({"discovery": {"enabled": True}})
+    doc = {"sources": _NO_AGGREGATORS, "discovery": {"enabled": True}}
+    assert "nothing_polled" not in _check(doc)
 
 
 def test_no_delivery_sink_is_reported():
