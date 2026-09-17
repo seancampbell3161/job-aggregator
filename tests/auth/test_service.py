@@ -68,6 +68,19 @@ def test_login_without_a_password_or_with_a_wrong_one_is_none():
     assert auth.login("wrong horse") is None
 
 
+def test_login_rejects_an_overlong_password_without_touching_the_hasher():
+    conn = connect(":memory:")
+    auth = _service(conn=conn)
+    auth.claim(PW)
+
+    class ExplodingHasher:
+        def verify(self, *_args, **_kwargs):
+            raise AssertionError("login() must bound password length before hashing")
+
+    auth_with_exploding_hasher = AuthService(SqliteAuthStore(conn), hasher=ExplodingHasher())
+    assert auth_with_exploding_hasher.login("x" * 1025) is None
+
+
 def test_resolve_rejects_missing_and_unknown_tokens():
     auth = _service()
     auth.claim(PW)

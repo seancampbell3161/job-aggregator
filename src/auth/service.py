@@ -16,7 +16,7 @@ from typing import Callable
 from argon2 import PasswordHasher
 
 from src.auth.errors import AlreadyClaimed, WrongPassword
-from src.auth.passwords import Passwords, validate_new_password
+from src.auth.passwords import MAX_PASSWORD_LENGTH, Passwords, validate_new_password
 from src.auth.store import SqliteAuthStore
 
 log = logging.getLogger(__name__)
@@ -73,6 +73,11 @@ class AuthService:
         return token
 
     def login(self, password: str) -> str | None:
+        # A bound, not a validation: an unauthenticated caller can send an
+        # arbitrarily long form field, and argon2-verifying it is the
+        # expensive step we want to skip before it ever reaches the hasher.
+        if len(password) > MAX_PASSWORD_LENGTH:
+            return None
         stored = self._store.password_hash()
         if stored is None or not self._passwords.verify(stored, password):
             return None
