@@ -12,15 +12,16 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 import threading
 from dataclasses import dataclass
-from typing import Literal, Mapping, Sequence
+from typing import Callable, Literal, Mapping, Sequence
 
 from pydantic import ValidationError
 
 from src.config import AppConfig, Secrets
 from src.settings.documents import DOCUMENT_KINDS, Documents, validate_document
-from src.settings.errors import SettingsInvalid
+from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.migrations import MIGRATIONS, SCHEMA_VERSION, Migration, migrate
 from src.settings.store import NewDocument, NewSettings, SettingsRow, SqliteSettingsStore
 from src.user_agent import set_user_agent
@@ -298,3 +299,73 @@ class ConfigService:
         )
         assert settings_id is not None
         return settings_id, dict(zip(kinds, doc_ids))
+
+    # -- history & read-modify-write ------------------------------------------------
+
+    def versions(self, limit: int | None = 50) -> list[SettingsRow]:
+        with self._store.read():
+            return self._store.settings_versions(limit)
+
+    def current_doc(self) -> tuple[int, dict] | None:
+        """(version id, canonical doc) of the settings version in effect — no
+        secrets, no env overlays. The basis for export and read-modify-write."""
+        with self._store.read():
+            effective = self._effective_version()
+        if effective is None:
+            return None
+        row, cfg, _ = effective
+        return row.id, canonical_doc(cfg)
+
+    def restore(self, version_id: int) -> int:
+        with self._store.read():
+            row = self._store.get_settings_version(version_id)
+            if row is None:
+                raise SettingsInvalid([{"loc": "", "msg": f"no settings version {version_id}"}])
+            doc = canonical_doc(self._parse_row(row))
+        return self.save_settings(doc, source="restore", note=f"restored version {version_id}")
+
+    def update_settings(self, mutate: Callable[[dict], str | None], *, source: str) -> int | None:
+        """Read-modify-write on the version in effect.
+
+        ``mutate`` edits the doc in place and returns the new version's note,
+        or None when it changed nothing (then nothing is written). If another
+        writer saves in between, the update re-reads and runs ``mutate`` once
+        more — so ``mutate`` must derive everything from the doc it is given.
+        Raises NotConfigured before setup; StaleWrite after a second conflict."""
+        for attempt in (1, 2):
+            with self._store.read():
+                latest = self._store.latest_settings()
+                current = self.current_doc() if latest is not None else None
+            if latest is None or current is None:
+                raise NotConfigured("not set up — run `python -m src.settings import DIR` first")
+            _, doc = current
+            note = mutate(doc)
+            if note is None:
+                return None
+            try:
+                return self.save_settings(doc, source=source, note=note, base_version_id=latest.id)
+            except StaleWrite:
+                if attempt == 2:
+                    raise
+                log.info("settings_update_retry", extra={"source": source})
+        raise AssertionError("unreachable")
+
+    # -- secrets bootstrap -------------------------------------------------------------
+
+    def ensure_signing_secret(self) -> None:
+        """Generate the tailor deep-link signing secret once, when neither the
+        env nor the DB provides one. Insert-if-absent, so a poller and a web
+        process booting together converge on a single value."""
+        name = "tailor_signing_secret"
+        if self._env_secret(name) or self._store.get_secret(name) is not None:
+            return
+        if self._store.put_secret_if_absent(name, secrets.token_urlsafe(32)):
+            log.info("tailor_signing_secret_generated")
+
+    def import_env_secrets(self) -> list[str]:
+        """Copy every non-empty JOB_AGG_* secret from the environment into the
+        DB. Returns the names copied — never the values."""
+        copied = [name for name in SECRET_NAMES if self._env_secret(name)]
+        for name in copied:
+            self._store.put_secret(name, self._env_secret(name))
+        return copied
