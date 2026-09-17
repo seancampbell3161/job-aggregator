@@ -1,4 +1,5 @@
 import re
+import sqlite3
 import time
 from datetime import datetime, timezone
 
@@ -680,3 +681,18 @@ def test_jobs_list_shows_adzuna_attribution_on_row(client):
 def test_jobs_list_attribution_only_on_adzuna_rows(client):
     r = client.get("/jobs", params={"status": "applied"})  # only the Ramp row (lever source)
     assert "Jobs by Adzuna" not in r.text
+
+
+def test_startup_check_reads_the_login_tables(monkeypatch, tmp_path):
+    import src.web.__main__ as entry
+
+    monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
+    app = entry.create_app()
+    assert entry._startup_repo_ok(app) is True
+
+    class Broken:
+        def has_password(self):
+            raise sqlite3.OperationalError("no such table: auth_credential")
+
+    app.state.auth = Broken()
+    assert entry._startup_repo_ok(app) is False

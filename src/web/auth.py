@@ -1,12 +1,14 @@
-"""The web UI login: the session cookie and the /welcome, /login, /logout,
-and /account/password pages."""
+"""The web UI login: the session cookie, the /welcome, /login, /logout, and
+/account/password pages, and the login gate that requires a session for
+everything outside PUBLIC_PATHS / PUBLIC_PREFIXES."""
 from __future__ import annotations
 
 import logging
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from fastapi import FastAPI, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from starlette.concurrency import run_in_threadpool
 
 from src.auth.errors import AlreadyClaimed, PasswordRejected, WrongPassword
 from src.auth.passwords import MIN_PASSWORD_LENGTH
@@ -15,6 +17,12 @@ from src.auth.service import SESSION_IDLE_TTL
 log = logging.getLogger(__name__)
 
 SESSION_COOKIE = "jobagg_session"
+
+# Reachable without a session. Exact paths, so a future /tailor/... route is
+# gated unless added here on purpose. /logout is public so signing out with an
+# expired session still clears the cookie.
+PUBLIC_PATHS = frozenset({"/login", "/welcome", "/logout", "/tailor", "/tailor/pdf"})
+PUBLIC_PREFIXES = ("/static/",)
 
 
 def set_session_cookie(response: Response, request: Request, token: str) -> None:
@@ -144,4 +152,73 @@ def register_auth_routes(app: FastAPI) -> None:
         throttle.record_success()
         response = _page(request, "account_password.html", changed=True)
         set_session_cookie(response, request, token)
+        return response
+
+
+def is_public(path: str) -> bool:
+    return path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES)
+
+
+def login_url(next_path: str) -> str:
+    return "/login" if next_path == "/" else f"/login?next={quote(next_path, safe='')}"
+
+
+def _is_htmx(request: Request) -> bool:
+    return request.headers.get("hx-request") == "true"
+
+
+def _return_path(request: Request) -> str:
+    """Where to land after signing in: this page, or — for an htmx request —
+    the page that issued it (HX-Current-URL), never the fragment URL."""
+    current = request.headers.get("hx-current-url") if _is_htmx(request) else None
+    parts = urlsplit(current) if current else request.url
+    path = parts.path or "/"
+    return safe_next(f"{path}?{parts.query}" if parts.query else path)
+
+
+def _deny(request: Request, location: str, *, clear_cookie: bool) -> Response:
+    """htmx acts on HX-Redirect before its error handling, so a 60 s poll
+    navigates to the login page instead of swapping it into a fragment."""
+    response: Response
+    if _is_htmx(request):
+        response = Response(status_code=401, headers={"HX-Redirect": location})
+    elif request.method in ("GET", "HEAD"):
+        response = RedirectResponse(location, status_code=303)
+    else:
+        response = PlainTextResponse("Sign in required.", status_code=401)
+    if clear_cookie:
+        clear_session_cookie(response)
+    return response
+
+
+def _sets_session_cookie(response: Response) -> bool:
+    return any(value.startswith(f"{SESSION_COOKIE}=")
+               for value in response.headers.getlist("set-cookie"))
+
+
+def register_login_gate(app: FastAPI) -> None:
+    @app.middleware("http")
+    async def _login_gate(request: Request, call_next):
+        request.state.session = None
+        if is_public(request.url.path):
+            return await call_next(request)
+        auth = request.app.state.auth
+        token = request.cookies.get(SESSION_COOKIE)
+        try:
+            has_password = await run_in_threadpool(auth.has_password)
+            session = (await run_in_threadpool(auth.resolve, token)
+                       if has_password and token else None)
+        except Exception as exc:  # noqa: BLE001 — fail closed: never serve a page we can't authorize
+            log.error("auth_store_unavailable", extra={"error": str(exc)})
+            return PlainTextResponse("Cannot read the login database.", status_code=503)
+        if not has_password:
+            return _deny(request, "/welcome", clear_cookie=token is not None)
+        if session is None:
+            return _deny(request, login_url(_return_path(request)), clear_cookie=token is not None)
+        request.state.session = session
+        response = await call_next(request)
+        # Slide the browser's cookie along with the server-side session — but
+        # never over a cookie the route set itself (change-password).
+        if session.touched and not _sets_session_cookie(response):
+            set_session_cookie(response, request, token)
         return response

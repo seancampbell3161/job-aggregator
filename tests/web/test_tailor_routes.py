@@ -287,6 +287,7 @@ def test_pdf_route_rejects_links_before_setup(tmp_path, monkeypatch):
 
 
 def test_the_tailored_static_mount_is_gone(tmp_path, monkeypatch):
+    from tests.auth_helpers import signed_in_client
     app = _app(tmp_path, monkeypatch)
     _store_pdf(tmp_path, "j1.pdf")
-    assert TestClient(app).get("/tailored/j1.pdf").status_code == 404
+    assert signed_in_client(app).get("/tailored/j1.pdf").status_code == 404

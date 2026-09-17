@@ -19,7 +19,7 @@ from src.settings.service import ConfigService
 from src.state import VALID_STATUSES
 from src.stores import Stores, build_stores
 from src.web.analytics import MatchAnalytics, register_analytics_routes
-from src.web.auth import register_auth_routes
+from src.web.auth import register_auth_routes, register_login_gate
 from src.web.board import BoardProvider, register_board_routes
 from src.web.coach import CoachProvider, register_coach_routes
 from src.web.context import config_ctx
@@ -126,9 +126,11 @@ def create_app(
     templates.env.globals["coach_nav_visible"] = coach_nav_visible
     app.state.templates = templates
     app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
-    # Middleware runs in reverse registration order: the cross-origin guard
-    # runs before the snapshot + setup gate.
+    # Middleware runs in reverse registration order: the cross-origin guard,
+    # then the login gate, then the snapshot + setup gate — so requests
+    # without a session never read settings.
     _register_setup_gate(app)
+    register_login_gate(app)
     register_cross_origin_guard(app)
     _register_routes(app)
     register_auth_routes(app)
