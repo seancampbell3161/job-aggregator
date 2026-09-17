@@ -3,7 +3,7 @@ import time
 from datetime import datetime, timezone
 
 import pytest
-from fastapi.testclient import TestClient
+from tests.auth_helpers import signed_in_client
 
 from src.models import NormalizedPosting
 from src.sqlite_db import connect
@@ -55,7 +55,7 @@ def client():
         repo=TriageRepo(store), ops=ops, match_analytics=MatchAnalytics(seen=store),
         service=make_service(WEB_TEST_SETTINGS),
     )
-    yield TestClient(app)
+    yield signed_in_client(app)
 
 
 def test_inbox_shell_renders(client):
@@ -307,7 +307,7 @@ def status_suggestion_client(tmp_path, monkeypatch):
         ),
     )
     app = create_app(repo=TriageRepo(seen), stores=stores)
-    return TestClient(app), seen
+    return signed_in_client(app), seen
 
 
 def test_set_status_clears_email_suggestion(status_suggestion_client):

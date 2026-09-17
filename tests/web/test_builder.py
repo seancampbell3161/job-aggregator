@@ -1,4 +1,4 @@
-from fastapi.testclient import TestClient
+from tests.auth_helpers import signed_in_client
 
 from src.web.app import create_app
 from tests.conftest import requires_weasyprint
@@ -13,7 +13,7 @@ def _app(tmp_path, monkeypatch, service=None):
 
 
 def test_builder_page_lists_builtins_and_settings(tmp_path, monkeypatch):
-    c = TestClient(_app(tmp_path, monkeypatch))
+    c = signed_in_client(_app(tmp_path, monkeypatch))
     r = c.get("/builder")
     assert r.status_code == 200
     assert "Classic" in r.text and "Headless" in r.text
@@ -22,7 +22,7 @@ def test_builder_page_lists_builtins_and_settings(tmp_path, monkeypatch):
 
 def test_save_settings_roundtrip(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
-    c = TestClient(app)
+    c = signed_in_client(app)
     r = c.post("/builder/settings", data={
         "max_bullets_per_experience": "4", "max_bullets_per_project": "",
         "min_bullets_per_entry": "2", "max_pages": "2",
@@ -37,7 +37,7 @@ def test_save_settings_roundtrip(tmp_path, monkeypatch):
 
 def test_save_settings_rejects_invalid(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
-    r = TestClient(app).post("/builder/settings", data={
+    r = signed_in_client(app).post("/builder/settings", data={
         "min_bullets_per_entry": "3", "max_bullets_per_experience": "2", "max_pages": "1",
     })
     assert r.status_code == 200
@@ -47,7 +47,7 @@ def test_save_settings_rejects_invalid(tmp_path, monkeypatch):
 
 def test_activate_switches_active_template(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
-    c = TestClient(app)
+    c = signed_in_client(app)
     r = c.post("/builder/activate", data={"slug": "headless"})
     assert r.status_code == 200
     assert app.state.builder.settings().active_template == "headless"
@@ -55,7 +55,7 @@ def test_activate_switches_active_template(tmp_path, monkeypatch):
 
 def test_delete_rejects_builtin(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
-    r = TestClient(app).post("/builder/delete", data={"slug": "classic"})
+    r = signed_in_client(app).post("/builder/delete", data={"slug": "classic"})
     assert r.status_code == 400
 
 
@@ -64,7 +64,7 @@ def test_delete_filesystem_error_does_not_500(tmp_path, monkeypatch):
     """A filesystem error (e.g. EROFS on a read-only templates mount) during
     delete must come back as an inline gallery error, not a 500."""
     app = _app(tmp_path, monkeypatch)
-    c = TestClient(app)
+    c = signed_in_client(app)
     _upload(c, "My Modern CV.html", GOOD_TEMPLATE)
 
     import src.web.builder as builder_mod
@@ -81,14 +81,14 @@ def test_delete_filesystem_error_does_not_500(tmp_path, monkeypatch):
 @requires_weasyprint
 def test_preview_returns_pdf(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
-    r = TestClient(app).get("/builder/preview", params={"slug": "classic"})
+    r = signed_in_client(app).get("/builder/preview", params={"slug": "classic"})
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/pdf"
     assert r.content[:5] == b"%PDF-"
 
 
 def test_nav_links_builder(tmp_path, monkeypatch):
-    r = TestClient(_app(tmp_path, monkeypatch)).get("/builder")
+    r = signed_in_client(_app(tmp_path, monkeypatch)).get("/builder")
     assert '<a href="/builder">Builder</a>' in r.text
 
 
@@ -97,7 +97,7 @@ def test_delete_rejects_traversal_slug(tmp_path, monkeypatch):
     victim = tmp_path / "victim"
     victim.mkdir()
     (victim / "keep.txt").write_text("x")
-    r = TestClient(app).post("/builder/delete", data={"slug": "../victim"})
+    r = signed_in_client(app).post("/builder/delete", data={"slug": "../victim"})
     assert r.status_code == 400
     assert (victim / "keep.txt").exists()
 
@@ -107,7 +107,7 @@ def test_preview_rejects_traversal_slug(tmp_path, monkeypatch):
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "template.html.j2").write_text("<html>{{ doc.name }}</html>")
-    r = TestClient(app).get("/builder/preview", params={"slug": "../outside", "pending": "1"})
+    r = signed_in_client(app).get("/builder/preview", params={"slug": "../outside", "pending": "1"})
     assert r.status_code == 400
 
 
@@ -116,7 +116,7 @@ def test_preview_error_detail_is_generic(tmp_path, monkeypatch):
     tpl_dir = tmp_path / "templates" / "broken"
     tpl_dir.mkdir(parents=True)
     (tpl_dir / "template.html.j2").write_text("{% not_a_tag %}")
-    r = TestClient(app).get("/builder/preview", params={"slug": "broken"})
+    r = signed_in_client(app).get("/builder/preview", params={"slug": "broken"})
     assert r.status_code == 422
     assert r.json()["detail"] == "preview failed — template did not render; see server logs"
 
@@ -137,7 +137,7 @@ GOOD_TEMPLATE = (b"<!DOCTYPE html><html><body>{{ doc.name }}"
 @requires_weasyprint
 def test_upload_html_template_appears_in_gallery(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
-    c = TestClient(app)
+    c = signed_in_client(app)
     r = _upload(c, "My Modern CV.html", GOOD_TEMPLATE)
     assert r.status_code == 200
     from src.tailor.render.registry import list_templates
@@ -148,7 +148,7 @@ def test_upload_html_template_appears_in_gallery(tmp_path, monkeypatch):
 
 
 def test_upload_rejects_bad_jinja(tmp_path, monkeypatch):
-    c = TestClient(_app(tmp_path, monkeypatch))
+    c = signed_in_client(_app(tmp_path, monkeypatch))
     r = _upload(c, "broken.j2", b"{% for %}")
     assert r.status_code == 200  # inline error in the fragment
     assert 'class="bad"' in r.text
@@ -157,13 +157,13 @@ def test_upload_rejects_bad_jinja(tmp_path, monkeypatch):
 
 
 def test_upload_rejects_builtin_slug_collision(tmp_path, monkeypatch):
-    c = TestClient(_app(tmp_path, monkeypatch))
+    c = signed_in_client(_app(tmp_path, monkeypatch))
     r = _upload(c, "classic.html", GOOD_TEMPLATE)
     assert "already exists" in r.text
 
 
 def test_upload_rejects_oversize(tmp_path, monkeypatch):
-    c = TestClient(_app(tmp_path, monkeypatch))
+    c = signed_in_client(_app(tmp_path, monkeypatch))
     r = _upload(c, "big.html", b"x" * (10 * 1024 * 1024 + 1))
     assert "10 MB" in r.text
 
@@ -176,7 +176,7 @@ def test_upload_zip_pack_with_fonts(tmp_path, monkeypatch):
         z.writestr("template.html.j2", GOOD_TEMPLATE.decode())
         z.writestr("meta.yaml", "name: Zipped\n")
         z.writestr("fonts/Fake.ttf", "notreallyafont")
-    c = TestClient(_app(tmp_path, monkeypatch))
+    c = signed_in_client(_app(tmp_path, monkeypatch))
     r = _upload(c, "zipped.zip", buf.getvalue(), "application/zip")
     assert r.status_code == 200
     from src.tailor.render.registry import get_template
@@ -193,7 +193,7 @@ def test_upload_zip_meta_source_is_forced_to_upload(tmp_path, monkeypatch):
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr("template.html.j2", GOOD_TEMPLATE.decode())
         z.writestr("meta.yaml", "source: builtin\nname: Sneaky\n")
-    c = TestClient(_app(tmp_path, monkeypatch))
+    c = signed_in_client(_app(tmp_path, monkeypatch))
     r = _upload(c, "sneaky.zip", buf.getvalue(), "application/zip")
     assert r.status_code == 200
     from src.tailor.render.registry import get_template
@@ -212,7 +212,7 @@ def test_upload_zip_rejects_decompression_bomb(tmp_path, monkeypatch):
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("template.html.j2", GOOD_TEMPLATE.decode())
         z.writestr("bomb.bin", b"\x00" * (60 * 1024 * 1024))
-    c = TestClient(_app(tmp_path, monkeypatch))
+    c = signed_in_client(_app(tmp_path, monkeypatch))
     r = _upload(c, "bomb.zip", buf.getvalue(), "application/zip")
     assert r.status_code == 200
     assert "exceeds the limit" in r.text
@@ -230,14 +230,14 @@ def test_upload_zip_rejects_path_traversal(tmp_path, monkeypatch):
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr("../evil.txt", "boo")
         z.writestr("template.html.j2", GOOD_TEMPLATE.decode())
-    c = TestClient(_app(tmp_path, monkeypatch))
+    c = signed_in_client(_app(tmp_path, monkeypatch))
     r = _upload(c, "evil.zip", buf.getvalue(), "application/zip")
     assert 'class="bad"' in r.text
     assert not (tmp_path / "evil.txt").exists()
 
 
 def test_upload_unsupported_extension(tmp_path, monkeypatch):
-    c = TestClient(_app(tmp_path, monkeypatch))
+    c = signed_in_client(_app(tmp_path, monkeypatch))
     r = _upload(c, "resume.pdf", b"%PDF-")
     assert "Unsupported" in r.text
 
@@ -256,7 +256,7 @@ def test_upload_zip_conflicting_members_never_500s(tmp_path, monkeypatch):
         z.writestr("x", "a file")
         z.writestr("x/y", "a file nested under what is supposed to be a directory")
     app = _app(tmp_path, monkeypatch)
-    c = TestClient(app)
+    c = signed_in_client(app)
     r = _upload(c, "conflict.zip", buf.getvalue(), "application/zip")
     assert r.status_code == 200
     assert 'class="bad"' in r.text
@@ -278,7 +278,7 @@ def test_upload_does_not_disturb_pending_docx_review(tmp_path, monkeypatch):
     in-flight docx import must not be blocked by it and — critically — must
     not delete it."""
     app = _app(tmp_path, monkeypatch)
-    c = TestClient(app)
+    c = signed_in_client(app)
     pending_dir = tmp_path / "templates" / ".pending" / "foo"
     pending_dir.mkdir(parents=True)
     (pending_dir / "template.html.j2").write_text("<html>awaiting review</html>")
@@ -300,7 +300,7 @@ def test_upload_rechecks_slug_immediately_before_rename(tmp_path, monkeypatch):
     same time), the second one to reach the rename must lose gracefully
     instead of clobbering the first."""
     app = _app(tmp_path, monkeypatch)
-    c = TestClient(app)
+    c = signed_in_client(app)
 
     def racing_validate_pack(pack_dir, content):
         # Simulate another writer claiming the slug while this upload was
@@ -337,7 +337,7 @@ def test_docx_upload_creates_pending_then_accept(tmp_path, monkeypatch):
     from tests.tailor.render.test_docx_import import make_docx
     app = _app(tmp_path, monkeypatch)
     app.state.builder.importer = _FakeImporter()
-    c = TestClient(app)
+    c = signed_in_client(app)
     r = _upload(c, "Headless Resume.docx", make_docx(),
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
     assert "pending review" in r.text
@@ -356,7 +356,7 @@ def test_docx_upload_discard_removes_pending(tmp_path, monkeypatch):
     from tests.tailor.render.test_docx_import import make_docx
     app = _app(tmp_path, monkeypatch)
     app.state.builder.importer = _FakeImporter()
-    c = TestClient(app)
+    c = signed_in_client(app)
     _upload(c, "temp.docx", make_docx())
     r = c.post("/builder/pending/discard", data={"slug": "temp"})
     assert not (tmp_path / "templates" / ".pending" / "temp").exists()
@@ -367,7 +367,7 @@ def test_docx_upload_without_importer_shows_error(tmp_path, monkeypatch):
     from tests.tailor.render.test_docx_import import make_docx
     app = _app(tmp_path, monkeypatch)
     app.state.builder.importer = None
-    r = _upload(TestClient(app), "x.docx", make_docx())
+    r = _upload(signed_in_client(app), "x.docx", make_docx())
     assert "not configured" in r.text
 
 
@@ -381,7 +381,7 @@ def test_docx_upload_font_traversal_confined_to_pack(tmp_path, monkeypatch):
     from tests.tailor.render.test_docx_import import make_docx
     app = _app(tmp_path, monkeypatch)
     app.state.builder.importer = _FakeImporter()
-    c = TestClient(app)
+    c = signed_in_client(app)
     data = make_docx(font_entry="word/fonts/../../../../evil.ttf")
     r = _upload(c, "Evil Resume.docx", data,
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
@@ -413,7 +413,7 @@ def test_docx_upload_importer_typeerror_never_500s(tmp_path, monkeypatch):
     from tests.tailor.render.test_docx_import import make_docx
     app = _app(tmp_path, monkeypatch)
     app.state.builder.importer = _FakeImporterBoom()
-    c = TestClient(app)
+    c = signed_in_client(app)
     r = _upload(c, "boom.docx", make_docx(),
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
     assert r.status_code == 200
@@ -433,7 +433,7 @@ def test_docx_reimport_failure_preserves_pending_pack_of_same_slug(tmp_path, mon
     from tests.tailor.render.test_docx_import import make_docx
     app = _app(tmp_path, monkeypatch)
     app.state.builder.importer = _FakeImporterRuntimeError()
-    c = TestClient(app)
+    c = signed_in_client(app)
 
     pending_dir = tmp_path / "templates" / ".pending" / "temp"
     pending_dir.mkdir(parents=True)
@@ -483,5 +483,5 @@ def test_builder_importer_degrades_when_the_builder_raises(tmp_path, monkeypatch
     service = make_service({"relevance": {"provider": "ollama"}})  # local host: no key needed
     app = _app(tmp_path, monkeypatch, service=service)
     assert app.state.builder.importer is None
-    r = TestClient(app).get("/builder")
+    r = signed_in_client(app).get("/builder")
     assert r.status_code == 200

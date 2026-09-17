@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 
 import pytest
-from fastapi.testclient import TestClient
+from tests.auth_helpers import signed_in_client
 
 from src.models import NormalizedPosting
 from src.sqlite_db import connect
@@ -36,7 +36,7 @@ def audit_client(tmp_path, monkeypatch):
         posting=_posting("greenhouse:acme:2", "Data Engineer"),
     )
     app = create_app(repo=TriageRepo(seen), stores=stores)
-    return TestClient(app), rejected, seen
+    return signed_in_client(app), rejected, seen
 
 
 def test_audit_lists_both_origins_with_reasons(audit_client):

@@ -1,7 +1,7 @@
 """The not-set-up gate, per-request snapshots, and the degraded banner."""
 from datetime import datetime, timezone
 
-from fastapi.testclient import TestClient
+from tests.auth_helpers import signed_in_client
 
 from src.models import NormalizedPosting
 from src.settings.service import ConfigService
@@ -15,7 +15,7 @@ from tests.sqlite_helpers import sqlite_stores
 def _client(tmp_path, monkeypatch, service, stores=None):
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
     stores = stores if stores is not None else sqlite_stores(connect(":memory:"))
-    return TestClient(create_app(stores=stores, service=service), follow_redirects=False)
+    return signed_in_client(create_app(stores=stores, service=service), follow_redirects=False)
 
 
 def test_pages_redirect_to_setup_until_configured(tmp_path, monkeypatch):

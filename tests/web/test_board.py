@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 import pytest
-from fastapi.testclient import TestClient
+from tests.auth_helpers import signed_in_client
 from freezegun import freeze_time
 
 from src.models import NormalizedPosting
@@ -100,7 +100,7 @@ def board_client(tmp_path, monkeypatch):
     seen.set_status("greenhouse:acme:applied-card", "applied")
 
     app = create_app(repo=TriageRepo(seen), stores=stores)
-    return TestClient(app), seen
+    return signed_in_client(app), seen
 
 
 def test_board_card_renders_posting_closed_badge(board_client):
