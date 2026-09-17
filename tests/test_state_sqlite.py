@@ -104,6 +104,8 @@ def test_get_jd_returns_snapshot():
     assert jd.description == "Build things with Python."
     assert jd.title == "Staff Engineer"
     assert s.get_jd("missing") is None
+    s.claim_for_notify("j2")
+    assert s.get_jd("j2") is None
 
 
 def test_get_jd_sanitizes_legacy_unsanitized_snapshot():

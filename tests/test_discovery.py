@@ -496,8 +496,7 @@ async def test_probe_rippling_ok_and_404():
 
 
 from src.fingerprint import FingerprintResult, Seed
-from src.state_sqlite import SqliteDiscoveredBoardsStore, SqliteDiscoveredSlugsStore
-from src.sqlite_db import connect
+from src.state_sqlite import SqliteDiscoveredBoardsStore
 
 
 def _boards():
