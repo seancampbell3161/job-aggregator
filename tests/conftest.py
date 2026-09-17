@@ -29,14 +29,6 @@ requires_weasyprint = pytest.mark.skipif(
 
 
 @pytest.fixture(autouse=True)
-def _aws_creds(monkeypatch):
-    """moto needs creds set even though they're not used."""
-    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test")
-    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test")
-    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
-
-
-@pytest.fixture(autouse=True)
 def _sqlite_path_isolated(monkeypatch, tmp_path):
     """Never let a test open ./data/job_aggregator.db in the checkout.
 
@@ -47,26 +39,3 @@ def _sqlite_path_isolated(monkeypatch, tmp_path):
     ``monkeypatch.setenv`` runs after this autouse fixture.
     """
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "test.db"))
-
-
-@pytest.fixture(params=["dynamodb", "sqlite"])
-def seen_store(request, tmp_path):
-    """A ready SeenJobs store for each backend. DynamoDB via moto; SQLite via a
-    temp file. Lets one behavioral test prove both backends agree."""
-    if request.param == "dynamodb":
-        import boto3
-        from moto import mock_aws
-        from src.state import SeenJobsStore
-        with mock_aws():
-            ddb = boto3.resource("dynamodb", region_name="us-east-1")
-            ddb.create_table(
-                TableName="seen_jobs",
-                KeySchema=[{"AttributeName": "job_id", "KeyType": "HASH"}],
-                AttributeDefinitions=[{"AttributeName": "job_id", "AttributeType": "S"}],
-                BillingMode="PAY_PER_REQUEST",
-            )
-            yield SeenJobsStore(table_name="seen_jobs", region="us-east-1")
-    else:
-        from src.sqlite_db import connect
-        from src.state_sqlite import SqliteSeenJobsStore
-        yield SqliteSeenJobsStore(connect(str(tmp_path / "t.db")))

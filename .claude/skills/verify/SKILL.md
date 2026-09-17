@@ -8,7 +8,6 @@ description: Build/launch/drive recipe for verifying job-aggregator changes end-
 ## Launch the web app (no Docker needed)
 
 ```bash
-JOB_AGG_BACKEND=sqlite \
 JOB_AGG_SQLITE_PATH=/path/to/scratch.db \
 JOB_AGG_WEB_PORT=8901 \
 .venv/bin/python -m src.web

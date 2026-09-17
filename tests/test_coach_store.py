@@ -73,7 +73,6 @@ def test_prune_older_than(store):
 
 
 def test_stores_wiring_includes_coach(tmp_path, monkeypatch):
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
     from src.stores import build_stores
     stores = build_stores()

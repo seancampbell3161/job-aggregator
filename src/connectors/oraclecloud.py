@@ -28,7 +28,7 @@ _PAGE_SIZE = 25
 # survivors sit on the first pages; uncapped pagination on big boards
 # blows the cycle budget.
 _MAX_PAGES = 5
-_MAX_DESC = 30000  # match SeenJobsStore.claim_for_notify's description_snapshot cap
+_MAX_DESC = 30000  # match state.posting_display_fields's description_snapshot cap
 def _headers() -> dict[str, str]:
     return ua_headers(Accept="application/json")
 

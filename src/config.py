@@ -1,9 +1,4 @@
-"""Load + validate config.yaml and SSM secrets.
-
-Secrets are fetched from environment variables in local mode and from SSM
-SecureString parameters in Lambda. Lambda's runtime is responsible for
-populating env vars from SSM via Terraform; see infra/lambda.tf.
-"""
+"""Load + validate config.yaml and the JOB_AGG_* env secrets."""
 
 from __future__ import annotations
 
@@ -301,7 +296,7 @@ class AuditConfig(BaseModel):
 class CoachConfig(BaseModel):
     """The /coach page: on-demand LLM recommendations for improving application
     response rates, grounded in the user's own funnel/audit/config/résumé data.
-    Run history is SQLite-only (like the audit trail)."""
+    Run history persists in SQLite (like the audit trail)."""
     enabled: bool = True
     # provider/model default to the relevance values when None (see _build_coach)
     provider: Literal["anthropic", "gemini", "ollama"] | None = None
@@ -435,7 +430,7 @@ class Secrets(BaseModel):
     anthropic_api_key: str = ""  # empty string allowed when relevance is disabled
     google_api_key: str = ""     # empty string allowed when not using provider=gemini
     ollama_api_key: str = ""     # empty string allowed when not using provider=ollama
-    tailor_endpoint_url: str = ""    # hosted tailor endpoint Function URL (empty -> no deep-link)
+    tailor_endpoint_url: str = ""    # tailor deep-link base URL (empty -> no deep-link)
     tailor_signing_secret: str = ""  # HMAC secret for the deep-link token
     ops_ntfy_topic_url: str = ""      # separate ntfy topic for ops alerts (empty -> ops alerts off)
     ops_discord_webhook_url: str = "" # separate Discord webhook for ops alerts
@@ -484,8 +479,7 @@ class AppConfig(BaseModel):
 
 
 def _load_secrets() -> Secrets:
-    """Read secrets from env vars. In Lambda these are populated by Terraform
-    from SSM SecureString parameters at deploy time."""
+    """Read secrets from JOB_AGG_* env vars."""
     return Secrets(
         ntfy_topic_url=os.environ["JOB_AGG_NTFY_TOPIC_URL"],
         discord_webhook_url=os.environ["JOB_AGG_DISCORD_WEBHOOK_URL"],
@@ -513,7 +507,7 @@ def load_config(path: Path | str = "config.yaml") -> AppConfig:
         raise FileNotFoundError(
             f"{path} not found — copy config.example.yaml to config.yaml and "
             "profile.example.md to profile.md, then personalize them "
-            "(GETTING_STARTED.md §3)."
+            "(GETTING_STARTED.md §2)."
         ) from None
     except IsADirectoryError:
         raise IsADirectoryError(
@@ -521,7 +515,7 @@ def load_config(path: Path | str = "config.yaml") -> AppConfig:
             "directory stub when the file is missing at first start. Remove it "
             f"(rm -r {path}; repeat for any other path that is a directory), then copy the templates: "
             "cp config.example.yaml config.yaml && cp profile.example.md "
-            "profile.md (GETTING_STARTED.md §3)."
+            "profile.md (GETTING_STARTED.md §2)."
         ) from None
     raw = yaml.safe_load(text)
     raw["secrets"] = _load_secrets().model_dump()

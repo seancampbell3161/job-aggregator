@@ -11,19 +11,8 @@ calibrating, as a deliberate separate deploy.
 
 ## 0. One-time: provision the Ollama API key
 
-1. Create an Ollama Cloud (Pro) API key at `https://ollama.com/settings/keys`.
-2. Store it in SSM (the Terraform `aws_ssm_parameter.ollama_api_key` resource
-   holds a `REPLACE_ME_AT_DEPLOY` placeholder with `ignore_changes = [value]`,
-   so this real value is never clobbered by `terraform apply`):
-
-   ```
-   aws ssm put-parameter --name /job-aggregator/ollama_api_key \
-     --value "ol-..." --type SecureString --overwrite
-   ```
-
-   > **Gotcha:** if you `put-parameter` *before* the Terraform resource exists in
-   > state, the next `terraform apply` errors with `ParameterAlreadyExists`.
-   > Resolve with `terraform import aws_ssm_parameter.ollama_api_key /job-aggregator/ollama_api_key`.
+Put the Ollama API key in `.env` as `JOB_AGG_OLLAMA_API_KEY`, then
+`docker compose up -d --force-recreate`.
 
 ## 1. Run a calibration pass
 
@@ -57,7 +46,7 @@ Then run (the ntfy/discord env vars are required by config loading but unused in
 dry-run):
 
 ```
-export JOB_AGG_OLLAMA_API_KEY=ol-...   # same key as SSM /job-aggregator/ollama_api_key
+export JOB_AGG_OLLAMA_API_KEY=ol-...
 export JOB_AGG_NTFY_TOPIC_URL=x JOB_AGG_DISCORD_WEBHOOK_URL=x
 
 .venv/bin/python -m src.handler --tier ats --calibrate 2>&1 | grep calibration_
@@ -94,12 +83,7 @@ relevance:
   ...
 ```
 
-Deploy (the Lambda bundles `config.yaml` at package time — there is no
-hot-reload):
-
-```
-./scripts/package.sh && cd infra && terraform apply
-```
+Deploy: `docker compose restart poller web` — config.yaml is bind-mounted.
 
 Re-run `--calibrate` against production config after deploy to confirm the
 distribution looks as expected.
@@ -109,11 +93,11 @@ distribution looks as expected.
 If `gpt-oss:120b` scores poorly, in increasing order of change:
 
 1. **Try a different model** — set `model:` to another accessible Cloud model
-   (one line), repackage + apply. (Avoid `gpt-oss:20b` — it returns empty content
-   on Cloud today.)
-2. **Revert the provider** — set `provider: anthropic` (or `gemini`), repackage +
-   apply. The Anthropic and Gemini scorers remain fully wired; this is a one-line
-   change with no code revert needed.
+   (one line), then `docker compose restart poller web`. (Avoid `gpt-oss:20b` —
+   it returns empty content on Cloud today.)
+2. **Revert the provider** — set `provider: anthropic` (or `gemini`), then
+   `docker compose restart poller web`. The Anthropic and Gemini scorers remain
+   fully wired; this is a one-line change with no code revert needed.
 
 ## Troubleshooting: high `fallbacks` count
 

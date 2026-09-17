@@ -152,14 +152,11 @@ def run_gmail_check(
     now: datetime | None = None,
 ) -> dict:
     """One read-only sweep: match recent inbox mail to active-column cards and
-    write suggest-only badges. Returns a tally for the log line. No-ops on
-    stores without update_email_suggestion (DynamoDB backend). Raises on
+    write suggest-only badges. Returns a tally for the log line. Raises on
     IMAP/connection failure so the caller's watermark stays put (the
     scheduler job catches and logs)."""
     tally = {"fetched": 0, "matched": 0, "suggested": 0, "skipped": 0}
-    update = getattr(store, "update_email_suggestion", None)
-    if update is None:
-        return tally
+    update = store.update_email_suggestion
 
     cards = [m for m in store.list_matches() if m.get("status") in _ACTIVE_STATUSES]
     if not cards:

@@ -20,7 +20,11 @@ from src.tailor.endpoint.auth import build_tailor_url
 from src.gaps import GapAnalyzer, Gaps
 from src.relevance import RelevanceScorer, Score
 from src.poll_health import classify_outcome, retry_after_seconds, update_poll_health
-from src.state import ConnectorHealthStore, SeenJobsStore, SourceStateStore
+from src.state_sqlite import (
+    SqliteConnectorHealthStore,
+    SqliteSeenJobsStore,
+    SqliteSourceStateStore,
+)
 
 log = logging.getLogger(__name__)
 
@@ -38,7 +42,7 @@ class RunResult:
     failed_sources: list[str] = field(default_factory=list)
     # Per-failed-connector detail ({"source", "error_type"}), parallel to
     # failed_sources. Feeds the local SQLite cycle-telemetry sink so the ops page
-    # can break failures down by type/connector the way CloudWatch does in AWS.
+    # can break failures down by type/connector.
     fetch_failures: list[dict] = field(default_factory=list)
     # Per-failed LLM call ({"stage", "error_type"}). Parallel to fetch_failures;
     # feeds local cycle telemetry so /pipeline can break LLM degradation down by
@@ -83,7 +87,7 @@ async def _fetch_one(
         # Connector failures (PoolTimeout, HTTP errors, dead slugs) are expected
         # operational noise. Log a compact WARNING naming the exception instead of
         # a full stack trace — each traceback is ~3 KB and, across hundreds of
-        # connectors polled every minute, dominated CloudWatch log-ingestion cost.
+        # connectors polled every minute, adds up fast in the logs.
         log.warning(
             "fetch_failed",
             extra={
@@ -143,8 +147,8 @@ async def run_once(
     *,
     cfg: AppConfig,
     tier: Tier,
-    store: SeenJobsStore,
-    source_state: SourceStateStore,
+    store: SqliteSeenJobsStore,
+    source_state: SqliteSourceStateStore,
     connectors: Sequence[Connector],
     sinks: Sequence[Sink],
     client_factory: Callable[[], httpx.AsyncClient],
@@ -152,7 +156,7 @@ async def run_once(
     dry_run: bool = False,
     relevance_scorer: RelevanceScorer | None = None,
     gap_analyzer: GapAnalyzer | None = None,
-    health: ConnectorHealthStore | None = None,
+    health: SqliteConnectorHealthStore | None = None,
     calibrate: bool = False,
     max_concurrency: int = 40,
     rejected_store=None,
@@ -206,7 +210,7 @@ async def run_once(
         result.fetched_count = len(all_postings)
 
         # Poll-health circuit breaker (never in dry-run, which must not mutate
-        # DynamoDB). Runs for ats and slow — both poll real connectors that can
+        # state). Runs for ats and slow — both poll real connectors that can
         # 404/429. Permanent-dead (404/410) suppression stays ats-only (recovery
         # is the daily discovery re-probe, which rebuilds ats connectors); slow
         # gets only the self-expiring 429 backoff. tracked_names() is read once so
@@ -375,7 +379,7 @@ async def run_once(
                 if not dry_run:
                     # Record the suppressed posting so diff_new excludes it next
                     # cycle (no re-scoring) and the score feeds the pipeline
-                    # histogram. dry_run/calibrate must not mutate DynamoDB.
+                    # histogram. dry_run/calibrate must not mutate state.
                     store.mark_suppressed(
                         n.job_id, score=score.value,
                         rationale=score.rationale, posting=n,
@@ -420,9 +424,9 @@ async def run_once(
             return result
 
         # Claim → notify → release-on-total-failure. The conditional claim
-        # prevents two concurrent EventBridge-triggered invocations from
-        # double-notifying the same job_id (observed: 9 dupes in one 12h window
-        # when two ats-tier Lambdas raced on the same diff'd set).
+        # prevents two overlapping cycles from double-notifying the same
+        # job_id (observed: 9 dupes in one 12h window when two ats-tier runs
+        # raced on the same diff'd set).
         for n, decision, score, gaps in scored:
             gap_skills = gaps.skills if (gaps and gaps.skills) else None
             if not store.claim_for_notify(

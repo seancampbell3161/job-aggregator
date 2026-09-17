@@ -140,9 +140,7 @@ def register_board_routes(app: FastAPI) -> None:
         if status not in VALID_STATUSES:
             raise HTTPException(status_code=400, detail=f"invalid status: {status}")
         request.app.state.repo.set_status(id, status)
-        clear = getattr(request.app.state.stores.seen, "update_email_suggestion", None)
-        if clear:
-            clear(id, suggestion=None)
+        request.app.state.stores.seen.update_email_suggestion(id, suggestion=None)
         b = request.app.state.board.board()
         return request.app.state.templates.TemplateResponse(
             request, "_board_columns.html", _board_ctx(request, board=b)
@@ -150,9 +148,9 @@ def register_board_routes(app: FastAPI) -> None:
 
     @app.post("/board/dismiss-suggestion", response_class=HTMLResponse)
     def dismiss_suggestion(request: Request, id: str):
-        clear = getattr(request.app.state.stores.seen, "update_email_suggestion", None)
-        if clear:
-            clear(id, suggestion=None, record_dismissed=True)
+        request.app.state.stores.seen.update_email_suggestion(
+            id, suggestion=None, record_dismissed=True
+        )
         b = request.app.state.board.board()
         return request.app.state.templates.TemplateResponse(
             request, "_board_columns.html", _board_ctx(request, board=b)

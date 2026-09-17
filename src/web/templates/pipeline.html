@@ -10,9 +10,7 @@
   {% if analytics is not none %}
   <div class="stat"><span class="muted">matches /{{ analytics.window_days }}d</span><br><span class="v">{{ analytics.recent }}</span></div>
   {% endif %}
-  {% if local_mode %}
   <div class="stat"><span class="muted">last success</span><br><span id="last-success" class="v {{ 'ok' if last_success_ago else 'muted' }}">{{ last_success_ago or 'never' }}</span></div>
-  {% endif %}
   {% if rejected_7d is not none %}
   <div class="stat"><span class="muted">rejected /7d</span><br><span class="v"><a href="/audit">{{ rejected_7d }}</a></span></div>
   {% endif %}
@@ -29,7 +27,7 @@
   <div class="ops-col">
     {% include "_ops_analytics.html" %}
     <div id="cycles" hx-get="/pipeline/cycles" hx-trigger="load, every 60s" hx-swap="innerHTML">
-      <div class="panel"><h3>Cycle stats &amp; fetch failures</h3><p class="muted">Loading from CloudWatch…</p></div>
+      <div class="panel"><h3>Cycle stats &amp; fetch failures</h3><p class="muted">Loading…</p></div>
     </div>
   </div>
 </div>

@@ -44,15 +44,11 @@ def create_app(
     app = FastAPI(title="Job Triage")
     stores = stores if stores is not None else build_stores()
     app.state.stores = stores
-    local_mode = os.environ.get("JOB_AGG_BACKEND", "sqlite") != "dynamodb"
     app.state.repo = repo if repo is not None else TriageRepo(stores.seen)
     app.state.board = board if board is not None else BoardProvider(app.state.repo)
     app.state.ops = ops if ops is not None else OpsProvider(
         discovered=stores.discovered, seen=stores.seen, health=stores.health,
         events=stores.events,
-        log_group=os.environ.get("JOB_AGG_LOG_GROUP", "/aws/lambda/job-aggregator"),
-        region=os.environ.get("AWS_REGION", "us-east-1"),
-        local_mode=local_mode,
     )
     app.state.match_analytics = (
         match_analytics if match_analytics is not None else MatchAnalytics(seen=stores.seen)
@@ -70,7 +66,7 @@ def create_app(
     app.state.kit_facts_path = kit_facts_path
     app.state.page_size = page_size
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
-    from src.web.cloudwatch import format_ago
+    from src.web.pipeline_activity import format_ago
     templates.env.filters["ago"] = format_ago
     app.state.templates = templates
     app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
@@ -248,11 +244,10 @@ def _register_routes(app: FastAPI) -> None:
         if to_status not in VALID_STATUSES:
             raise HTTPException(status_code=400, detail=f"invalid status: {to_status}")
         repo = request.app.state.repo
-        clear = getattr(request.app.state.stores.seen, "update_email_suggestion", None)
+        seen = request.app.state.stores.seen
         for job_id in form.get("ids", []):
             repo.set_status(job_id, to_status)  # missing/expired rows are no-ops
-            if clear:
-                clear(job_id, suggestion=None)
+            seen.update_email_suggestion(job_id, suggestion=None)
         return _render_list(
             request, q=first("q"), status=form.get("status", []),
             min_score=first("min_score"), has_gaps=first("has_gaps") == "true",
@@ -278,9 +273,7 @@ def _register_routes(app: FastAPI) -> None:
         repo = request.app.state.repo
         templates = request.app.state.templates
         repo.set_status(id, status)  # False (vanished row) handled by the get below
-        clear = getattr(request.app.state.stores.seen, "update_email_suggestion", None)
-        if clear:
-            clear(id, suggestion=None)
+        request.app.state.stores.seen.update_email_suggestion(id, suggestion=None)
         m = repo.get(id)
         if m is None:
             return templates.TemplateResponse(

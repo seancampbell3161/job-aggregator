@@ -3,7 +3,6 @@
 
 def test_prune_sweeps_rejected_postings(monkeypatch, tmp_path):
     from datetime import datetime, timezone
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "https://ntfy.test/x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "https://discord.test/x")
@@ -58,10 +57,9 @@ def test_build_scheduler_registers_all_tiers(monkeypatch):
 
 def test_integrity_check_runs_repair_on_sqlite(monkeypatch):
     """The hourly maintenance job invokes integrity_check_and_repair on a fresh
-    connection for the sqlite backend."""
+    SQLite connection."""
     import src.scheduler as scheduler
 
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     calls = {"checked": 0, "closed": 0}
 
     class _Conn:
@@ -75,18 +73,6 @@ def test_integrity_check_runs_repair_on_sqlite(monkeypatch):
     )
     scheduler._integrity_check()
     assert calls == {"checked": 1, "closed": 1}
-
-
-def test_integrity_check_skips_non_sqlite_backend(monkeypatch):
-    import src.scheduler as scheduler
-
-    monkeypatch.setenv("JOB_AGG_BACKEND", "dynamodb")
-
-    def _boom(*a, **k):
-        raise AssertionError("must not touch sqlite on non-sqlite backend")
-
-    monkeypatch.setattr("src.sqlite_db.connect", _boom)
-    scheduler._integrity_check()  # no-op, no exception
 
 
 def test_build_scheduler_registers_closed_check(monkeypatch, tmp_path):
@@ -117,7 +103,6 @@ def test_board_digest_job_marks_notified_only_on_successful_send(monkeypatch, tm
     from src.scheduler import _board_digest
     from src.stores import build_stores
 
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "https://ntfy.test/x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "https://discord.test/x")
@@ -163,7 +148,6 @@ def test_board_digest_job_marks_notified_only_on_successful_send(monkeypatch, tm
 def test_gmail_check_job_skips_without_secrets(monkeypatch, tmp_path):
     import src.scheduler as scheduler
 
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "https://ntfy.test/x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "https://discord.test/x")
@@ -195,7 +179,6 @@ def test_gmail_check_job_skips_without_secrets(monkeypatch, tmp_path):
 def test_gmail_check_job_runs_with_secrets(monkeypatch, tmp_path):
     import src.scheduler as scheduler
 
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "https://ntfy.test/x")
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "https://discord.test/x")

@@ -125,7 +125,7 @@ def test_repeat_alert_is_suppressed_by_cooldown():
 
 
 def test_watchdog_is_inert_without_a_rejected_store():
-    """DynamoDB deployments wire no rejected-postings store."""
+    """No rejected-postings store wired."""
     ev = OpsAlertEvaluator(state=_FakeState(), events=_FakeEvents(),
                            thresholds=OpsThresholds(), rejected=None)
     assert [a for a in ev.evaluate_cycle() if a.condition.startswith("source_zero_yield")] == []

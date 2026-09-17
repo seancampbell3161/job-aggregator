@@ -24,8 +24,7 @@ COPY resume/ /app/resume/
 # it the discovery tier's board sweep raises FileNotFoundError in prod.
 COPY scripts/seeds/ /app/scripts/seeds/
 
-ENV JOB_AGG_BACKEND=sqlite \
-    JOB_AGG_SQLITE_PATH=/data/job_aggregator.db \
+ENV JOB_AGG_SQLITE_PATH=/data/job_aggregator.db \
     JOB_AGG_TAILORED_DIR=/data/tailored
 
 # Default command is the web UI; compose overrides for the poller.

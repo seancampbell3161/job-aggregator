@@ -46,22 +46,19 @@ def _kit_facts_path(config_path: str) -> str:
 
 
 def _startup_repo_ok(app) -> bool:
-    """Verify the repo (DynamoDB or SQLite) is reachable before binding the port,
+    """Verify the repo (the SQLite DB) is reachable before binding the port,
     so a creds/path problem prints a friendly one-liner instead of a stack trace
     on first click."""
     try:
         app.state.repo.list()
         return True
     except Exception as exc:  # noqa: BLE001 — friendly startup diagnostic
-        backend = os.environ.get("JOB_AGG_BACKEND", "sqlite")
-        if backend == "dynamodb":
-            hint = ("cannot reach the seen_jobs DynamoDB table.\n"
-                    "  Check your AWS credentials and JOB_AGG_SEEN_JOBS_TABLE.\n")
-        else:
-            path = os.environ.get("JOB_AGG_SQLITE_PATH", "data/job_aggregator.db")
-            hint = (f"cannot open the local SQLite DB at {path}.\n"
-                    "  Check JOB_AGG_SQLITE_PATH and the ./data volume mount.\n")
-        sys.stderr.write(f"job-aggregator web: {hint}  ({type(exc).__name__}: {exc})\n")
+        path = os.environ.get("JOB_AGG_SQLITE_PATH", "data/job_aggregator.db")
+        sys.stderr.write(
+            f"job-aggregator web: cannot open the local SQLite DB at {path}.\n"
+            "  Check JOB_AGG_SQLITE_PATH and the ./data volume mount.\n"
+            f"  ({type(exc).__name__}: {exc})\n"
+        )
         return False
 
 

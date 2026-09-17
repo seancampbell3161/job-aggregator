@@ -9,8 +9,13 @@ from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 
-from src.state import ConnectorHealthStore, DiscoveredSlug, DiscoveredSlugsStore, SeenJobsStore
-from src.web.cloudwatch import (
+from src.state import DiscoveredSlug
+from src.state_sqlite import (
+    SqliteConnectorHealthStore,
+    SqliteDiscoveredSlugsStore,
+    SqliteSeenJobsStore,
+)
+from src.web.pipeline_activity import (
     CycleRow,
     LastCycle,
     PipelineActivity,
@@ -21,7 +26,6 @@ from src.web.cloudwatch import (
     build_tier_heartbeats,
     compute_heartbeat,
     format_ago,
-    load_pipeline_activity,
     merge_tier_last_cycles,
     tier_stale,
 )
@@ -34,15 +38,15 @@ _DIM_AFTER_MS = 24 * 3_600_000  # tallies older than this render dimmed
 
 @dataclass(frozen=True)
 class HealthSummary:
-    # Field names mirror the validation_status values DiscoveredSlugsStore writes:
-    # "ok" | "failed" | "quarantined" | "no_match" (see src/state.py).
+    # Field names mirror the validation_status values SqliteDiscoveredSlugsStore
+    # writes: "ok" | "failed" | "quarantined" | "no_match" (see src/state.py).
     ok: int
     failed: int
     quarantined: int
     no_match: int
     unhealthy: list[DiscoveredSlug] = field(default_factory=list)
     # Connectors auto-suppressed by the poll-health circuit breaker (dead 404/410).
-    # Sourced from ConnectorHealthStore, not discovered_slugs.
+    # Sourced from SqliteConnectorHealthStore, not discovered_slugs.
     suppressed: list[str] = field(default_factory=list)
 
 
@@ -115,11 +119,7 @@ def score_analytics(
 
 def aggregate_event_rows(rows: list[dict], *, window_days: int) -> PipelineActivity:
     """Aggregate per-cycle telemetry rows (one row per completed cycle, written
-    by SqlitePipelineEventsStore) into the same PipelineActivity shape the AWS
-    path builds from raw CloudWatch log events. Mirrors
-    cloudwatch.aggregate_log_events so _ops_cycles.html renders identically in
-    both deployments — the only difference is the source rows are pre-aggregated
-    per cycle rather than one event per fetch."""
+    by SqlitePipelineEventsStore) into PipelineActivity for _ops_cycles.html."""
     sums: dict[str, dict[str, float]] = defaultdict(
         lambda: {"cycles": 0, "fetched": 0, "matched": 0, "notified": 0, "duration_ms": 0}
     )
@@ -219,27 +219,17 @@ class OpsProvider:
     def __init__(
         self,
         *,
-        discovered: DiscoveredSlugsStore,
-        seen: SeenJobsStore,
-        log_group: str,
-        region: str,
+        discovered: SqliteDiscoveredSlugsStore,
+        seen: SqliteSeenJobsStore,
         window_days: int = 7,
-        health: ConnectorHealthStore | None = None,
+        health: SqliteConnectorHealthStore | None = None,
         events=None,
-        local_mode: bool = False,
     ) -> None:
         self._discovered = discovered
         self._seen = seen
         self._health = health
         self._events = events
-        self._log_group = log_group
-        self._region = region
         self._window_days = window_days
-        self._local_mode = local_mode
-
-    @property
-    def local_mode(self) -> bool:
-        return self._local_mode
 
     def health(self) -> HealthSummary | None:
         try:
@@ -268,43 +258,34 @@ class OpsProvider:
             return None
 
     def cycles(self, *, now_ms: int | None = None) -> PipelineActivity | None:
-        if self._local_mode:
-            # CloudWatch is AWS-only; locally we aggregate the per-cycle telemetry
-            # the poller writes to SQLite (None if that store isn't wired).
-            if self._events is None:
-                return None
-            try:
-                rows = self._events.recent_cycles(self._window_days, now_ms=now_ms)
-            except Exception as exc:  # noqa: BLE001 — panel degrades, page survives
-                log.warning("ops_cycles_unavailable", extra={"error": str(exc)})
-                return None
-            activity = aggregate_event_rows(rows, window_days=self._window_days)
-            # Merge unwindowed per-tier anchors so a tier whose rows all aged
-            # out of the window still surfaces (and reads stale) instead of
-            # silently vanishing from the freshness strip.
-            try:
-                anchors = self._events.last_cycle_per_tier()
-            except Exception as exc:  # noqa: BLE001 — anchor merge degrades, panel survives
-                log.warning("ops_tier_anchors_unavailable", extra={"error": str(exc)})
-                anchors = []
-            if anchors:
-                activity = replace(
-                    activity,
-                    tier_heartbeats=merge_tier_last_cycles(activity.tier_heartbeats, anchors),
-                )
-            return activity
+        """Aggregate the per-cycle telemetry the poller writes to SQLite; None
+        when the events store isn't wired or can't be read."""
+        if self._events is None:
+            return None
         try:
-            return load_pipeline_activity(
-                log_group=self._log_group, region=self._region,
-                window_days=self._window_days, now_ms=now_ms,
-            )
+            rows = self._events.recent_cycles(self._window_days, now_ms=now_ms)
         except Exception as exc:  # noqa: BLE001 — panel degrades, page survives
             log.warning("ops_cycles_unavailable", extra={"error": str(exc)})
             return None
+        activity = aggregate_event_rows(rows, window_days=self._window_days)
+        # Merge unwindowed per-tier anchors so a tier whose rows all aged
+        # out of the window still surfaces (and reads stale) instead of
+        # silently vanishing from the freshness strip.
+        try:
+            anchors = self._events.last_cycle_per_tier()
+        except Exception as exc:  # noqa: BLE001 — anchor merge degrades, panel survives
+            log.warning("ops_tier_anchors_unavailable", extra={"error": str(exc)})
+            anchors = []
+        if anchors:
+            activity = replace(
+                activity,
+                tier_heartbeats=merge_tier_last_cycles(activity.tier_heartbeats, anchors),
+            )
+        return activity
 
     def last_success(self) -> int | None:
         """Epoch-ms of the most recent fully-successful cycle, for the /pipeline
-        header. None in AWS mode (no local telemetry) or if it's unavailable."""
+        header. None when no cycle has succeeded or telemetry is unavailable."""
         if self._events is None:
             return None
         try:
@@ -334,7 +315,7 @@ def register_ops_routes(app: FastAPI) -> None:
             request, "pipeline.html",
             _ops_ctx(
                 request, health=ops.health(), analytics=ops.analytics(),
-                local_mode=ops.local_mode, last_success_ago=last_success_ago,
+                last_success_ago=last_success_ago,
                 rejected_7d=tally["total"] if tally else None,
             ),
         )
@@ -355,13 +336,12 @@ def register_ops_routes(app: FastAPI) -> None:
                     "ok": hb.last.ok,
                     "degraded": hb.last.degraded,
                 }
-        last_ms = ops.last_success() if ops.local_mode else None
+        last_ms = ops.last_success()
         return request.app.state.templates.TemplateResponse(
             request, "_ops_cycles.html",
             _ops_ctx(
                 request, activity=activity, heartbeat=heartbeat, tier_health=tier_health,
                 now_ms=now_ms, dim_before_ms=now_ms - _DIM_AFTER_MS,
-                local_mode=ops.local_mode,
                 last_success_ago=format_ago(last_ms, now_ms) if last_ms else None,
             ),
         )

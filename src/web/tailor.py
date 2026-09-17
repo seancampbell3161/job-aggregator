@@ -1,6 +1,5 @@
-"""Local tailor routes — the on-box replacement for the hosted Lambda Function
-URL. Same signed-token gate and loading/run two-step, but PDFs are written to a
-local directory and served by this app."""
+"""The tailor deep-link routes. Signed-token gate and loading/run two-step,
+with PDFs written to a local directory and served by this app."""
 
 from __future__ import annotations
 
@@ -29,8 +28,7 @@ def register_tailor_routes(app: FastAPI) -> None:
             return HTMLResponse(error_page("This link has expired or is invalid."))
 
         store = request.app.state.stores.seen
-        builder_store = getattr(request.app.state.stores, "builder", None)
-        settings = settings_from_dict(builder_store.get() if builder_store else None)
+        settings = settings_from_dict(request.app.state.stores.builder.get())
 
         if run != "1":
             jd = store.get_jd(job_id)

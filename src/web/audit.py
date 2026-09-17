@@ -1,6 +1,6 @@
 """Audit view: everything the pipeline rejected, with reasons and actions.
 Read-time union of rejected_postings (filter gates) and score-low suppressed
-seen_jobs rows. Local runtime only — on DynamoDB the provider reports
+seen_jobs rows. The provider fails soft: if a lookup errors, it reports
 unavailable and the page says so instead of 500-ing."""
 from __future__ import annotations
 
@@ -165,11 +165,10 @@ def register_audit_routes(app: FastAPI) -> None:
     async def rescue(request: Request, id: str):
         stores = request.app.state.stores
         rejected = stores.rejected
-        item = rejected.get(id) if rejected is not None else None
+        item = rejected.get(id)
         origin = "filter" if item is not None else "score_low"
         if item is None:
-            get_suppressed = getattr(stores.seen, "get_suppressed", None)
-            item = get_suppressed(id) if get_suppressed else None
+            item = stores.seen.get_suppressed(id)
         if item is None or not item.get("title"):
             raise HTTPException(status_code=404, detail="unknown or unrescuable job_id")
         # Capture the ORIGINAL suppressed score before the transition below
@@ -192,8 +191,7 @@ def register_audit_routes(app: FastAPI) -> None:
                 gaps = g.skills or None
             except Exception as exc:  # noqa: BLE001
                 log.warning("audit_rescue_gaps_failed", extra={"job_id": id, "error": str(exc)})
-        get_suppressed = getattr(stores.seen, "get_suppressed", None)
-        if get_suppressed and get_suppressed(id) is not None:
+        if stores.seen.get_suppressed(id) is not None:
             # A suppressed row may exist even for filter-origin rescues (the
             # posting can be re-fetched, pass widened filters, then get
             # score-suppressed). Drop it so the claim below writes fresh —
@@ -209,18 +207,14 @@ def register_audit_routes(app: FastAPI) -> None:
             # score_low-origin rescue: record the durable rescue signal
             # (verdict + original score) so the tuning CLI can see it — the
             # suppressed row itself is already gone (released above).
-            # getattr-guarded for DynamoDB parity (no such method there).
-            mark = getattr(stores.seen, "mark_rescued_from_suppression", None)
-            mark and mark(id, suppressed_score=suppressed_score)
+            stores.seen.mark_rescued_from_suppression(id, suppressed_score=suppressed_score)
         return RedirectResponse(url="/audit", status_code=303)
 
     @app.post("/audit/confirm")
     def confirm(request: Request, id: str):
         stores = request.app.state.stores
-        rejected = stores.rejected
-        done_rejected = bool(rejected is not None and rejected.set_verdict(id, "confirmed_rejected"))
-        setter = getattr(stores.seen, "set_audit_verdict", None)
-        done_suppressed = bool(setter and setter(id, "confirmed_rejected"))
+        done_rejected = bool(stores.rejected.set_verdict(id, "confirmed_rejected"))
+        done_suppressed = bool(stores.seen.set_audit_verdict(id, "confirmed_rejected"))
         if not (done_rejected or done_suppressed):
             raise HTTPException(status_code=404, detail="unknown job_id")
         return RedirectResponse(url="/audit", status_code=303)

@@ -5,7 +5,6 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      JOB_AGG_BACKEND: sqlite
       JOB_AGG_SQLITE_PATH: /data/job_aggregator.db
       JOB_AGG_TAILORED_DIR: /data/tailored
       # Local Ollama container by default; set JOB_AGG_OLLAMA_HOST in .env
@@ -28,7 +27,6 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      JOB_AGG_BACKEND: sqlite
       JOB_AGG_SQLITE_PATH: /data/job_aggregator.db
       JOB_AGG_TAILORED_DIR: /data/tailored
       JOB_AGG_WEB_HOST: 0.0.0.0

@@ -1,26 +1,13 @@
-import boto3
 import pytest
-from moto import mock_aws
 
 from src.models import ConnectorState
-from src.state import SourceStateStore
-
-TABLE = "source_state_test"
+from src.sqlite_db import connect
+from src.state_sqlite import SqliteSourceStateStore
 
 
 @pytest.fixture
 def store():
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        ddb.create_table(
-            TableName=TABLE,
-            AttributeDefinitions=[
-                {"AttributeName": "connector_name", "AttributeType": "S"}
-            ],
-            KeySchema=[{"AttributeName": "connector_name", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        yield SourceStateStore(table_name=TABLE)
+    yield SqliteSourceStateStore(connect(":memory:"))
 
 
 def test_get_returns_default_state_when_missing(store):

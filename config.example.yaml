@@ -35,7 +35,7 @@ quiet_hours:                    # push notifications are queued during this wind
 sources:
   # Starter set of public boards (slugs verified live 2026-07-14). Add your own:
   #   ./scripts/add_company.sh greenhouse <slug>
-  # Slug-hunting guide + all ATS families: GETTING_STARTED.md §3d.
+  # Slug-hunting guide + all ATS families: GETTING_STARTED.md §2d.
   greenhouse:
   - stripe
   - databricks

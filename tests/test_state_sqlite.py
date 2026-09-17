@@ -104,6 +104,31 @@ def test_get_jd_returns_snapshot():
     assert jd.description == "Build things with Python."
     assert jd.title == "Staff Engineer"
     assert s.get_jd("missing") is None
+    s.claim_for_notify("j2")
+    assert s.get_jd("j2") is None
+
+
+def test_get_jd_sanitizes_legacy_unsanitized_snapshot():
+    """Rows written before the injection filter existed hold raw text; the
+    tailor prompt reads through get_jd, so sanitization must happen on read."""
+    import json
+    from src.sanitize import _MARKER
+    from src.sqlite_db import connect
+    from src.state_sqlite import SqliteSeenJobsStore
+    from tests.test_sanitize import TRIGGERDEV
+
+    s = SqliteSeenJobsStore(connect(":memory:"))
+    item = {"job_id": "legacy:1", "notified": True, "first_seen": "2026-07-01T00:00:00+00:00",
+            "title": "SWE", "company": "Acme", "description_snapshot": TRIGGERDEV}
+    s._conn.execute(
+        "INSERT INTO seen_jobs (job_id, first_seen, notified, ttl, score, title, data) "
+        "VALUES (?, ?, 1, NULL, NULL, ?, ?)",
+        (item["job_id"], item["first_seen"], item["title"], json.dumps(item)),
+    )
+    jd = s.get_jd("legacy:1")
+    assert jd is not None
+    assert "ignore all previous instructions" not in jd.description.lower()
+    assert _MARKER in jd.description
 
 
 def test_set_status_concurrent_no_transaction_error():
@@ -153,6 +178,7 @@ def _norm(job_id="greenhouse:acme:9", title="Platform Engineer"):
 def test_mark_suppressed_stores_rationale_and_display_fields():
     from src.sqlite_db import connect
     from src.state_sqlite import SqliteSeenJobsStore
+    from tests.sqlite_helpers import raw_seen_item
     s = SqliteSeenJobsStore(connect(":memory:"))
     s.mark_suppressed("greenhouse:acme:9", score=3, rationale="Weak fit", posting=_norm())
     rows = s.list_suppressed_details(since_iso="")
@@ -162,6 +188,8 @@ def test_mark_suppressed_stores_rationale_and_display_fields():
     assert it["rationale"] == "Weak fit"
     assert it["title"] == "Platform Engineer"
     assert it["description_snapshot"] == "Build platforms with Python."
+    raw = raw_seen_item(s, "greenhouse:acme:9")
+    assert raw["notified"] is False
 
 
 def test_mark_suppressed_without_details_still_works():

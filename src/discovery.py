@@ -16,7 +16,8 @@ import httpx
 from src.fingerprint import Seed, connector_name, fingerprint_company, verify_identity
 from src.models import ConnectorState
 from src.slugging import labeled_slug_candidates, seed_domain, slug_candidates
-from src.state import DiscoveredSlug, DiscoveredSlugsStore, no_match_exhausted
+from src.state import DiscoveredSlug, no_match_exhausted
+from src.state_sqlite import SqliteDiscoveredSlugsStore
 from src.user_agent import headers as ua_headers
 from src.yc_oss import YcOssClient
 
@@ -131,7 +132,7 @@ async def _revalidate_one(
     *,
     client: httpx.AsyncClient,
     row: DiscoveredSlug,
-    store: DiscoveredSlugsStore,
+    store: SqliteDiscoveredSlugsStore,
     quarantine_threshold: int,
 ) -> None:
     """Re-probe a single previously-ok row's ats:slug. Update on success,
@@ -274,9 +275,9 @@ async def _run_candidate_chain(
                     company=name,
                 )
                 return budget, "board_ok"
-            # Structured match but no boards store (legacy DynamoDB caller):
-            # nothing can hold the identity — record the definitive slug-side
-            # miss so the row doesn't retry the fingerprint forever.
+            # Structured match but no boards store (caller without a boards
+            # store): nothing can hold the identity — record the definitive
+            # slug-side miss so the row doesn't retry the fingerprint forever.
             methods_tried.append("fingerprint")
         elif result.status in ("not_found", "unsupported"):
             methods_tried.append("fingerprint")  # definitive miss → exhausted
@@ -294,7 +295,7 @@ async def run_discovery(
     client: httpx.AsyncClient,
     yc_oss,  # has .fetch(client) -> list[YcCompany]
     active_set: set[tuple[str, str]],
-    store: DiscoveredSlugsStore,
+    store: SqliteDiscoveredSlugsStore,
     cfg: DiscoveryConfig,
     boards=None,
 ) -> None:
