@@ -1,7 +1,7 @@
 # tests/web/test_kit.py
 import pytest
 
-from src.web.kit import FactsError, load_facts
+from src.kit_facts import FactsError, parse_facts
 
 VALID = """\
 - group: Links
@@ -21,57 +21,48 @@ VALID = """\
 """
 
 
-def _write(tmp_path, text):
-    p = tmp_path / "facts.yaml"
-    p.write_text(text)
-    return str(p)
-
-
-def test_load_facts_parses_groups_in_order(tmp_path):
-    groups = load_facts(_write(tmp_path, VALID))
+def test_parse_facts_parses_groups_in_order():
+    groups = parse_facts(VALID)
     assert [g.name for g in groups] == ["Links", "Eligibility"]
     assert [f.label for f in groups[0].facts] == ["GitHub", "LinkedIn"]
     assert groups[0].facts[0].value == "https://github.com/example"
 
 
-def test_load_facts_coerces_scalars_to_strings(tmp_path):
-    groups = load_facts(_write(tmp_path, VALID))
+def test_parse_facts_coerces_scalars_to_strings():
+    groups = parse_facts(VALID)
     by_label = {f.label: f.value for f in groups[1].facts}
     assert by_label["Requires sponsorship"] == "No"      # unquoted YAML bool
     assert by_label["Notice period (weeks)"] == "2"       # int -> str
     assert by_label["Middle name"] == ""                  # null -> empty string
 
 
-def test_load_facts_missing_file_raises_file_not_found(tmp_path):
-    with pytest.raises(FileNotFoundError):
-        load_facts(str(tmp_path / "nope.yaml"))
+def test_parse_facts_empty_text_is_no_groups():
+    assert parse_facts("") == []
 
 
-def test_load_facts_top_level_must_be_list(tmp_path):
+def test_parse_facts_top_level_must_be_list():
     with pytest.raises(FactsError, match="top level"):
-        load_facts(_write(tmp_path, "group: Links\n"))
+        parse_facts("group: Links\n")
 
 
-def test_load_facts_entry_missing_group_name(tmp_path):
+def test_parse_facts_entry_missing_group_name():
     with pytest.raises(FactsError, match="entry 1"):
-        load_facts(_write(tmp_path, "- facts: []\n"))
+        parse_facts("- facts: []\n")
 
 
-def test_load_facts_fact_missing_label(tmp_path):
-    bad = "- group: Links\n  facts:\n    - value: x\n"
+def test_parse_facts_fact_missing_label():
     with pytest.raises(FactsError, match="Links"):
-        load_facts(_write(tmp_path, bad))
+        parse_facts("- group: Links\n  facts:\n    - value: x\n")
 
 
-def test_load_facts_fact_missing_value(tmp_path):
-    bad = "- group: Links\n  facts:\n    - label: GitHub\n"
+def test_parse_facts_fact_missing_value():
     with pytest.raises(FactsError, match="missing a `value:`"):
-        load_facts(_write(tmp_path, bad))
+        parse_facts("- group: Links\n  facts:\n    - label: GitHub\n")
 
 
-def test_load_facts_invalid_yaml_raises_facts_error(tmp_path):
+def test_parse_facts_invalid_yaml_raises_facts_error():
     with pytest.raises(FactsError):
-        load_facts(_write(tmp_path, "- group: [unclosed\n"))
+        parse_facts("- group: [unclosed\n")
 
 
 from fastapi.testclient import TestClient
@@ -143,7 +134,7 @@ def test_tailor_loading_page_links_to_kit():
 
 
 def _groups():
-    from src.web.kit import Fact, FactGroup
+    from src.kit_facts import Fact, FactGroup
     return [FactGroup(name="Links", facts=(Fact("GitHub", "https://github.com/x"),)),
             FactGroup(name="EEO", facts=(Fact("Veteran status", "I am not a protected veteran"),))]
 
@@ -178,7 +169,8 @@ def test_build_bookmarklet_escapes_script_and_unicode():
     import json
     import urllib.parse
 
-    from src.web.kit import Fact, FactGroup, build_bookmarklet
+    from src.kit_facts import Fact, FactGroup
+    from src.web.kit import build_bookmarklet
     groups = [FactGroup(name="X", facts=(
         Fact("evil", '</script><b>"\'\\ é 𝟙'),))]
     bm = build_bookmarklet(groups, "M")
