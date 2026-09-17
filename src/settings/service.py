@@ -164,6 +164,10 @@ class ConfigService:
         return None
 
     def _parse_row(self, row: SettingsRow) -> AppConfig:
+        if row.doc is None:
+            raise SettingsInvalid(
+                [{"loc": "", "msg": f"settings version {row.id} is not valid JSON"}]
+            )
         try:
             doc = migrate(row.doc, row.schema_version,
                           migrations=self._migrations, to_version=self._schema_version)
@@ -338,7 +342,10 @@ class ConfigService:
                 current = self.current_doc() if latest is not None else None
             if latest is None or current is None:
                 raise NotConfigured("not set up — run `python -m src.settings import DIR` first")
-            _, doc = current
+            current_id, doc = current
+            if current_id != latest.id:
+                log.warning("settings_update_replaces_invalid_version",
+                            extra={"invalid_version_id": latest.id, "version_id": current_id})
             note = mutate(doc)
             if note is None:
                 return None

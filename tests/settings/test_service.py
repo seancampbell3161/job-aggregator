@@ -186,7 +186,7 @@ def test_snapshot_never_caches_an_uncommitted_write():
         except sqlite3.OperationalError:
             writer_result["raised"] = True
 
-    t = threading.Thread(target=writer)
+    t = threading.Thread(target=writer, daemon=True)
     t.start()
     assert store.insert_done.wait(timeout=5), "writer never reached the insert"
 
@@ -195,7 +195,7 @@ def test_snapshot_never_caches_an_uncommitted_write():
     def reader():
         reader_result["snapshot"] = svc.snapshot()
 
-    r = threading.Thread(target=reader)
+    r = threading.Thread(target=reader, daemon=True)
     r.start()
     r.join(timeout=0.2)
     assert r.is_alive(), "reader did not block on the writer's open transaction"
@@ -262,6 +262,54 @@ def test_invalid_newest_version_falls_back_and_reports_degraded(caplog):
     assert snap.degraded.invalid_version_id == bad
     assert snap.degraded.errors[0]["loc"] == "schedules.ats_minutes"
     assert any(r.message == "settings_version_invalid" for r in caplog.records)
+
+
+def test_row_with_invalid_json_degrades_and_history_still_lists_it():
+    svc, store = _svc()
+    good = svc.save_settings({"schedules": {"ats_minutes": 7}}, source="cli")
+    with store._write():
+        store._conn.execute(
+            "INSERT INTO settings_versions (created_at, source, note, schema_version, doc) "
+            "VALUES ('2026-09-17T00:00:00+00:00', 'ui', 'corrupt', 1, '{not json')"
+        )
+    bad = store.latest_settings().id
+    snap = svc.snapshot()
+    assert snap.version_id == good
+    assert snap.cfg.schedules.ats_minutes == 7
+    assert snap.degraded.invalid_version_id == bad
+    assert snap.degraded.errors == [
+        {"loc": "", "msg": f"settings version {bad} is not valid JSON"}
+    ]
+    rows = svc.versions()
+    assert [(r.id, r.doc) for r in rows] == [(bad, None), (good, {"schedules": {"ats_minutes": 7}})]
+
+
+def test_update_settings_warns_when_it_replaces_an_invalid_newest_version(caplog):
+    svc, store = _svc()
+    good = svc.save_settings({}, source="cli")
+    bad = store.insert_settings(doc={"schedules": {"ats_minutes": "often"}}, source="ui",
+                                note=None, schema_version=1)
+
+    def mutate(doc):
+        doc.setdefault("sources", {})["lever"] = ["acme"]
+        return "add lever:acme"
+
+    with caplog.at_level("WARNING", logger="src.settings.service"):
+        new = svc.update_settings(mutate, source="cli")
+    warnings = [r for r in caplog.records if r.message == "settings_update_replaces_invalid_version"]
+    assert len(warnings) == 1
+    assert (warnings[0].invalid_version_id, warnings[0].version_id) == (bad, good)
+    assert svc.snapshot().version_id == new
+    assert svc.snapshot().degraded is None
+
+    def mutate_again(doc):
+        doc["sources"]["ashby"] = ["x"]
+        return "add ashby:x"
+
+    caplog.clear()
+    with caplog.at_level("WARNING", logger="src.settings.service"):
+        svc.update_settings(mutate_again, source="cli")  # nothing invalid left to replace
+    assert not [r for r in caplog.records if r.message == "settings_update_replaces_invalid_version"]
 
 
 def test_no_valid_version_counts_as_not_set_up(caplog):

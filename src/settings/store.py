@@ -29,7 +29,7 @@ class SettingsRow:
     source: str
     note: str | None
     schema_version: int
-    doc: dict
+    doc: dict | None  # None when the stored text is not valid JSON
 
 
 @dataclass(frozen=True)
@@ -57,10 +57,15 @@ class NewDocument:
 
 
 def _settings_row(row: sqlite3.Row) -> SettingsRow:
+    # A corrupt doc must not make reading the row raise: the service reports
+    # doc=None as an invalid version (degraded), and history still lists it.
+    try:
+        doc = json.loads(row["doc"])
+    except json.JSONDecodeError:
+        doc = None
     return SettingsRow(
         id=int(row["id"]), created_at=row["created_at"], source=row["source"],
-        note=row["note"], schema_version=int(row["schema_version"]),
-        doc=json.loads(row["doc"]),
+        note=row["note"], schema_version=int(row["schema_version"]), doc=doc,
     )
 
 

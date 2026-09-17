@@ -108,6 +108,21 @@ def test_import_env_secrets_prints_names_not_values(capsys):
     assert svc.secret_source("gmail_address") == "env"  # env still wins while set
 
 
+def test_history_and_status_survive_a_corrupt_settings_row(capsys):
+    svc = make_service({"schedules": {"slow_minutes": 30}})
+    store = svc._store
+    with store._write():
+        store._conn.execute(
+            "INSERT INTO settings_versions (created_at, source, note, schema_version, doc) "
+            "VALUES ('2026-09-17T00:00:00+00:00', 'ui', 'corrupt', 1, 'not json')"
+        )
+    assert main(["history"], service=svc) == 0
+    out = capsys.readouterr().out
+    assert "corrupt" in out and "test fixture" in out
+    assert main(["status"], service=svc) == 0
+    assert "is not valid JSON" in capsys.readouterr().out
+
+
 def test_restore(capsys):
     svc = make_service({"schedules": {"slow_minutes": 30}})
     first = svc.versions()[0].id
