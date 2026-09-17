@@ -14,8 +14,10 @@ One admin password, hashed with argon2id, protects every page. Whoever opens
 the UI first — at `/welcome`, or in advance via
 `python -m src.settings set-password` — sets it. A successful sign-in issues a
 server-side session in an `HttpOnly`, `SameSite=lax` `jobagg_session` cookie
-that stays valid for 30 days of use and slides forward on every request, so it
-only expires from inactivity. State-changing requests (`POST`/`PUT`/`PATCH`/
+that stays valid for 30 days of use: it slides forward while you're active,
+but the server only rewrites `last_seen_at` (and reissues the cookie) at most
+once an hour, so it only expires from inactivity, not from normal browsing.
+State-changing requests (`POST`/`PUT`/`PATCH`/
 `DELETE`) are separately checked for cross-origin `Origin`/`Host` mismatches,
 regardless of session state. `/tailor` and `/tailor/pdf` — the phone-tappable
 deep links in an alert — skip the session entirely: they carry their own
@@ -37,17 +39,26 @@ decisions, and reports about them will be closed as such:
   publishing `127.0.0.1:8000:8000` in `docker-compose.yml`. Do not
   port-forward it to the internet.
 
-**What an attacker who obtains the password, or a valid session cookie, gets:**
-your résumé and every tailored variant, your full application history and
-statuses, your apply-kit answers (work authorization, personal links, EEO
-responses), any Gmail-derived rejection/receipt data, and your configured job
-preferences.
+**What an attacker who obtains a valid session cookie — or the password —
+can read:** your résumé, your full application history and statuses, your
+apply-kit answers (work authorization, personal links, EEO responses), any
+Gmail-derived rejection/receipt data, and your configured job preferences.
+Tailored résumé PDFs are the one exception: `/tailor` and `/tailor/pdf` check
+their own per-job HMAC token regardless of session state (`src/web/tailor.py`),
+so a stolen cookie alone doesn't unlock past tailoring runs — only a leaked
+deep-link token, or the signing secret itself, does.
 
-It is also **read-write, not just readable**: they can add and advance board
-entries, rescue or confirm audit verdicts, change builder settings, upload,
-activate or delete résumé template packs, and change the password or sign
-every other device out. `/coach/run` triggers LLM calls, so they can also
-spend your API credits.
+It is also **read-write, not just readable**: a session cookie alone is
+enough to add or advance board entries and triage status, rescue or confirm
+audit verdicts, change builder settings, and upload, activate or delete
+résumé template packs — every state-changing route except `/account/password`
+trusts the session, not the password. `/coach/run` triggers LLM calls, so they
+can also spend your API credits. **Changing the password** additionally
+requires the *current* password: `POST /account/password` verifies it and
+rejects the request otherwise (`src/auth/service.py`), so a stolen cookie by
+itself can't lock the real owner out that way. Ending every other session
+(`sign-out-everywhere`) has no web route at all — it's a CLI-only command the
+operator runs on the box itself.
 
 ## In scope
 
