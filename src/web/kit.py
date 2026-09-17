@@ -1,7 +1,7 @@
 """Apply kit: recurring application-form facts, one tap from the clipboard.
-The facts live in a gitignored YAML file on the box (kit.facts_path,
-default resume/facts.yaml) — free-form label/value groups, hand-edited,
-read per request so edits are save + refresh."""
+The facts are the `kit_facts` settings document — free-form label/value
+groups, imported with `python -m src.settings import` and read per request,
+so a new import shows on the next refresh."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,13 +19,6 @@ _MATCHER_PATH = Path(__file__).parent / "static" / "bookmarklet.js"
 
 def _matcher_source() -> str:
     return _MATCHER_PATH.read_text(encoding="utf-8")
-
-
-def load_facts(path: str) -> list[FactGroup]:
-    """Read and parse the facts file; FileNotFoundError when absent.
-    Transitional — Task 11 switches /kit to the kit_facts document."""
-    with open(path, encoding="utf-8") as fh:
-        return parse_facts(fh.read())
 
 
 def _facts_json(groups: list[FactGroup]) -> str:
@@ -57,16 +50,15 @@ def build_bookmarklet(groups: list[FactGroup], matcher_js: str) -> str:
 def register_kit_routes(app: FastAPI) -> None:
     @app.get("/kit", response_class=HTMLResponse)
     def kit(request: Request):
-        path = request.app.state.kit_facts_path
+        text = request.state.snapshot.documents.kit_facts
         groups: list[FactGroup] = []
-        missing = False
+        missing = text is None
         error = ""
-        try:
-            groups = load_facts(path)
-        except FileNotFoundError:
-            missing = True
-        except FactsError as exc:
-            error = str(exc)
+        if not missing:
+            try:
+                groups = parse_facts(text)
+            except FactsError as exc:
+                error = str(exc)
         try:
             bookmarklet = build_bookmarklet(groups, _matcher_source()) if groups else ""
         except OSError:
@@ -74,6 +66,5 @@ def register_kit_routes(app: FastAPI) -> None:
         return request.app.state.templates.TemplateResponse(
             request,
             "kit.html",
-            {"groups": groups, "missing": missing, "error": error,
-             "facts_path": path, "bookmarklet": bookmarklet},
+            {"groups": groups, "missing": missing, "error": error, "bookmarklet": bookmarklet},
         )

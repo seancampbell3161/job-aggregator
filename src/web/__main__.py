@@ -2,22 +2,10 @@ from __future__ import annotations
 
 import os
 import sys
-from pathlib import Path
 
 import uvicorn
-import yaml
 
-from src.config import KitConfig
 from src.web.app import create_app
-
-
-def _kit_facts_path(config_path: str) -> str:
-    """Read kit.facts_path from config.yaml without requiring secrets."""
-    try:
-        raw = yaml.safe_load(Path(config_path).read_text()) or {}
-        return KitConfig(**(raw.get("kit") or {})).facts_path
-    except (OSError, yaml.YAMLError, ValueError, TypeError):
-        return KitConfig().facts_path
 
 
 def _startup_repo_ok(app) -> bool:
@@ -39,8 +27,7 @@ def _startup_repo_ok(app) -> bool:
 
 
 def main() -> int:
-    cfg_path = os.environ.get("JOB_AGG_CONFIG_PATH", "config.yaml")
-    app = create_app(kit_facts_path=_kit_facts_path(cfg_path))
+    app = create_app()
     if not _startup_repo_ok(app):
         return 1
     try:

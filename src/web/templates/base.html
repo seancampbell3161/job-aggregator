@@ -34,7 +34,7 @@
       <a href="/board">Board</a>
       <a href="/pipeline">Pipeline</a>
       <a href="/analytics">Analytics</a>
-      {% if request.app.state.coach.nav_visible %}<a href="/coach">Coach</a>{% endif %}
+      {% if coach_nav_visible(request) %}<a href="/coach">Coach</a>{% endif %}
       <a href="/kit">Kit</a>
       <a href="/builder">Builder</a>
     </nav>

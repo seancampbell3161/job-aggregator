@@ -144,6 +144,18 @@ class AuditProvider:
             return None
 
 
+def audit_llm(request: Request) -> tuple[object | None, object | None]:
+    """(relevance scorer, gap analyzer) for rescues, built from the request's
+    snapshot and cached per settings generation."""
+    def build(snap):
+        from src.handler import _build_gap_analyzer, _build_relevance_scorer
+        return (
+            _build_relevance_scorer(snap.cfg, snap.documents.profile),
+            _build_gap_analyzer(snap.cfg, snap.documents.resume_text),
+        )
+    return request.app.state.cache.get("audit_llm", request.state.snapshot, build)
+
+
 def register_audit_routes(app: FastAPI) -> None:
     @app.get("/audit", response_class=HTMLResponse)
     def audit(request: Request, gate: str = "", q: str = "", days: int = 7,
@@ -176,7 +188,7 @@ def register_audit_routes(app: FastAPI) -> None:
         # only when origin is score_low (the filter-origin item has no score).
         suppressed_score = item.get("score") if origin == "score_low" else None
         posting = posting_from_item(item)
-        scorer, analyzer = getattr(request.app.state, "audit_llm", (None, None))
+        scorer, analyzer = audit_llm(request)
         score_val = rationale = None
         gaps = None
         if scorer is not None and posting.description:

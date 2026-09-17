@@ -76,18 +76,20 @@ from tests.settings_helpers import configured_stores
 @pytest.fixture
 def kit_client(tmp_path, monkeypatch):
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
-    conn = connect(":memory:")
-    stores = configured_stores(conn)
-    seen = stores.seen
-    facts_path = tmp_path / "facts.yaml"
-    app = create_app(repo=TriageRepo(seen), stores=stores,
-                     kit_facts_path=str(facts_path))
-    return TestClient(app), facts_path
+    stores = configured_stores(connect(":memory:"))
+    app = create_app(repo=TriageRepo(stores.seen), stores=stores)
+
+    def set_facts(text: str) -> None:
+        # Raw store insert, no validation: a malformed body stands in for a
+        # saved document that a newer parser can no longer read.
+        stores.settings.insert_document(kind="kit_facts", body=text, source="cli")
+
+    return TestClient(app), set_facts
 
 
 def test_kit_renders_groups_and_copy_buttons(kit_client):
-    client, facts_path = kit_client
-    facts_path.write_text(VALID)
+    client, set_facts = kit_client
+    set_facts(VALID)
     r = client.get("/kit")
     assert r.status_code == 200
     assert "Links" in r.text and "Eligibility" in r.text
@@ -104,16 +106,16 @@ def test_kit_missing_file_renders_setup_notice(kit_client):
 
 
 def test_kit_malformed_file_renders_error_banner(kit_client):
-    client, facts_path = kit_client
-    facts_path.write_text("group: not-a-list\n")
+    client, set_facts = kit_client
+    set_facts("group: not-a-list\n")
     r = client.get("/kit")
     assert r.status_code == 200
     assert "top level must be a list" in r.text
 
 
 def test_kit_escapes_values(kit_client):
-    client, facts_path = kit_client
-    facts_path.write_text(
+    client, set_facts = kit_client
+    set_facts(
         '- group: X\n  facts:\n    - label: evil\n      value: "<script>alert(1)</script>"\n'
     )
     r = client.get("/kit")
@@ -125,6 +127,13 @@ def test_nav_links_to_kit(kit_client):
     client, _ = kit_client
     r = client.get("/kit")
     assert 'href="/kit"' in r.text  # base.html nav renders on the page
+
+
+def test_kit_reflects_a_new_facts_document_without_restart(kit_client):
+    client, set_facts = kit_client
+    assert "No apply-kit facts yet" in client.get("/kit").text
+    set_facts(VALID)
+    assert "Eligibility" in client.get("/kit").text
 
 
 def test_tailor_loading_page_links_to_kit():
@@ -199,8 +208,8 @@ def test_build_bookmarklet_survives_url_parser():
 
 
 def test_kit_shows_bookmarklet_when_facts_load(kit_client):
-    client, facts_path = kit_client
-    facts_path.write_text(VALID)
+    client, set_facts = kit_client
+    set_facts(VALID)
     r = client.get("/kit")
     assert r.status_code == 200
     assert "Apply Autofill" in r.text
@@ -214,7 +223,7 @@ def test_kit_no_bookmarklet_when_missing(kit_client):
 
 
 def test_kit_no_bookmarklet_when_malformed(kit_client):
-    client, facts_path = kit_client
-    facts_path.write_text("group: not-a-list\n")
+    client, set_facts = kit_client
+    set_facts("group: not-a-list\n")
     r = client.get("/kit")
     assert 'href="javascript:' not in r.text

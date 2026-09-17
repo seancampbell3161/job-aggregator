@@ -45,7 +45,6 @@ def create_app(
     coach: CoachProvider | None = None,
     stores: Stores | None = None,
     service: ConfigService | None = None,
-    kit_facts_path: str = "resume/facts.yaml",
     page_size: int = 10,
 ) -> FastAPI:
     app = FastAPI(title="Job Triage")
@@ -64,16 +63,15 @@ def create_app(
     )
     from src.web.audit import AuditProvider, register_audit_routes
     app.state.audit = AuditProvider(rejected=stores.rejected, seen=stores.seen)
-    app.state.coach = coach if coach is not None else CoachProvider(
-        store=stores.coach, seen=stores.seen, rejected=stores.rejected,
-    )
+    app.state.coach_override = coach
     from src.web.builder import BuilderProvider, register_builder_routes
     app.state.builder = BuilderProvider(store=stores.builder)
-    app.state.kit_facts_path = kit_facts_path
     app.state.page_size = page_size
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
     from src.web.pipeline_activity import format_ago
     templates.env.filters["ago"] = format_ago
+    from src.web.coach import coach_nav_visible
+    templates.env.globals["coach_nav_visible"] = coach_nav_visible
     app.state.templates = templates
     app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
     _register_setup_gate(app)
@@ -95,31 +93,9 @@ def create_app(
     app.mount("/tailored", StaticFiles(directory=tailored_dir), name="tailored")
 
     app.state.tailor_boot = None
-    app.state.audit_llm = (None, None)
     try:
         from src.config import load_config
         cfg = load_config(os.environ.get("JOB_AGG_CONFIG_PATH", "config.yaml"))
-        from src.handler import _build_gap_analyzer, _build_relevance_scorer
-
-        def _read_or_none(path: str) -> str | None:  # transitional — Task 11 uses documents
-            try:
-                return Path(path).read_text()
-            except OSError:
-                return None
-
-        app.state.audit_llm = (
-            _build_relevance_scorer(cfg, _read_or_none(cfg.relevance.profile_path)),
-            _build_gap_analyzer(cfg, _read_or_none(cfg.gap_analysis.resume_path)),
-        )
-        if coach is None:
-            from src.handler import _build_coach
-            app.state.coach = CoachProvider(
-                store=stores.coach, seen=stores.seen, rejected=stores.rejected,
-                engine=_build_coach(cfg), cfg=cfg,
-                provider_name=cfg.coach.provider or cfg.relevance.provider,
-                model_name=cfg.coach.model or cfg.relevance.model,
-                enabled=cfg.coach.enabled,
-            )
 
         def _builder_content():
             from src.tailor.content import load_content
