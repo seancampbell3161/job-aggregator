@@ -325,7 +325,7 @@ async def _run(tier: str, dry_run: bool = False, calibrate: bool = False) -> dic
                 cfg=d_cfg,
                 boards=stores.boards,
             )
-            if cfg.discovery.board_discovery_enabled and stores.boards is not None:
+            if cfg.discovery.board_discovery_enabled:
                 try:
                     # Dedicated follow_redirects client: locate_careers_urls needs
                     # post-redirect final URLs, but the shared `client` above (no
@@ -427,11 +427,10 @@ async def _run(tier: str, dry_run: bool = False, calibrate: bool = False) -> dic
             )
         except Exception:  # noqa: BLE001 — capture is best-effort; never break the cycle
             log.exception("sightings_drain_failed")
-    # Local cycle telemetry for the /pipeline ops page (SQLite backend only;
-    # DynamoDB reads CloudWatch instead, so stores.events is None there). Skip
-    # dry-run/calibrate cycles — they don't reflect real polling. Never let a
-    # telemetry write break the cycle.
-    if not dry_run and stores.events is not None:
+    # Local cycle telemetry for the /pipeline ops page. Skip dry-run/calibrate
+    # cycles — they don't reflect real polling. Never let a telemetry write
+    # break the cycle.
+    if not dry_run:
         try:
             stores.events.record_cycle(
                 tier=tier,
@@ -445,12 +444,9 @@ async def _run(tier: str, dry_run: bool = False, calibrate: bool = False) -> dic
             )
         except Exception:  # noqa: BLE001 — telemetry is best-effort
             log.warning("pipeline_event_record_failed", extra={"tier": tier})
-        # Ops alerts (separate channel; inert unless an ops sink is configured
-        # and the local alert-state store exists). Best-effort by design.
-        if (
-            (cfg.secrets.ops_ntfy_topic_url or cfg.secrets.ops_discord_webhook_url)
-            and stores.alert_state is not None
-        ):
+        # Ops alerts (separate channel; inert unless an ops sink is configured).
+        # Best-effort by design.
+        if cfg.secrets.ops_ntfy_topic_url or cfg.secrets.ops_discord_webhook_url:
             try:
                 evaluator = OpsAlertEvaluator(
                     state=stores.alert_state,
@@ -487,18 +483,10 @@ async def _run(tier: str, dry_run: bool = False, calibrate: bool = False) -> dic
     return {**asdict(result), "tier": tier}
 
 
-def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG001
-    configure_logging()
-    tier = event.get("tier")
-    if tier not in _VALID_TIERS:
-        raise ValueError(f"event.tier must be one of {_VALID_TIERS}, got: {tier!r}")
-    return asyncio.run(_run(tier=tier))
-
-
 def _cli() -> int:
     parser = argparse.ArgumentParser(prog="job-aggregator")
     parser.add_argument("--tier", choices=sorted(_VALID_TIERS), required=False)
-    parser.add_argument("--dry-run", action="store_true", help="skip notify + DDB writes")
+    parser.add_argument("--dry-run", action="store_true", help="skip notify + state writes")
     parser.add_argument("--once", action="store_true", help="run a single full cycle (real send)")
     parser.add_argument(
         "--calibrate",

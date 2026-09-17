@@ -8,13 +8,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
 from src.models import ConnectorState, NormalizedPosting
+from src.sanitize import sanitize_description
 from src.state import (
     _KEPT_STATUSES,
     _TTL_DAYS,
     VALID_STATUSES,
     DiscoveredSlug,
     DiscoveredBoard,
-    SeenJobsStore,
+    match_view,
     _row_from_item,
     _board_from_item,
     posting_display_fields,
@@ -35,10 +36,11 @@ def _ttl() -> int:
 
 
 class SqliteSeenJobsStore:
-    """SQLite twin of state.SeenJobsStore. Stores the full DynamoDB-shaped item
-    dict as JSON in `data`, plus mirror columns for the fields used in queries,
-    so read methods can reuse SeenJobsStore._to_match for identical view shaping.
-    Expired rows (ttl < now) are hidden on read and removed by prune_expired."""
+    """Tracks job postings the pipeline has already seen, keyed by job_id.
+    Stores the full item dict as JSON in `data`, plus mirror columns for the
+    fields used in queries, so read methods share state.match_view for view
+    shaping. Expired rows (ttl < now) are hidden on read and removed by
+    prune_expired."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
@@ -136,7 +138,7 @@ class SqliteSeenJobsStore:
 
     def list_matches(self) -> list[dict]:
         items = self._live_rows("notified = 1 AND title IS NOT NULL")
-        return [SeenJobsStore._to_match(it) for it in items]
+        return [match_view(it) for it in items]
 
     def list_suppressed(self) -> list[dict]:
         items = self._live_rows("notified = 0 AND score IS NOT NULL")
@@ -165,7 +167,7 @@ class SqliteSeenJobsStore:
         item = rows[0]
         if "title" not in item or not item.get("notified"):
             return None
-        return SeenJobsStore._to_match(item)
+        return match_view(item)
 
     def set_status(self, job_id: str, status: str) -> bool:
         if status not in VALID_STATUSES:
@@ -389,7 +391,7 @@ class SqliteSeenJobsStore:
             return None
         it = rows[0]
         return PostingJD(
-            description=it["description_snapshot"],
+            description=sanitize_description(it["description_snapshot"])[0],
             title=it.get("title", ""),
             company=it.get("company", ""),
         )
@@ -425,7 +427,7 @@ class SqliteSeenJobsStore:
 
 
 class SqliteSourceStateStore:
-    """SQLite twin of state.SourceStateStore. Stores etag/last_modified/payload as JSON."""
+    """Tracks per-connector fetch state (etag/last_modified/payload), stored as JSON."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
@@ -466,8 +468,9 @@ class SqliteSourceStateStore:
 
 
 class SqliteDiscoveredSlugsStore:
-    """SQLite twin of state.DiscoveredSlugsStore. Stores the full item dict as
-    JSON and reuses state._row_from_item for identical row shaping."""
+    """Tracks discovered ATS slugs and their validation status. Stores the
+    full item dict as JSON and reuses state._row_from_item for identical row
+    shaping."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
@@ -527,8 +530,8 @@ class SqliteDiscoveredSlugsStore:
         website: str | None = None,
         methods_tried: list[str] | None = None,
     ) -> None:
-        """Twin of state.DiscoveredSlugsStore.upsert_no_match — omitted kwargs
-        preserve the existing row's learned fields."""
+        """Upsert a no-match discovery attempt — omitted kwargs preserve the
+        existing row's learned fields."""
         now = datetime.now(timezone.utc).isoformat()
         existing = self.get(f"nomatch:{slug}")
         self._put({
@@ -714,8 +717,8 @@ class SqliteDiscoveredBoardsStore:
 
 
 class SqliteConnectorHealthStore:
-    """SQLite twin of state.ConnectorHealthStore. A row exists only while a
-    connector is unhealthy (dead_streak > 0 or suppressed)."""
+    """Tracks connector health. A row exists only while a connector is
+    unhealthy (dead_streak > 0 or suppressed)."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
@@ -780,9 +783,8 @@ class SqliteConnectorHealthStore:
 
 class SqlitePipelineEventsStore:
     """Local-runtime cycle telemetry. The poller appends one row per completed
-    ats/slow cycle; the /pipeline ops page aggregates the recent window into the
-    same view AWS builds from CloudWatch Logs. DynamoDB deployments read
-    CloudWatch instead, so build_stores wires this to None there.
+    ats/slow cycle; the /pipeline ops page aggregates the recent window into
+    that view.
 
     Rows older than _RETENTION_DAYS are pruned on each write so the table stays
     bounded under the every-few-minutes ats cadence."""
@@ -916,10 +918,10 @@ class SqliteOpsAlertStateStore:
 
 
 class SqliteRejectedPostingsStore:
-    """Audit trail of filter-gate rejections (local runtime only; the DynamoDB
-    backend wires this to None). Capture-once: INSERT OR IGNORE on job_id, so a
-    posting re-fetched and re-rejected on later cycles keeps its first record.
-    Retention is enforced by the scheduler's daily prune, not on write."""
+    """Audit trail of filter-gate rejections. Capture-once: INSERT OR IGNORE
+    on job_id, so a posting re-fetched and re-rejected on later cycles keeps
+    its first record. Retention is enforced by the scheduler's daily prune,
+    not on write."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
@@ -1056,10 +1058,10 @@ class SqliteRejectedPostingsStore:
 
 
 class SqliteCoachRunsStore:
-    """Persisted /coach runs (local runtime only; the DynamoDB backend wires
-    this to None). Each row is one LLM run: the snapshot sent, the cards that
-    came back, and an ok/error status. Runs are small and manual, so nothing
-    schedules prune_older_than yet — it exists for a future retention knob."""
+    """Persisted /coach runs. Each row is one LLM run: the snapshot sent, the
+    cards that came back, and an ok/error status. Runs are small and manual,
+    so nothing schedules prune_older_than yet — it exists for a future
+    retention knob."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
@@ -1116,9 +1118,8 @@ class SqliteCoachRunsStore:
 
 
 class SqliteBuilderSettingsStore:
-    """The résumé-builder settings singleton (local runtime only; the DynamoDB
-    backend wires this to None). One JSON row — validation lives in
-    src.tailor.render.settings, not here."""
+    """The résumé-builder settings singleton. One JSON row — validation lives
+    in src.tailor.render.settings, not here."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn

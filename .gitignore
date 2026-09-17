@@ -7,11 +7,6 @@ __pycache__/
 build/
 dist/
 *.egg-info/
-lambda.zip
-.terraform/
-*.tfstate
-*.tfstate.backup
-.terraform.lock.hcl
 # Personal deployment config + relevance profile (personal — never commit).
 # Copy config.example.yaml / profile.example.md as templates.
 config.yaml

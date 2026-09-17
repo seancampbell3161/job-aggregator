@@ -2,76 +2,59 @@ import re
 import time
 from datetime import datetime, timezone
 
-import boto3
 import pytest
 from fastapi.testclient import TestClient
-from moto import mock_aws
 
 from src.models import NormalizedPosting
-from src.state import SeenJobsStore
+from src.sqlite_db import connect
+from src.state_sqlite import SqliteDiscoveredSlugsStore, SqliteSeenJobsStore
 from src.web.analytics import MatchAnalytics, MatchAnalyticsSummary, WeekBucket
 from src.web.app import create_app
 from src.web.funnel import build_funnel, build_pipeline, pipeline_rates
 from src.web.repo import TriageRepo
 
-TABLE = "seen_jobs_test"
-
 
 @pytest.fixture
 def client():
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        ddb.create_table(
-            TableName=TABLE,
-            AttributeDefinitions=[{"AttributeName": "job_id", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "job_id", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        store = SeenJobsStore(table_name=TABLE)
+    conn = connect(":memory:")
+    store = SqliteSeenJobsStore(conn)
 
-        def seed(job_id, title, company, score, gaps, status=None):
-            store.claim_for_notify(
-                job_id, score=score, rationale=f"why {score}", gaps=gaps,
-                posting=NormalizedPosting(
-                    job_id=job_id, title=title, company=company, location_text="Remote (US)",
-                    location_tags=frozenset(), seniority="senior", stack=frozenset({"python"}),
-                    comp_min=180000, comp_max=220000, apply_url=f"https://apply/{job_id}",
-                    description="", posted_at=datetime(2026, 6, 16, tzinfo=timezone.utc),
-                    source=company.lower(),
-                ),
-            )
-            if status:
-                store.set_status(job_id, status)
-
-        seed("greenhouse:stripe:1", "Senior Backend Engineer", "Stripe", 8, ["Kafka", "Kubernetes"])
-        seed("lever:ramp:2", "Staff Software Engineer", "Ramp", 7, [], status="applied")
+    def seed(job_id, title, company, score, gaps, status=None):
         store.claim_for_notify(
-            "adzuna:5001", score=6, rationale="why 6", gaps=[],
+            job_id, score=score, rationale=f"why {score}", gaps=gaps,
             posting=NormalizedPosting(
-                job_id="adzuna:5001", title="Platform Engineer", company="TalentBridge",
-                location_text="Austin, TX", location_tags=frozenset(), seniority="senior",
-                stack=frozenset(), comp_min=None, comp_max=None,
-                apply_url="https://talentbridge.example.com/jobs/42", description="",
-                posted_at=datetime(2026, 7, 17, tzinfo=timezone.utc), source="adzuna",
+                job_id=job_id, title=title, company=company, location_text="Remote (US)",
+                location_tags=frozenset(), seniority="senior", stack=frozenset({"python"}),
+                comp_min=180000, comp_max=220000, apply_url=f"https://apply/{job_id}",
+                description="", posted_at=datetime(2026, 6, 16, tzinfo=timezone.utc),
+                source=company.lower(),
             ),
         )
-        from src.state import DiscoveredSlugsStore
-        from src.web.ops import OpsProvider
-        ddb.create_table(
-            TableName="discovered_slugs_test",
-            AttributeDefinitions=[{"AttributeName": "connector_name", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "connector_name", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        disc = DiscoveredSlugsStore(table_name="discovered_slugs_test")
-        disc.upsert_ok("greenhouse:ramp", last_posting_count=7)
-        disc.upsert_failed("greenhouse:acme")
-        ops = OpsProvider(discovered=disc, seen=store, log_group="/g", region="us-east-1")
-        app = create_app(
-            repo=TriageRepo(store), score_high=7, score_low=4, ops=ops,
-            match_analytics=MatchAnalytics(seen=store),
-        )
-        yield TestClient(app)
+        if status:
+            store.set_status(job_id, status)
+
+    seed("greenhouse:stripe:1", "Senior Backend Engineer", "Stripe", 8, ["Kafka", "Kubernetes"])
+    seed("lever:ramp:2", "Staff Software Engineer", "Ramp", 7, [], status="applied")
+    store.claim_for_notify(
+        "adzuna:5001", score=6, rationale="why 6", gaps=[],
+        posting=NormalizedPosting(
+            job_id="adzuna:5001", title="Platform Engineer", company="TalentBridge",
+            location_text="Austin, TX", location_tags=frozenset(), seniority="senior",
+            stack=frozenset(), comp_min=None, comp_max=None,
+            apply_url="https://talentbridge.example.com/jobs/42", description="",
+            posted_at=datetime(2026, 7, 17, tzinfo=timezone.utc), source="adzuna",
+        ),
+    )
+    from src.web.ops import OpsProvider
+    disc = SqliteDiscoveredSlugsStore(conn)
+    disc.upsert_ok("greenhouse:ramp", last_posting_count=7)
+    disc.upsert_failed("greenhouse:acme")
+    ops = OpsProvider(discovered=disc, seen=store)
+    app = create_app(
+        repo=TriageRepo(store), score_high=7, score_low=4, ops=ops,
+        match_analytics=MatchAnalytics(seen=store),
+    )
+    yield TestClient(app)
 
 
 def test_inbox_shell_renders(client):
@@ -302,35 +285,17 @@ def test_set_status_missing_row_returns_expired(client):
 
 @pytest.fixture
 def status_suggestion_client(tmp_path, monkeypatch):
-    """Minimal sqlite-backed app: the shared `client` fixture above uses the
-    DynamoDB-backed SeenJobsStore, which has no update_email_suggestion
-    method, so it can't exercise /status's suggestion-clearing behavior.
-    Mirrors tests/web/test_board.py's board_client fixture."""
+    """Minimal sqlite-backed app. Mirrors tests/web/test_board.py's
+    board_client fixture."""
     from src.sqlite_db import connect
-    from src.state_sqlite import (
-        SqliteConnectorHealthStore,
-        SqliteDiscoveredSlugsStore,
-        SqliteOpsAlertStateStore,
-        SqlitePipelineEventsStore,
-        SqliteRejectedPostingsStore,
-        SqliteSeenJobsStore,
-        SqliteSourceStateStore,
-    )
-    from src.stores import Stores
+    from tests.sqlite_helpers import sqlite_stores
 
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
     monkeypatch.delenv("JOB_AGG_OPS_NTFY_TOPIC_URL", raising=False)
     monkeypatch.delenv("JOB_AGG_OPS_DISCORD_WEBHOOK_URL", raising=False)
     conn = connect(":memory:")
-    seen = SqliteSeenJobsStore(conn)
-    stores = Stores(
-        seen=seen, source_state=SqliteSourceStateStore(conn),
-        discovered=SqliteDiscoveredSlugsStore(conn),
-        health=SqliteConnectorHealthStore(conn),
-        events=SqlitePipelineEventsStore(conn),
-        rejected=SqliteRejectedPostingsStore(conn),
-        alert_state=SqliteOpsAlertStateStore(conn),
-    )
+    stores = sqlite_stores(conn)
+    seen = stores.seen
     seen.claim_for_notify(
         "greenhouse:acme:1", score=7, rationale="Good fit",
         posting=NormalizedPosting(
@@ -369,7 +334,6 @@ def test_main_module_builds_app(monkeypatch, tmp_path):
 
     monkeypatch.delenv("JOB_AGG_NTFY_TOPIC_URL", raising=False)
     monkeypatch.delenv("JOB_AGG_DISCORD_WEBHOOK_URL", raising=False)
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
 
     calls = {}
@@ -387,7 +351,6 @@ def test_main_module_exits_1_when_repo_unreachable(monkeypatch, tmp_path):
     port (the friendly-startup-failure branch)."""
     import src.web.__main__ as entry
 
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
 
     ran = {"called": False}
@@ -428,7 +391,7 @@ def test_pipeline_page_analytics_unavailable_is_soft(client, monkeypatch):
 
 
 def test_pipeline_cycles_renders_with_activity(client, monkeypatch):
-    from src.web.cloudwatch import LastCycle, PipelineActivity, Tally, TierStats
+    from src.web.pipeline_activity import LastCycle, PipelineActivity, Tally, TierStats
     now_ms = int(time.time() * 1000)
     activity = PipelineActivity(
         window_days=7,
@@ -451,14 +414,13 @@ def test_pipeline_cycles_renders_with_activity(client, monkeypatch):
     assert 'id="last-cycle"' in r.text and "hx-swap-oob" in r.text
 
 
-def test_pipeline_cycles_oob_updates_last_success_in_local_mode(client, monkeypatch):
-    from src.web.cloudwatch import LastCycle, PipelineActivity
+def test_pipeline_cycles_oob_updates_last_success(client, monkeypatch):
+    from src.web.pipeline_activity import LastCycle, PipelineActivity
     activity = PipelineActivity(
         window_days=7, tiers=[], failures_by_type=[], failures_by_connector=[],
         failures_total=0, last_cycle=LastCycle(ts_ms=1_000_000, ok=True),
     )
     monkeypatch.setattr(client.app.state.ops, "cycles", lambda: activity)
-    client.app.state.ops._local_mode = True
     now_ms = int(time.time() * 1000)
     monkeypatch.setattr(client.app.state.ops, "last_success", lambda: now_ms - 120_000)
     r = client.get("/pipeline/cycles")
@@ -466,21 +428,8 @@ def test_pipeline_cycles_oob_updates_last_success_in_local_mode(client, monkeypa
     assert "2m ago" in r.text
 
 
-def test_pipeline_cycles_no_last_success_oob_in_aws_mode(client, monkeypatch):
-    from src.web.cloudwatch import LastCycle, PipelineActivity
-    activity = PipelineActivity(
-        window_days=7, tiers=[], failures_by_type=[], failures_by_connector=[],
-        failures_total=0, last_cycle=LastCycle(ts_ms=1_000_000, ok=True),
-    )
-    monkeypatch.setattr(client.app.state.ops, "cycles", lambda: activity)
-    r = client.get("/pipeline/cycles")
-    # the fixture provider is AWS-mode: pipeline.html has no #last-success span
-    # there, so the OOB fragment must not be emitted either
-    assert 'id="last-success"' not in r.text
-
-
 def test_pipeline_cycles_renders_recent_cycles_table(client, monkeypatch):
-    from src.web.cloudwatch import CycleRow, LastCycle, PipelineActivity
+    from src.web.pipeline_activity import CycleRow, LastCycle, PipelineActivity
     now_ms = int(time.time() * 1000)
     activity = PipelineActivity(
         window_days=7, tiers=[], failures_by_type=[], failures_by_connector=[],
@@ -506,14 +455,14 @@ def test_pipeline_cycles_renders_recent_cycles_table(client, monkeypatch):
 
 
 def test_pipeline_cycles_hides_recent_table_when_empty(client, monkeypatch):
-    from src.web.cloudwatch import LastCycle, PipelineActivity
+    from src.web.pipeline_activity import LastCycle, PipelineActivity
     activity = PipelineActivity(
         window_days=7, tiers=[], failures_by_type=[], failures_by_connector=[],
         failures_total=0, last_cycle=LastCycle(ts_ms=1_000_000, ok=True),
     )
     monkeypatch.setattr(client.app.state.ops, "cycles", lambda: activity)
     r = client.get("/pipeline/cycles")
-    assert "recent cycles" not in r.text.lower()   # AWS mode / no telemetry → no section
+    assert "recent cycles" not in r.text.lower()   # no telemetry → no section
 
 
 def test_pipeline_cycles_unavailable_is_soft(client, monkeypatch):
@@ -528,7 +477,7 @@ def test_pipeline_cycles_unavailable_is_soft(client, monkeypatch):
 
 
 def test_pipeline_cycles_renders_per_tier_freshness(client, monkeypatch):
-    from src.web.cloudwatch import LastCycle, PipelineActivity, TierHeartbeat, TierStats
+    from src.web.pipeline_activity import LastCycle, PipelineActivity, TierHeartbeat, TierStats
 
     now_ms = int(time.time() * 1000)
     activity = PipelineActivity(
@@ -558,7 +507,7 @@ def test_pipeline_cycles_renders_per_tier_freshness(client, monkeypatch):
 
 
 def test_pipeline_cycles_failed_last_cycle_shows_warning(client, monkeypatch):
-    from src.web.cloudwatch import LastCycle, PipelineActivity
+    from src.web.pipeline_activity import LastCycle, PipelineActivity
     activity = PipelineActivity(
         window_days=7, tiers=[], failures_by_type=[], failures_by_connector=[],
         failures_total=0, last_cycle=LastCycle(ts_ms=1_000_000, ok=False),

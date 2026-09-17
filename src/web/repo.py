@@ -11,7 +11,8 @@ from src.models import NormalizedPosting
 # normalize alongside the tag vocabulary it mirrors, so the two can't drift.
 from src.normalize import workplace_type_of
 from src.slugging import normalize_name_slug
-from src.state import VALID_STATUSES, SeenJobsStore
+from src.state import VALID_STATUSES
+from src.state_sqlite import SqliteSeenJobsStore
 
 # Source family for opportunities typed in by hand (a recruiter DM, a referral).
 # Connector sources are "{ats}:{slug}", so reserving a family keeps hand-entered
@@ -216,7 +217,7 @@ class TriageRepo:
     """Store-backed adapter: reads rows, shapes them into TriageMatch view
     models, applies in-memory filter/sort/search, and writes status."""
 
-    def __init__(self, store: SeenJobsStore) -> None:
+    def __init__(self, store: SqliteSeenJobsStore) -> None:
         self._store = store
 
     def list(self, **filters) -> list[TriageMatch]:

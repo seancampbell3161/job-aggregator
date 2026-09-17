@@ -5,46 +5,24 @@ tuned to *your* preferences. For what the app is and how it works internally,
 see the [README](README.md). When something breaks, see
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
-There are two ways to run it. Pick one — the
-[tailoring section](#3-tailor-it-to-your-job-preferences) applies to both.
+Everything persists in `./data`; $0 infra; LLM cost depends on provider.
 
 ---
 
 ## Contents
 
-1. [Choose how to run it](#1-choose-how-to-run-it)
-2. [Things you need either way](#2-things-you-need-either-way) — ntfy, Discord, an LLM key
-3. [Tailor it to your job preferences](#3-tailor-it-to-your-job-preferences) — the part that makes it yours (full flag reference: [docs/CONFIG.md](docs/CONFIG.md))
-4. [Path A — Run locally with Docker Compose](#path-a--run-locally-with-docker-compose)
-5. [Path B — Deploy to AWS Lambda](#path-b--deploy-to-aws-lambda)
-6. [Operating it](#operating-it)
-7. [Optional extras](#optional-extras) — mobile tailored-résumé loop, rejection audit & ops alerts, board automation, headless connector, auto board discovery, aggregator candidate mining, apply kit
+1. [Things you need](#1-things-you-need) — ntfy, Discord, an LLM key
+2. [Tailor it to your job preferences](#2-tailor-it-to-your-job-preferences) — the part that makes it yours (full flag reference: [docs/CONFIG.md](docs/CONFIG.md))
+3. [Run it with Docker Compose](#run-it-with-docker-compose)
+4. [Operating it](#operating-it)
+5. [Optional extras](#optional-extras) — mobile tailored-résumé loop, rejection audit & ops alerts, board automation, headless connector, auto board discovery, aggregator candidate mining, apply kit
 
 ---
 
-## 1. Choose how to run it
+## 1. Things you need
 
-| | **Local (Docker Compose)** | **AWS (Lambda)** |
-|---|---|---|
-| Best for | A box you control 24/7 (Mac mini, NAS, home server, VPS) | "Set it and forget it" with no machine to babysit |
-| Cost | $0 infra (your electricity); $0 LLM if you use local Ollama | ~$15–25/mo infra + LLM cost depending on provider |
-| State | SQLite file in `./data` | DynamoDB tables |
-| LLM options | Anthropic, Gemini, **or** fully-local Ollama | Anthropic, Gemini, or Ollama Cloud |
-| Prereqs | Docker Desktop | An AWS account + Terraform + AWS CLI |
-| Updating config | `docker compose restart` | re-package + `terraform apply` |
-
-**If you're not sure, choose Local.** It's simpler, free, keeps everything on
-your network, and is the default the app is built around (`JOB_AGG_BACKEND`
-defaults to `sqlite`). The AWS path is kept in the tree and CI still validates
-its Terraform, but the maintainer no longer runs it — treat it as unmaintained
-for now and expect to own any debugging yourself.
-
----
-
-## 2. Things you need either way
-
-Both paths notify the same way and (optionally) score the same way, so set these
-up first.
+Notifications and (optional) scoring work the same way no matter what else you
+configure, so set these up first.
 
 ### An ntfy topic (phone push — required)
 
@@ -68,7 +46,7 @@ The LLM scores each posting that clears your hard filters against `profile.md`
 (0–10) so only good matches notify. Without a key the pipeline still runs —
 everything that passes the filters notifies, **unscored**. Pick one provider
 (you set which one in `config.yaml` — see
-[§3](#3-tailor-it-to-your-job-preferences)):
+[§2](#2-tailor-it-to-your-job-preferences)):
 
 | Provider | `relevance.provider` | Get a key | Cost |
 |---|---|---|---|
@@ -79,7 +57,7 @@ everything that passes the filters notifies, **unscored**. Pick one provider
 
 ---
 
-## 3. Tailor it to your job preferences
+## 2. Tailor it to your job preferences
 
 This is what turns a generic scraper into *your* job alert. Two files do almost
 all the work: **`config.yaml`** (hard filters + sources + thresholds) and
@@ -93,15 +71,13 @@ cp config.example.yaml config.yaml
 cp profile.example.md profile.md
 ```
 
-> **Applying changes.** Locally, `docker compose restart poller web`. On AWS,
-> `./scripts/package.sh && cd infra && terraform apply` — both `config.yaml` and
-> `profile.md` are baked into the Lambda zip at package time; there's no remote
-> config.
+> **Applying changes.** `docker compose restart poller web` — both `config.yaml`
+> and `profile.md` are bind-mounted, so edits apply on restart with no rebuild.
 
 Every `config.yaml` flag — including the ones this guide doesn't narrate —
 is catalogued with its default in **[docs/CONFIG.md](docs/CONFIG.md)**.
 
-### 3a. Hard filters (`config.yaml` → `filters`)
+### 2a. Hard filters (`config.yaml` → `filters`)
 
 A posting must pass **every** filter (or be `UNKNOWN` on filters that allow it)
 before it ever reaches the LLM scorer.
@@ -135,7 +111,7 @@ filters:
 > surfaces its *future* postings. While testing, set `max_age_days: null` to see
 > the existing backlog, then put it back.
 
-### 3b. Your relevance profile (`profile.md`)
+### 2b. Your relevance profile (`profile.md`)
 
 This is the most important file for match quality. The LLM grades each surviving
 posting against it on a 0–10 scale, then compares to two thresholds:
@@ -170,10 +146,10 @@ You can iterate on `profile.md` without deploying — run a
 [local dry-run](#local-dry-run-tuning-your-profile-without-deploying) and watch
 the `would_notify` log lines (each includes the score and rationale).
 
-### 3c. Pick your LLM provider — and re-calibrate after switching
+### 2c. Pick your LLM provider — and re-calibrate after switching
 
 Switch providers with one `config.yaml` line plus the matching key
-([§2](#an-llm-api-key-optional-but-recommended)). All three are fail-open: if the
+([§1](#an-llm-api-key-optional-but-recommended)). All three are fail-open: if the
 LLM errors or times out, the posting goes through **unscored** rather than being
 dropped.
 
@@ -201,7 +177,7 @@ workflow: [`docs/runbooks/calibrating-relevance-scores.md`](docs/runbooks/calibr
 > pick a model sized to your RAM — `llama3.1:8b`, `qwen2.5:7b`, or
 > `gpt-oss:20b` — and re-calibrate, since local models score differently.
 
-### 3d. Add or remove companies (`config.yaml` → `sources`)
+### 2d. Add or remove companies (`config.yaml` → `sources`)
 
 The "slug" is the path component on the company's careers URL:
 
@@ -297,7 +273,7 @@ claimed, so the retry treadmill never crowds out fresh candidates. No knobs to
 set; it's how the crawl works. Watch `discovery_probe_phase_done` (`ok`,
 `board_ok`, `no_match`) and `discovery_exhausted_drain_done` on the daily run.
 
-### 3e. Toggle aggregator sources, quiet hours, cadence
+### 2e. Toggle aggregator sources, quiet hours, cadence
 
 ```yaml
 sources:
@@ -315,19 +291,13 @@ quiet_hours:                            # affects ntfy only (Discord fires 24/7)
   start: '23:00'
   end: '07:00'
 
-schedules:                              # drives the LOCAL poller cadence
+schedules:                              # drives the poller cadence
   ats_minutes: 10
   slow_minutes: 15
   discovery_hours: 24
 ```
 
-> **Cadence is set differently per path.** Locally, the `schedules:` block above
-> drives the poller. On AWS, cadence comes from Terraform variables in
-> `infra/variables.tf` (`ats_schedule_minutes`, `slow_schedule_minutes`,
-> `discovery_schedule_hours`) — the `schedules:` block is validated but not used
-> by Lambda.
-
-### 3f. Résumé gap flags (optional, off by default)
+### 2f. Résumé gap flags (optional, off by default)
 
 When `gap_analysis.enabled: true`, every posting that survives filtering *and*
 scoring gets a second LLM pass listing the hard skills the role wants but your
@@ -346,9 +316,9 @@ cp resume.md.example resume.md        # then fill in your real experience
 
 ---
 
-## Path A — Run locally with Docker Compose
+## Run it with Docker Compose
 
-Run the whole pipeline 24/7 on one machine with SQLite state and **no AWS**.
+Run the whole pipeline 24/7 on one machine with SQLite state.
 Three services: **poller** (scrape → filter → score → notify on the
 `schedules.*` cadence, plus a daily prune), **web** (triage inbox, board,
 analytics, ops, and `/tailor`), and **ollama** (opt-in local LLM, only started
@@ -371,7 +341,7 @@ JOB_AGG_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 ```
 
 Then tailor `config.yaml` + `profile.md` per
-[§3](#3-tailor-it-to-your-job-preferences). Both are bind-mounted into the
+[§2](#2-tailor-it-to-your-job-preferences). Both are bind-mounted into the
 containers, so edits apply on restart — no rebuild.
 
 ### A2. Set your LLM key in `.env`
@@ -391,27 +361,7 @@ JOB_AGG_OLLAMA_HOST=http://ollama:11434
 JOB_AGG_OLLAMA_API_KEY=
 ```
 
-### A3. (Optional) Bring over existing AWS data
-
-Run once with AWS **read** credentials in your shell. It scans the four
-DynamoDB tables into `./data/job_aggregator.db`:
-
-```bash
-docker compose run --rm \
-  -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_REGION=us-east-1 \
-  poller python -m scripts.migrate_dynamo_to_sqlite
-```
-
-(`-e VAR` with no value passes it through from your shell.)
-
-> **Running it on the host instead of via `docker compose run`?** Override the
-> SQLite path explicitly: `JOB_AGG_SQLITE_PATH=./data/job_aggregator.db uv run
-> python -m scripts.migrate_dynamo_to_sqlite`. The `.env` value is the absolute
-> `/data/job_aggregator.db`, which is correct **inside** the container but points
-> at a non-writable host root when run directly — so the migration silently
-> writes nowhere while the poller keeps filling the real `./data` file.
-
-### A4. Start the stack
+### A3. Start the stack
 
 ```bash
 docker compose up -d --build                  # Anthropic / Gemini / Ollama Cloud
@@ -422,7 +372,7 @@ docker compose exec ollama ollama pull llama3.1:8b   # pull your model once
 
 The first build takes a few minutes (it installs WeasyPrint's native libraries).
 
-### A5. Open the web UI
+### A4. Open the web UI
 
 `http://localhost:8000` — or `http://<this-box-lan-ip>:8000` from your phone or
 laptop on the same network.
@@ -432,8 +382,9 @@ laptop on the same network.
 > can reach port 8000 can read your résumé, every application and its status, and
 > your apply-kit answers (work authorization, links, EEO). The LAN address above
 > is reachable by every device on that network, which is fine at home and not
-> fine on shared or public Wi-Fi. To reach it away from home use Tailscale
-> (§A9) rather than port-forwarding. To restrict it to this machine only,
+> fine on shared or public Wi-Fi. To reach it away from home use
+> [Tailscale](#reach-it-from-your-phone-anywhere-tailscale) rather than
+> port-forwarding. To restrict it to this machine only,
 > publish `127.0.0.1:8000:8000` in `docker-compose.yml`.
 
 Everything persists in **`./data`** (the SQLite DB + generated PDFs), which is
@@ -442,135 +393,7 @@ git-ignored. Back it up by copying that folder. Jump to
 
 ---
 
-## Path B — Deploy to AWS Lambda
-
-> **Status:** the maintainer no longer runs this path. It is kept in the tree and
-> CI still runs `terraform validate` against it, but nothing below has been
-> exercised recently. Prefer Path A unless you are comfortable owning the AWS side.
-
-End-to-end from a fresh laptop to real alerts. Run from the repo root unless a
-step says otherwise. Default region throughout: **us-east-1**.
-
-### B0. Prereqs
-
-- **AWS auth** such that `aws sts get-caller-identity` returns your account.
-  Either long-lived IAM keys (`aws configure`) or browser login (`aws login`).
-  If you use `aws login`, Terraform can't see those cached creds, so run this in
-  the same shell before every `terraform` command:
-  ```bash
-  eval "$(aws configure export-credentials --format env)"
-  ```
-- **Terraform** and the **AWS CLI** installed.
-- Your **ntfy topic** + **Discord webhook** + **LLM key** from
-  [§2](#2-things-you-need-either-way).
-
-### B1. Bootstrap the Terraform backend (one-time per AWS account)
-
-Creates the S3 bucket + DynamoDB lock table that hold Terraform state. Uses
-local state to avoid a chicken-and-egg problem. Cost ≈ $0/mo.
-
-```bash
-cd infra/bootstrap
-terraform init
-terraform apply -var "name_suffix=$(aws sts get-caller-identity --query Account --output text)"
-```
-
-Creates `tf-state-job-aggregator-<account-id>` (S3) and
-`tf-locks-job-aggregator` (DynamoDB).
-
-### B2. Build the Lambda zip
-
-```bash
-cd ..                 # infra/bootstrap → infra
-../scripts/package.sh
-```
-
-Produces `build/lambda.zip` (~27 MB), vendoring deps with
-`--platform manylinux2014_x86_64` so it runs on Lambda's x86_64 runtime even from
-Apple Silicon.
-
-### B3. Initialize main Terraform against the S3 backend
-
-```bash
-ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-terraform init -reconfigure \
-  -backend-config="bucket=tf-state-job-aggregator-$ACCOUNT" \
-  -backend-config="key=job-aggregator/terraform.tfstate" \
-  -backend-config="region=us-east-1" \
-  -backend-config="dynamodb_table=tf-locks-job-aggregator" \
-  -backend-config="encrypt=true"
-```
-
-`-reconfigure` is needed because `terraform validate` initialized earlier with
-`-backend=false`.
-
-### B4. Apply
-
-```bash
-terraform apply -var "alarm_email=you@example.com"
-```
-
-This creates the SSM parameters (with **placeholder** values), DynamoDB tables,
-IAM, the Lambda, three EventBridge rules (`ats`, `slow`, `discovery`), the SNS
-alarm topic, and the alarm. Type `yes`.
-
-**Within ~1 minute AWS emails an "AWS Notification — Subscription Confirmation"
-to `alarm_email`. Click the link** — without it you'll never get alarm emails.
-
-### B5. Set the real secrets
-
-**Order matters.** Terraform already created the SSM parameter *resources* with
-placeholders, so you must use `--overwrite` (setting them *before* the first
-apply causes `ParameterAlreadyExists`). Set only the LLM key that matches your
-`relevance.provider`.
-
-```bash
-aws ssm put-parameter --name /job-aggregator/ntfy_topic_url \
-  --type SecureString --value 'https://ntfy.sh/your-topic' --overwrite
-aws ssm put-parameter --name /job-aggregator/discord_webhook_url \
-  --type SecureString --value 'https://discord.com/api/webhooks/...' --overwrite
-
-# Pick the one matching relevance.provider:
-aws ssm put-parameter --name /job-aggregator/ollama_api_key \
-  --type SecureString --value 'ol-...' --overwrite
-# aws ssm put-parameter --name /job-aggregator/anthropic_api_key \
-#   --type SecureString --value 'sk-ant-...' --overwrite
-# aws ssm put-parameter --name /job-aggregator/google_api_key \
-#   --type SecureString --value '<gemini key>' --overwrite
-```
-
-### B6. Re-apply so the Lambda picks up the secrets
-
-```bash
-terraform apply -var "alarm_email=you@example.com"
-```
-
-The Lambda reads each secret live from SSM via `data.aws_ssm_parameter.*` at
-apply time and injects it as an env var.
-
-### B7. Smoke-test
-
-```bash
-aws lambda invoke --function-name job-aggregator \
-  --payload '{"tier":"ats"}' \
-  --cli-binary-format raw-in-base64-out /tmp/out.json
-cat /tmp/out.json
-```
-
-Expect zero counts (no companies configured yet) but a clean run. Watch logs:
-
-```bash
-aws logs tail /aws/lambda/job-aggregator --since 5m --follow
-```
-
-EventBridge then invokes automatically on each tier's cadence. Add companies and
-tailor per [§3](#3-tailor-it-to-your-job-preferences), then re-package + apply.
-
----
-
 ## Operating it
-
-### Local (Docker Compose)
 
 ```bash
 docker compose logs -f poller          # follow the poller (or: web)
@@ -578,46 +401,6 @@ docker compose restart poller web      # apply config.yaml / profile.md edits
 docker compose up -d --build           # apply new code (after git pull)
 docker compose down                    # stop everything (add --profile ollama
                                        # if you started Ollama). Data survives in ./data
-```
-
-### AWS (Lambda)
-
-Any code, `config.yaml`, or `profile.md` change is the same loop — Terraform
-detects the new `source_code_hash` and updates the Lambda in place:
-
-```bash
-./scripts/package.sh
-cd infra && terraform apply -var "alarm_email=you@example.com"
-```
-
-Other handy commands:
-
-```bash
-# One-off invocation of a tier
-aws lambda invoke --function-name job-aggregator --region us-east-1 \
-  --payload "$(printf '{"tier":"slow"}' | base64)" /tmp/out.json && cat /tmp/out.json
-
-# Cron rules + their state
-aws events list-rules --region us-east-1 \
-  --query 'Rules[?contains(Name, `job-aggregator`)].{Name:Name,Schedule:ScheduleExpression,State:State}' \
-  --output table
-
-# One line per cycle, last 10 min
-aws logs tail /aws/lambda/job-aggregator --region us-east-1 --since 10m --format short \
-  | grep '"invocation_done"'
-
-# Pause / resume polling
-aws events disable-rule --name job-aggregator-ats  --region us-east-1
-aws events enable-rule  --name job-aggregator-ats  --region us-east-1
-
-# Rotate a secret (then re-apply so the env var refreshes)
-aws ssm put-parameter --name /job-aggregator/ntfy_topic_url \
-  --type SecureString --value 'https://ntfy.sh/new-topic' --overwrite
-cd infra && terraform apply -var "alarm_email=you@example.com"
-
-# Tear it all down
-cd infra && terraform destroy -var "alarm_email=you@example.com"
-cd bootstrap && terraform destroy -var "name_suffix=$(aws sts get-caller-identity --query Account --output text)"
 ```
 
 > `matched: 0, notified: 0` for many cycles is **normal** — with `max_age_days`
@@ -635,8 +418,7 @@ Set both `JOB_AGG_TAILOR_SIGNING_SECRET` (any long random string) and
 `http://<lan-ip>:8000/tailor` on your LAN, or a Tailscale / Cloudflare-Tunnel URL
 to reach it off-network. Alerts then carry a signed deep-link that renders a
 tailored résumé PDF on demand. (This requires the résumé tailoring artifacts —
-see [`resume/README.md`](resume/README.md). The hosted AWS variant is documented
-in [`docs/runbooks/deploy-tailor-endpoint.md`](docs/runbooks/deploy-tailor-endpoint.md).)
+see [`resume/README.md`](resume/README.md).)
 
 The PDF renders through your **active template pack** — manage packs and
 rendering settings (bullet caps, max pages, page size/margins) on the web UI's
@@ -680,7 +462,7 @@ fine).
 5. **On the phone, make sure Tailscale is toggled on**, then tap the **"Tailor
    resume"** action on an alert. The same address also serves the whole triage UI
    — `http://<hostname>.<tailnet>.ts.net:8000` works from anywhere your phone has
-   signal, replacing the LAN-only access from [§A5](#a5-open-the-web-ui).
+   signal, replacing the LAN-only access from [§A4](#a4-open-the-web-ui).
 
 > **The box must stay awake and online** for the phone to reach it. On a Mac
 > mini, prevent sleep (System Settings → Energy, or `caffeinate`); a server/NAS
@@ -708,7 +490,7 @@ python -m src.handler --tier ats --dry-run
 score + rationale) for each posting that would have been sent. Set the key that
 matches `relevance.provider`, or omit it entirely to skip scoring. Add
 `--calibrate` to print the score histogram (see
-[§3c](#3c-pick-your-llm-provider--and-re-calibrate-after-switching)).
+[§2c](#2c-pick-your-llm-provider--and-re-calibrate-after-switching)).
 
 ### Rejection audit & ops alerts (optional)
 
@@ -854,8 +636,7 @@ discovery:
 
 Watch the `board_discovery_done` log line for its `{swept, matched, ...}` counts.
 The manual `scripts/discover_enterprise.py` CLI still exists for review-first
-onboarding; hand-configured entries win over auto-discovered ones. (Requires the
-SQLite backend — inert on DynamoDB.)
+onboarding; hand-configured entries win over auto-discovered ones.
 
 ### Aggregator candidate mining (optional)
 
@@ -892,8 +673,7 @@ reserve is carved out of `max_validations_per_run`, so keep that comfortably
 above the reserve (`config.example.yaml` leaves the 200 default; raise it if you
 enable mining). Watch
 `hiringcafe_sightings_captured` on slow cycles and
-`discovery_candidates_drained` on the daily run. Board candidates require the
-SQLite backend (inert on DynamoDB); slug candidates work on both.
+`discovery_candidates_drained` on the daily run.
 
 **Targeting European sources?** One opt-in lever today (default off):
 `discovery.eu_seeds_enabled: true` adds a curated EU enterprise seed list to

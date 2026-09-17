@@ -1,10 +1,10 @@
 from datetime import datetime, timezone
 
-import boto3
 import pytest
-from moto import mock_aws
 
-from src.state import ConnectorHealthStore, DiscoveredSlug, DiscoveredSlugsStore, SeenJobsStore
+from src.sqlite_db import connect
+from src.state import DiscoveredSlug
+from src.state_sqlite import SqliteConnectorHealthStore, SqliteDiscoveredSlugsStore, SqliteSeenJobsStore
 from src.web.ops import (
     HealthSummary, OpsProvider, ScoreAnalytics, connector_health, score_analytics,
 )
@@ -26,7 +26,7 @@ def test_connector_health_counts_and_unhealthy_sorted():
         _slug("e", "quarantined", fails=5), _slug("f", "no_match"),
     ]
     h = connector_health(rows)
-    # "failed" is the real validation_status DiscoveredSlugsStore writes
+    # "failed" is the real validation_status the discovered-slugs store writes
     assert (h.ok, h.failed, h.quarantined, h.no_match) == (2, 2, 1, 1)
     # unhealthy = only failed/quarantined (actual broken connectors), sorted by
     # consecutive_failures desc. no_match is a discovery negative-cache entry, NOT
@@ -102,27 +102,15 @@ def test_score_analytics_suppressed_defaults_empty():
     assert sum(a.histogram) == 1
 
 
-DISC = "discovered_slugs_test"
-SEEN = "seen_jobs_test"
-
-
 @pytest.fixture
 def provider():
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        for name, key in ((DISC, "connector_name"), (SEEN, "job_id"), ("connector_health_t", "connector_name")):
-            ddb.create_table(
-                TableName=name,
-                AttributeDefinitions=[{"AttributeName": key, "AttributeType": "S"}],
-                KeySchema=[{"AttributeName": key, "KeyType": "HASH"}],
-                BillingMode="PAY_PER_REQUEST",
-            )
-        disc = DiscoveredSlugsStore(table_name=DISC)
-        disc.upsert_ok("greenhouse:ramp", last_posting_count=7)
-        disc.upsert_failed("greenhouse:acme")
-        seen = SeenJobsStore(table_name=SEEN)
-        health = ConnectorHealthStore(table_name="connector_health_t")
-        yield OpsProvider(discovered=disc, seen=seen, health=health, log_group="/g", region="us-east-1")
+    conn = connect(":memory:")
+    disc = SqliteDiscoveredSlugsStore(conn)
+    disc.upsert_ok("greenhouse:ramp", last_posting_count=7)
+    disc.upsert_failed("greenhouse:acme")
+    seen = SqliteSeenJobsStore(conn)
+    health = SqliteConnectorHealthStore(conn)
+    yield OpsProvider(discovered=disc, seen=seen, health=health)
 
 
 def test_provider_health_surfaces_suppressed(provider):
@@ -138,7 +126,7 @@ def test_connector_health_default_has_empty_suppressed():
     assert connector_health([]).suppressed == []
 
 
-def test_provider_health_and_analytics_from_dynamodb(provider):
+def test_provider_health_and_analytics_from_stores(provider):
     h = provider.health()
     assert h.ok == 1 and h.failed == 1
     a = provider.analytics()
@@ -146,8 +134,8 @@ def test_provider_health_and_analytics_from_dynamodb(provider):
 
 
 def test_provider_analytics_includes_suppressed_rows(provider):
-    """OpsProvider.analytics pulls suppressed rows from DynamoDB into the
-    histogram while leaving total notified-only."""
+    """OpsProvider.analytics pulls suppressed rows from the seen-jobs store into
+    the histogram while leaving total notified-only."""
     provider._seen.mark_suppressed("greenhouse:stripe:1", score=2)
     a = provider.analytics()
     assert a.suppressed == 1
@@ -155,21 +143,13 @@ def test_provider_analytics_includes_suppressed_rows(provider):
     assert a.total == 0   # still no notified rows seeded
 
 
-def test_provider_cycles_fail_soft_when_cloudwatch_errors(provider, monkeypatch):
-    import src.web.ops as ops_mod
-    def boom(**kw):
-        raise RuntimeError("no creds")
-    monkeypatch.setattr(ops_mod, "load_pipeline_activity", boom)
-    assert provider.cycles() is None  # swallowed → unavailable
-
-
 def test_provider_health_fail_soft(provider, monkeypatch):
-    monkeypatch.setattr(provider._discovered, "list_all", lambda: (_ for _ in ()).throw(RuntimeError("ddb down")))
+    monkeypatch.setattr(provider._discovered, "list_all", lambda: (_ for _ in ()).throw(RuntimeError("db down")))
     assert provider.health() is None
 
 
 def test_provider_analytics_fail_soft(provider, monkeypatch):
-    monkeypatch.setattr(provider._seen, "list_matches", lambda: (_ for _ in ()).throw(RuntimeError("ddb down")))
+    monkeypatch.setattr(provider._seen, "list_matches", lambda: (_ for _ in ()).throw(RuntimeError("db down")))
     assert provider.analytics() is None
 
 
@@ -178,7 +158,7 @@ def test_provider_health_suppressed_subsection_fail_soft(provider, monkeypatch):
     but the panel still renders with the discovered-derived counts intact."""
     monkeypatch.setattr(
         provider._health, "suppressed_names",
-        lambda: (_ for _ in ()).throw(RuntimeError("ddb down")),
+        lambda: (_ for _ in ()).throw(RuntimeError("db down")),
     )
     h = provider.health()
     assert h is not None

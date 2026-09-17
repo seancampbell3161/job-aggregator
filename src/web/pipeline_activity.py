@@ -1,12 +1,11 @@
+"""Pipeline-activity view models (per-tier stats, failure tallies, heartbeats)
+and the pure helpers that build them from the poller's SQLite cycle telemetry.
+OpsProvider.cycles / ops.aggregate_event_rows are the producers."""
 from __future__ import annotations
 
-import json
 import statistics
-import time
-from collections import Counter, defaultdict
+from collections import Counter
 from dataclasses import dataclass, field
-
-import boto3
 
 
 @dataclass(frozen=True)
@@ -88,7 +87,7 @@ class StageFailures:
     stage: str                      # "relevance" | "gap"
     total: int
     by_type: list[tuple[str, int]]  # (error_type, count), most_common order
-    last_ms: int = 0                # newest occurrence; 0 = unknown (CloudWatch path)
+    last_ms: int = 0                # newest occurrence; 0 = unknown
 
 
 @dataclass(frozen=True)
@@ -99,14 +98,13 @@ class PipelineActivity:
     failures_by_connector: list[Tally]
     failures_total: int
     last_cycle: LastCycle | None
-    # LLM fail-open telemetry — populated only by the local (SQLite) path; the
-    # AWS/CloudWatch path leaves these at defaults (see aggregate_log_events).
+    # LLM fail-open telemetry (populated by aggregate_event_rows).
     llm_failures_total: int = 0
     llm_failures_by_stage: list[StageFailures] = field(default_factory=list)
     llm_degraded_cycles: int = 0
     # Same fetch failures as failures_by_connector, rolled up by connector family
     # (count-desc) for the /pipeline triage view. Defaulted so constructors that
-    # predate it — and the AWS path before it populates them — still build.
+    # predate it still build.
     failures_by_family: list[FamilyTally] = field(default_factory=list)
     # Per-tier freshness, tier-sorted. Lets a dead fast tier (ats) be detected
     # even while a slow tier keeps the overall last_cycle looking recent.
@@ -232,72 +230,6 @@ def compute_heartbeat(activity: PipelineActivity | None, now_ms: int) -> Heartbe
     return Heartbeat("ok", f"{ago} ✓")
 
 
-def aggregate_log_events(events: list[dict], *, window_days: int) -> PipelineActivity:
-    """Pure aggregation of parsed log-event dicts into PipelineActivity.
-
-    Each event dict is the structured log payload (``message`` is the event
-    name, e.g. "invocation_done") plus a ``_ts_ms`` CloudWatch timestamp."""
-    sums: dict[str, dict[str, float]] = defaultdict(
-        lambda: {"cycles": 0, "fetched": 0, "matched": 0, "notified": 0, "duration_ms": 0}
-    )
-    by_type: Counter = Counter()
-    by_conn: Counter = Counter()
-    fam_types: dict[str, Counter] = defaultdict(Counter)
-    last_type: dict[str, int] = {}
-    last_conn: dict[str, int] = {}
-    last: LastCycle | None = None
-    per_tier: dict[str, list[tuple[int, bool, bool]]] = defaultdict(list)
-
-    for e in events:
-        kind = e.get("message")
-        if kind == "invocation_done":
-            tier = e.get("tier", "unknown")
-            s = sums[tier]
-            s["cycles"] += 1
-            s["fetched"] += e.get("fetched", 0)
-            s["matched"] += e.get("matched", 0)
-            s["notified"] += e.get("notified", 0)
-            s["duration_ms"] += e.get("duration_ms", 0)
-            ts = e.get("_ts_ms", 0)
-            ok = not e.get("failed_sources")
-            per_tier[tier].append((ts, ok, False))
-            if last is None or ts > last.ts_ms:
-                last = LastCycle(ts_ms=ts, ok=ok)
-        elif kind == "fetch_failed":
-            ts = e.get("_ts_ms", 0)
-            et = e.get("error_type", "unknown")
-            src = e.get("source", "unknown")
-            by_type[et] += 1
-            by_conn[src] += 1
-            fam_types[src.split(":", 1)[0]][et] += 1
-            last_type[et] = max(last_type.get(et, 0), ts)
-            last_conn[src] = max(last_conn.get(src, 0), ts)
-
-    tiers = [
-        TierStats(
-            tier=t,
-            cycles=int(s["cycles"]),
-            avg_fetched=s["fetched"] / s["cycles"],
-            avg_matched=s["matched"] / s["cycles"],
-            avg_notified=s["notified"] / s["cycles"],
-            avg_duration_ms=s["duration_ms"] / s["cycles"],
-        )
-        for t, s in sorted(sums.items())
-    ]
-    # NOTE: LLM fail-open failures are not parsed from CloudWatch here — that
-    # telemetry is local-mode only. The llm_* fields fall to their defaults.
-    return PipelineActivity(
-        window_days=window_days,
-        tiers=tiers,
-        failures_by_type=[Tally(n, c, last_type.get(n, 0)) for n, c in by_type.most_common()],
-        failures_by_connector=[Tally(n, c, last_conn.get(n, 0)) for n, c in by_conn.most_common()],
-        failures_by_family=build_family_tallies(by_conn, last_conn, fam_types),
-        failures_total=sum(by_type.values()),
-        last_cycle=last,
-        tier_heartbeats=build_tier_heartbeats(per_tier),
-    )
-
-
 def format_ago(ts_ms: int, now_ms: int) -> str:
     """Human 'time ago' for a millisecond epoch timestamp."""
     secs = max(0, (now_ms - ts_ms) // 1000)
@@ -310,55 +242,3 @@ def format_ago(ts_ms: int, now_ms: int) -> str:
     if hours < 24:
         return f"{hours}h ago"
     return f"{hours // 24}d ago"
-
-
-_FILTER_PATTERN = "?invocation_done ?fetch_failed"
-
-
-def _parse_event(message: str, ts_ms: int) -> dict | None:
-    """Extract the JSON payload from a log line (tolerant of any prefix the
-    runtime prepends) and stamp the CloudWatch timestamp. None if unparseable."""
-    start = message.find("{")
-    if start == -1:
-        return None
-    try:
-        payload = json.loads(message[start:])
-    except (ValueError, TypeError):
-        return None
-    payload["_ts_ms"] = ts_ms
-    return payload
-
-
-def fetch_log_events(client, *, log_group: str, start_ms: int, end_ms: int) -> list[dict]:
-    """Pull invocation_done + fetch_failed events in [start_ms, end_ms] and parse
-    each into its structured dict (unparseable lines skipped). Paginates."""
-    out: list[dict] = []
-    token: str | None = None
-    while True:
-        kwargs = dict(
-            logGroupName=log_group, startTime=start_ms, endTime=end_ms,
-            filterPattern=_FILTER_PATTERN,
-        )
-        if token:
-            kwargs["nextToken"] = token
-        resp = client.filter_log_events(**kwargs)
-        for ev in resp.get("events", []):
-            parsed = _parse_event(ev.get("message", ""), ev.get("timestamp", 0))
-            if parsed is not None:
-                out.append(parsed)
-        token = resp.get("nextToken")
-        if not token:
-            break
-    return out
-
-
-def load_pipeline_activity(
-    *, log_group: str, region: str, window_days: int = 7, now_ms: int | None = None
-) -> PipelineActivity:
-    """Build a CloudWatch Logs client, pull the window's events, and aggregate.
-    Raises on boto3 errors — the caller (OpsProvider) makes it fail-soft."""
-    end = now_ms if now_ms is not None else int(time.time() * 1000)
-    start = end - window_days * 86_400_000
-    client = boto3.client("logs", region_name=region)
-    events = fetch_log_events(client, log_group=log_group, start_ms=start, end_ms=end)
-    return aggregate_log_events(events, window_days=window_days)

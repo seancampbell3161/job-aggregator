@@ -9,7 +9,7 @@
 {%- endmacro %}
 {% if activity is none %}
   <div class="panel"><h3>Cycle stats &amp; fetch failures</h3>
-    <p class="muted">unavailable — could not read cycle telemetry (AWS: CloudWatch Logs creds / log group; local: the SQLite events store).</p></div>
+    <p class="muted">unavailable — could not read cycle telemetry (the SQLite events store).</p></div>
   <span id="last-cycle" class="v muted" hx-swap-oob="true">unknown</span>
   <div id="tier-freshness" class="tier-strip" hx-swap-oob="true">
     <span class="muted" style="font-size:12px">tier freshness unavailable</span>
@@ -104,6 +104,4 @@
     {{ heartbeat.label if heartbeat else 'no cycles' }}
   </span>
 {% endif %}
-{% if local_mode %}
 <span id="last-success" class="v {{ 'ok' if last_success_ago else 'muted' }}" hx-swap-oob="true">{{ last_success_ago or 'never' }}</span>
-{% endif %}

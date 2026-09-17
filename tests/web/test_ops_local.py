@@ -1,4 +1,4 @@
-"""Tests that OpsProvider degrades gracefully in local mode."""
+"""Tests that OpsProvider degrades gracefully when data sources are unavailable."""
 from __future__ import annotations
 
 import pytest
@@ -15,35 +15,29 @@ class _Stub:
     def suppressed_names(self): return set()
 
 
-def _no_cloudwatch(monkeypatch):
-    def _fake(**kwargs):
-        raise AssertionError("CloudWatch must not be called in local mode")
-    monkeypatch.setattr("src.web.ops.load_pipeline_activity", _fake)
+def test_ops_provider_has_no_remote_log_params():
+    import inspect
+    from src.web.ops import OpsProvider
+    params = inspect.signature(OpsProvider).parameters
+    assert "local_mode" not in params
+    assert "log_group" not in params and "region" not in params
 
 
-def test_cycles_returns_none_without_events_store(monkeypatch):
-    """local_mode + no events store: cycles() is None and never calls CloudWatch."""
-    _no_cloudwatch(monkeypatch)
-    ops = OpsProvider(
-        discovered=_Stub(), seen=_Stub(), health=_Stub(),
-        log_group="x", region="us-east-1", local_mode=True,
-    )
+def test_cycles_returns_none_without_events_store():
+    """No events store: cycles() is None."""
+    ops = OpsProvider(discovered=_Stub(), seen=_Stub(), health=_Stub())
     assert ops.cycles() is None
 
 
-def test_cycles_aggregates_local_events(monkeypatch):
-    """local_mode + events store: cycles() aggregates SQLite telemetry, no CloudWatch."""
-    _no_cloudwatch(monkeypatch)
+def test_cycles_aggregates_local_events():
+    """events store wired: cycles() aggregates SQLite telemetry."""
     events = SqlitePipelineEventsStore(connect(":memory:"))
     events.record_cycle(tier="ats", fetched=10, matched=2, notified=1, duration_ms=1000)
     events.record_cycle(
         tier="ats", fetched=20, matched=4, notified=0, duration_ms=2000,
         failures=[{"source": "greenhouse:x", "error_type": "ReadTimeout"}],
     )
-    ops = OpsProvider(
-        discovered=_Stub(), seen=_Stub(), health=_Stub(), events=events,
-        log_group="x", region="us-east-1", local_mode=True,
-    )
+    ops = OpsProvider(discovered=_Stub(), seen=_Stub(), health=_Stub(), events=events)
     activity = ops.cycles()
     assert activity is not None
     assert [t.tier for t in activity.tiers] == ["ats"]
@@ -57,10 +51,7 @@ def test_cycles_aggregates_local_events(monkeypatch):
 
 def test_last_success_reflects_ok_cycles():
     events = SqlitePipelineEventsStore(connect(":memory:"))
-    ops = OpsProvider(
-        discovered=_Stub(), seen=_Stub(), health=_Stub(), events=events,
-        log_group="x", region="us-east-1", local_mode=True,
-    )
+    ops = OpsProvider(discovered=_Stub(), seen=_Stub(), health=_Stub(), events=events)
     assert ops.last_success() is None
     events.record_cycle(tier="ats", fetched=1, matched=0, notified=0, duration_ms=1)
     assert ops.last_success() is not None
@@ -166,7 +157,7 @@ def _template_env():
     """Bare Jinja env for direct template renders — must mirror create_app's
     filter registration or _ops_cycles.html fails to compile."""
     from jinja2 import Environment, FileSystemLoader
-    from src.web.cloudwatch import format_ago
+    from src.web.pipeline_activity import format_ago
     env = Environment(loader=FileSystemLoader("src/web/templates"), autoescape=True)
     env.filters["ago"] = format_ago
     return env
@@ -174,7 +165,7 @@ def _template_env():
 
 def test_ops_cycles_template_renders_llm_failures_and_degraded_heartbeat():
     from types import SimpleNamespace
-    from src.web.cloudwatch import Heartbeat, StageFailures
+    from src.web.pipeline_activity import Heartbeat, StageFailures
 
     env = _template_env()
     activity = SimpleNamespace(
@@ -206,7 +197,7 @@ def test_ops_cycles_template_renders_llm_failures_and_degraded_heartbeat():
 
 def test_ops_cycles_template_clean_heartbeat_when_not_degraded():
     from types import SimpleNamespace
-    from src.web.cloudwatch import Heartbeat
+    from src.web.pipeline_activity import Heartbeat
 
     env = _template_env()
     activity = SimpleNamespace(
@@ -222,7 +213,7 @@ def test_ops_cycles_template_clean_heartbeat_when_not_degraded():
 
 def test_ops_cycles_template_shows_stalled_tier_in_last_column():
     from types import SimpleNamespace
-    from src.web.cloudwatch import Heartbeat
+    from src.web.pipeline_activity import Heartbeat
 
     env = _template_env()
     activity = SimpleNamespace(
@@ -243,7 +234,7 @@ def test_ops_cycles_template_shows_stalled_tier_in_last_column():
 
 def test_ops_cycles_template_renders_family_triage_active_and_stale():
     from types import SimpleNamespace
-    from src.web.cloudwatch import FamilyTally, Heartbeat, Tally
+    from src.web.pipeline_activity import FamilyTally, Heartbeat, Tally
 
     env = _template_env()
     now = 1_000_000_000_000
@@ -295,10 +286,9 @@ def test_aggregate_event_rows_empty_recent():
     assert aggregate_event_rows([], window_days=7).recent == []
 
 
-def test_cycles_merges_out_of_window_tier_anchor(monkeypatch):
+def test_cycles_merges_out_of_window_tier_anchor():
     """A tier whose rows all aged out of the window resurfaces from its anchor
     row and reads as stale — the stall warning must never silently vanish."""
-    _no_cloudwatch(monkeypatch)
     events = SqlitePipelineEventsStore(connect(":memory:"))
     events.record_cycle(tier="ats", fetched=1, matched=0, notified=0, duration_ms=1)
     old = _now_ms() - 12 * 86_400_000
@@ -307,28 +297,21 @@ def test_cycles_merges_out_of_window_tier_anchor(monkeypatch):
         "VALUES (?,?,?,?,?,?,?,?,?)",
         (old, "slow", 1, 0, 0, 1, 1, "[]", "[]"),
     )
-    ops = OpsProvider(
-        discovered=_Stub(), seen=_Stub(), health=_Stub(), events=events,
-        log_group="x", region="us-east-1", local_mode=True,
-    )
+    ops = OpsProvider(discovered=_Stub(), seen=_Stub(), health=_Stub(), events=events)
     activity = ops.cycles()
     tiers = {hb.tier: hb for hb in activity.tier_heartbeats}
     assert "slow" in tiers
     assert tiers["slow"].last.ts_ms == old
-    from src.web.cloudwatch import tier_stale
+    from src.web.pipeline_activity import tier_stale
     assert tier_stale(tiers["slow"], _now_ms()) is True
 
 
 def test_cycles_survives_anchor_query_failure(monkeypatch):
-    _no_cloudwatch(monkeypatch)
     events = SqlitePipelineEventsStore(connect(":memory:"))
     events.record_cycle(tier="ats", fetched=1, matched=0, notified=0, duration_ms=1)
     monkeypatch.setattr(events, "last_cycle_per_tier",
                         lambda: (_ for _ in ()).throw(RuntimeError("db locked")))
-    ops = OpsProvider(
-        discovered=_Stub(), seen=_Stub(), health=_Stub(), events=events,
-        log_group="x", region="us-east-1", local_mode=True,
-    )
+    ops = OpsProvider(discovered=_Stub(), seen=_Stub(), health=_Stub(), events=events)
     activity = ops.cycles()
     assert activity is not None                          # merge degrades, panel survives
     assert [hb.tier for hb in activity.tier_heartbeats] == ["ats"]

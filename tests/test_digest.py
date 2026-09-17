@@ -10,7 +10,7 @@ from src.digest import format_gap_digest, send_gap_digest, tally_gaps
 def test_tally_ranks_by_frequency_and_drops_singletons():
     lists = [
         ["Kubernetes", "Kafka"],
-        ["Kubernetes", "Terraform"],
+        ["Kubernetes", "Redis"],
         ["Kubernetes"],
         ["Kafka"],
         ["Rust"],          # appears once → dropped

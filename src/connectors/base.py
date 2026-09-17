@@ -105,8 +105,8 @@ def _board_active_pair(family: str | None, identity: dict | None) -> tuple[str, 
 
 def build_connectors(cfg: AppConfig, tier: Tier, *, discovered=None, boards=None, suppressed=frozenset(), sightings=None) -> list[Connector]:
     """Build connectors for a tier, unioning configured slugs with healthy
-    discovered slugs (when a DiscoveredSlugsStore-like object is provided), and
-    skipping any connector whose name is in ``suppressed`` (the poll-health
+    discovered slugs (when a store exposing ``list_healthy()`` is provided),
+    and skipping any connector whose name is in ``suppressed`` (the poll-health
     circuit breaker — dead 404/410 connectors).
 
     Imports concrete connectors lazily so this module stays free of cycles."""

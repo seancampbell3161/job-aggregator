@@ -6,18 +6,9 @@ from fastapi.testclient import TestClient
 
 from src.models import NormalizedPosting
 from src.sqlite_db import connect
-from src.state_sqlite import (
-    SqliteConnectorHealthStore,
-    SqliteDiscoveredSlugsStore,
-    SqliteOpsAlertStateStore,
-    SqlitePipelineEventsStore,
-    SqliteRejectedPostingsStore,
-    SqliteSeenJobsStore,
-    SqliteSourceStateStore,
-)
-from src.stores import Stores
 from src.web.app import create_app
 from src.web.repo import TriageRepo
+from tests.sqlite_helpers import sqlite_stores
 
 
 def _posting(job_id, title, company="Acme"):
@@ -36,15 +27,9 @@ def audit_client(tmp_path, monkeypatch):
     monkeypatch.delenv("JOB_AGG_OPS_NTFY_TOPIC_URL", raising=False)
     monkeypatch.delenv("JOB_AGG_OPS_DISCORD_WEBHOOK_URL", raising=False)
     conn = connect(":memory:")
-    seen = SqliteSeenJobsStore(conn)
-    rejected = SqliteRejectedPostingsStore(conn)
-    stores = Stores(
-        seen=seen, source_state=SqliteSourceStateStore(conn),
-        discovered=SqliteDiscoveredSlugsStore(conn),
-        health=SqliteConnectorHealthStore(conn),
-        events=SqlitePipelineEventsStore(conn),
-        rejected=rejected, alert_state=SqliteOpsAlertStateStore(conn),
-    )
+    stores = sqlite_stores(conn)
+    seen = stores.seen
+    rejected = stores.rejected
     rejected.record(_posting("greenhouse:acme:1", "Office Manager"), rejected_by="role")
     seen.mark_suppressed(
         "greenhouse:acme:2", score=3, rationale="Weak fit",

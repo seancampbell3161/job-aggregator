@@ -1,23 +1,12 @@
-import boto3
 import pytest
-from moto import mock_aws
 
-from src.state import DiscoveredSlugsStore
-
-TABLE = "discovered_slugs_test"
+from src.sqlite_db import connect
+from src.state_sqlite import SqliteDiscoveredSlugsStore
 
 
 @pytest.fixture
 def store():
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        ddb.create_table(
-            TableName=TABLE,
-            AttributeDefinitions=[{"AttributeName": "connector_name", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "connector_name", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        yield DiscoveredSlugsStore(table_name=TABLE)
+    yield SqliteDiscoveredSlugsStore(connect(":memory:"))
 
 
 def test_upsert_ok_then_list_healthy(store):
@@ -106,110 +95,74 @@ def test_is_recent_no_match_returns_false_when_unknown(store):
 
 def test_is_recent_no_match_returns_false_when_stale():
     """A no_match row older than fresh_within_days is treated as expired."""
-    import boto3
-    from moto import mock_aws
-    from src.state import DiscoveredSlugsStore
-
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        ddb.create_table(
-            TableName="discovered_slugs_t2",
-            AttributeDefinitions=[{"AttributeName": "connector_name", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "connector_name", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        s = DiscoveredSlugsStore(table_name="discovered_slugs_t2")
-        # Manually insert a row with last_validated_at 100 days ago.
-        old = (datetime.now(timezone.utc) - timedelta(days=100)).isoformat()
-        s._table.put_item(Item={
-            "connector_name": "nomatch:oldslug",
-            "ats_family": "nomatch",
-            "slug": "oldslug",
-            "validation_status": "no_match",
-            "discovered_at": old,
-            "last_validated_at": old,
-            "consecutive_failures": 0,
-            "last_posting_count": 0,
-        })
-        assert s.is_recent_no_match("oldslug", fresh_within_days=90) is False
+    s = SqliteDiscoveredSlugsStore(connect(":memory:"))
+    # Manually insert a row with last_validated_at 100 days ago.
+    old = (datetime.now(timezone.utc) - timedelta(days=100)).isoformat()
+    s._put({
+        "connector_name": "nomatch:oldslug",
+        "ats_family": "nomatch",
+        "slug": "oldslug",
+        "validation_status": "no_match",
+        "discovered_at": old,
+        "last_validated_at": old,
+        "consecutive_failures": 0,
+        "last_posting_count": 0,
+    })
+    assert s.is_recent_no_match("oldslug", fresh_within_days=90) is False
 
 
 def test_list_for_revalidation_returns_stale_ok_rows():
     """Only ok rows older than threshold get returned, and we respect limit."""
-    import boto3
-    from moto import mock_aws
-    from src.state import DiscoveredSlugsStore
+    s = SqliteDiscoveredSlugsStore(connect(":memory:"))
 
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        ddb.create_table(
-            TableName="discovered_slugs_t3",
-            AttributeDefinitions=[{"AttributeName": "connector_name", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "connector_name", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        s = DiscoveredSlugsStore(table_name="discovered_slugs_t3")
+    recent = datetime.now(timezone.utc).isoformat()
+    old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
 
-        recent = datetime.now(timezone.utc).isoformat()
-        old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    for cn, status, last_val in [
+        ("greenhouse:fresh-ok", "ok", recent),
+        ("greenhouse:stale-ok-1", "ok", old),
+        ("greenhouse:stale-ok-2", "ok", old),
+        ("greenhouse:stale-failed", "failed", old),
+        ("nomatch:stale-nomatch", "no_match", old),
+    ]:
+        ats, slug = cn.split(":", 1)
+        s._put({
+            "connector_name": cn,
+            "ats_family": ats,
+            "slug": slug,
+            "validation_status": status,
+            "discovered_at": recent,
+            "last_validated_at": last_val,
+            "consecutive_failures": 0,
+            "last_posting_count": 1,
+        })
 
-        for cn, status, last_val in [
-            ("greenhouse:fresh-ok", "ok", recent),
-            ("greenhouse:stale-ok-1", "ok", old),
-            ("greenhouse:stale-ok-2", "ok", old),
-            ("greenhouse:stale-failed", "failed", old),
-            ("nomatch:stale-nomatch", "no_match", old),
-        ]:
-            ats, slug = cn.split(":", 1)
-            s._table.put_item(Item={
-                "connector_name": cn,
-                "ats_family": ats,
-                "slug": slug,
-                "validation_status": status,
-                "discovered_at": recent,
-                "last_validated_at": last_val,
-                "consecutive_failures": 0,
-                "last_posting_count": 1,
-            })
-
-        rows = s.list_for_revalidation(stale_after_days=7, limit=10)
-        names = {r.connector_name for r in rows}
-        assert names == {"greenhouse:stale-ok-1", "greenhouse:stale-ok-2"}
+    rows = s.list_for_revalidation(stale_after_days=7, limit=10)
+    names = {r.connector_name for r in rows}
+    assert names == {"greenhouse:stale-ok-1", "greenhouse:stale-ok-2"}
 
 
 def test_list_for_revalidation_respects_limit():
-    import boto3
-    from moto import mock_aws
-    from src.state import DiscoveredSlugsStore
+    s = SqliteDiscoveredSlugsStore(connect(":memory:"))
 
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        ddb.create_table(
-            TableName="discovered_slugs_t4",
-            AttributeDefinitions=[{"AttributeName": "connector_name", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "connector_name", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        s = DiscoveredSlugsStore(table_name="discovered_slugs_t4")
+    old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    for i in range(10):
+        s._put({
+            "connector_name": f"greenhouse:stale-{i}",
+            "ats_family": "greenhouse",
+            "slug": f"stale-{i}",
+            "validation_status": "ok",
+            "discovered_at": old,
+            "last_validated_at": old,
+            "consecutive_failures": 0,
+            "last_posting_count": 1,
+        })
 
-        old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
-        for i in range(10):
-            s._table.put_item(Item={
-                "connector_name": f"greenhouse:stale-{i}",
-                "ats_family": "greenhouse",
-                "slug": f"stale-{i}",
-                "validation_status": "ok",
-                "discovered_at": old,
-                "last_validated_at": old,
-                "consecutive_failures": 0,
-                "last_posting_count": 1,
-            })
-
-        rows = s.list_for_revalidation(stale_after_days=7, limit=3)
-        assert len(rows) == 3
+    rows = s.list_for_revalidation(stale_after_days=7, limit=3)
+    assert len(rows) == 3
 
 
-def test_candidate_lifecycle_dynamo(store):
+def test_candidate_lifecycle(store):
     store.upsert_candidate("greenhouse:newco", company_name="NewCo",
                            origin="hiringcafe", claimed_family="greenhouse")
     assert len(store.list_candidates()) == 1
@@ -224,16 +177,10 @@ def test_candidate_lifecycle_dynamo(store):
 
 # ---------- conversion-chain no_match learning (spec part 2) ----------
 
-from src.sqlite_db import connect
 from src.state import no_match_exhausted
-from src.state_sqlite import SqliteDiscoveredSlugsStore
 
 
-def _sqlite_store():
-    return SqliteDiscoveredSlugsStore(connect(":memory:"))
-
-
-def test_no_match_learning_fields_round_trip_dynamo(store):
+def test_no_match_learning_fields_round_trip(store):
     store.upsert_no_match(
         "diode-computers",
         company_name="Diode Computers, Inc.",
@@ -245,19 +192,6 @@ def test_no_match_learning_fields_round_trip_dynamo(store):
     assert row.company_name == "Diode Computers, Inc."
     assert row.website == "https://diode.dev"
     assert row.methods_tried == ["slug:diode-computers", "domain:diode", "fingerprint"]
-
-
-def test_no_match_learning_fields_round_trip_sqlite():
-    s = _sqlite_store()
-    s.upsert_no_match(
-        "diode-computers",
-        company_name="Diode Computers, Inc.",
-        website="https://diode.dev",
-        methods_tried=["slug:diode-computers", "fingerprint"],
-    )
-    row = s.get("nomatch:diode-computers")
-    assert row.website == "https://diode.dev"
-    assert row.methods_tried == ["slug:diode-computers", "fingerprint"]
 
 
 def test_plain_upsert_no_match_preserves_learned_fields(store):
@@ -277,14 +211,10 @@ def test_legacy_no_match_rows_parse_with_none_fields(store):
     assert row.methods_tried is None
 
 
-def test_list_no_match_both_stores(store):
+def test_list_no_match(store):
     store.upsert_no_match("a")
     store.upsert_ok("greenhouse:b", company_name="B")
     assert {r.slug for r in store.list_no_match()} == {"a"}
-    s = _sqlite_store()
-    s.upsert_no_match("c")
-    s.upsert_ok("greenhouse:d", company_name="D")
-    assert {r.slug for r in s.list_no_match()} == {"c"}
 
 
 # ---------- exhaustion classifier ----------
@@ -320,9 +250,6 @@ def test_legacy_rows_are_never_exhausted():
 
 # ---------- candidate website (spec part 3: VC staging) ----------
 
-from src.sqlite_db import connect
-from src.state_sqlite import SqliteDiscoveredSlugsStore
-
 
 def test_upsert_candidate_stores_website(store):
     store.upsert_candidate(
@@ -339,11 +266,3 @@ def test_upsert_candidate_stores_website(store):
 def test_upsert_candidate_website_defaults_none(store):
     store.upsert_candidate("greenhouse:newco", claimed_family="greenhouse")
     assert store.get("greenhouse:newco").website is None
-
-
-def test_sqlite_upsert_candidate_stores_website():
-    s = SqliteDiscoveredSlugsStore(connect(":memory:"))
-    s.upsert_candidate("candidate:acme", company_name="Acme",
-                       website="acme.com", origin="vc:a16z")
-    row = s.get("candidate:acme")
-    assert row.website == "acme.com" and row.origin == "vc:a16z"

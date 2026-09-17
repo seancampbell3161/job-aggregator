@@ -139,13 +139,9 @@ async def run_closed_sweep(
     store, *, client_factory=None, concurrency: int = 4, now_iso: str | None = None,
 ) -> dict:
     """Check every active-column card once and drive the two-strike state
-    machine. Fail-soft per card; returns a tally for the log line. No-ops
-    (zeros) on stores without update_closed_check (the DynamoDB backend —
-    this sweep is a local-scheduler feature)."""
+    machine. Fail-soft per card; returns a tally for the log line."""
     tally = {"checked": 0, "misses": 0, "flagged": 0, "reset": 0, "unknown": 0}
-    update = getattr(store, "update_closed_check", None)
-    if update is None:
-        return tally
+    update = store.update_closed_check
 
     cards = [m for m in store.list_matches() if m.get("status") in _ACTIVE_STATUSES]
     if not cards:

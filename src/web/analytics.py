@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 
 from src.digest import tally_gaps
-from src.state import SeenJobsStore
+from src.state_sqlite import SqliteSeenJobsStore
 from src.web.funnel import Funnel, Pipeline, Rate, build_funnel, build_pipeline, pipeline_rates
 
 log = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ class MatchAnalytics:
     every section; any error degrades the whole page to 'unavailable' (mirrors
     OpsProvider)."""
 
-    def __init__(self, *, seen: SeenJobsStore, window_days: int = 30, max_weeks: int = 12) -> None:
+    def __init__(self, *, seen: SqliteSeenJobsStore, window_days: int = 30, max_weeks: int = 12) -> None:
         self._seen = seen
         self._window_days = window_days
         self._max_weeks = max_weeks

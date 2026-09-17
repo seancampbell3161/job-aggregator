@@ -1,5 +1,5 @@
 """Tailor + render + store core for the endpoint. Dependency-injected (engine,
-content, jd_reader, storage) so it is unit-testable without AWS or WeasyPrint.
+content, jd_reader, storage) so it is unit-testable without WeasyPrint.
 Never raises out — failures become an {"error": ...} dict the page renders."""
 
 from __future__ import annotations

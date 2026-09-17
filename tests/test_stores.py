@@ -1,51 +1,48 @@
 # tests/test_stores.py
-import pytest
-
-from src.state_sqlite import SqliteSeenJobsStore
+from src.state_sqlite import SqliteRejectedPostingsStore, SqliteSeenJobsStore
 from src.stores import Stores, build_stores
 
 
-def test_build_stores_sqlite_default(monkeypatch, tmp_path):
-    monkeypatch.delenv("JOB_AGG_BACKEND", raising=False)
+def test_build_stores_wires_sqlite_stores_over_one_connection(monkeypatch, tmp_path):
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
     stores = build_stores()
     assert isinstance(stores, Stores)
     assert isinstance(stores.seen, SqliteSeenJobsStore)
-    # all four share one connection
+    assert isinstance(stores.rejected, SqliteRejectedPostingsStore)
     assert stores.seen._conn is stores.source_state._conn
 
 
-def test_build_stores_sqlite_explicit(monkeypatch, tmp_path):
-    monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
+def test_build_stores_ignores_legacy_backend_env(monkeypatch, tmp_path, caplog):
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
-    assert isinstance(build_stores().seen, SqliteSeenJobsStore)
-
-
-def test_build_stores_dynamodb_selects_aws_classes(monkeypatch):
     monkeypatch.setenv("JOB_AGG_BACKEND", "dynamodb")
-    from src.state import SeenJobsStore
-    stores = build_stores()
-    assert isinstance(stores.seen, SeenJobsStore)
+    with caplog.at_level("WARNING", logger="src.stores"):
+        assert isinstance(build_stores().seen, SqliteSeenJobsStore)
+    warnings = [r for r in caplog.records if r.message == "legacy_backend_env_ignored"]
+    assert len(warnings) == 1
+    assert warnings[0].value == "dynamodb"
 
 
-def test_build_stores_unknown_backend_raises(monkeypatch):
-    monkeypatch.setenv("JOB_AGG_BACKEND", "bogus")
-    with pytest.raises(ValueError, match="JOB_AGG_BACKEND"):
+def test_build_stores_no_warning_when_backend_env_unset_or_sqlite(monkeypatch, tmp_path, caplog):
+    monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
+    monkeypatch.delenv("JOB_AGG_BACKEND", raising=False)
+    with caplog.at_level("WARNING", logger="src.stores"):
         build_stores()
+    assert not any(r.message == "legacy_backend_env_ignored" for r in caplog.records)
 
-
-def test_sqlite_backend_wires_rejected_store(monkeypatch, tmp_path):
     monkeypatch.setenv("JOB_AGG_BACKEND", "sqlite")
-    monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
-    from src.state_sqlite import SqliteRejectedPostingsStore
-    from src.stores import build_stores
-    stores = build_stores()
-    assert isinstance(stores.rejected, SqliteRejectedPostingsStore)
+    with caplog.at_level("WARNING", logger="src.stores"):
+        build_stores()
+    assert not any(r.message == "legacy_backend_env_ignored" for r in caplog.records)
 
 
-def test_dynamodb_backend_has_no_rejected_store(monkeypatch):
-    monkeypatch.setenv("JOB_AGG_BACKEND", "dynamodb")
-    from src.stores import build_stores
-    stores = build_stores()
-    assert stores.rejected is None
-    assert stores.alert_state is None
+def test_state_module_has_no_aws_dependency():
+    import src.state as state
+    assert not hasattr(state, "boto3")
+    assert not hasattr(state, "SeenJobsStore")
+
+
+def test_stores_requires_every_store():
+    import dataclasses
+    fields = dataclasses.fields(Stores)
+    assert len(fields) == 10
+    assert all(f.default is dataclasses.MISSING for f in fields)

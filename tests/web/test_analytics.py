@@ -92,45 +92,34 @@ def test_gap_window_missing_gaps_key_is_clean():
     assert tally == [] and total == 1
 
 
-import boto3  # noqa: E402
 import pytest  # noqa: E402
-from moto import mock_aws  # noqa: E402
 
 from src.models import NormalizedPosting  # noqa: E402
-from src.state import SeenJobsStore  # noqa: E402
+from src.sqlite_db import connect  # noqa: E402
+from src.state_sqlite import SqliteSeenJobsStore  # noqa: E402
 from src.web.analytics import MatchAnalytics  # noqa: E402
-
-SEEN = "seen_jobs_analytics_test"
 
 
 @pytest.fixture
 def analytics_provider():
-    with mock_aws():
-        ddb = boto3.client("dynamodb", region_name="us-east-1")
-        ddb.create_table(
-            TableName=SEEN,
-            AttributeDefinitions=[{"AttributeName": "job_id", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "job_id", "KeyType": "HASH"}],
-            BillingMode="PAY_PER_REQUEST",
+    seen = SqliteSeenJobsStore(connect(":memory:"))
+
+    def seed(job_id, company, source, gaps):
+        seen.claim_for_notify(
+            job_id, score=8, rationale="why", gaps=gaps,
+            posting=NormalizedPosting(
+                job_id=job_id, title="Engineer", company=company,
+                location_text="Remote (US)", location_tags=frozenset(),
+                seniority="senior", stack=frozenset({"python"}),
+                comp_min=180000, comp_max=220000, apply_url=f"https://apply/{job_id}",
+                description="", posted_at=datetime(2026, 6, 16, tzinfo=timezone.utc),
+                source=source,
+            ),
         )
-        seen = SeenJobsStore(table_name=SEEN)
 
-        def seed(job_id, company, source, gaps):
-            seen.claim_for_notify(
-                job_id, score=8, rationale="why", gaps=gaps,
-                posting=NormalizedPosting(
-                    job_id=job_id, title="Engineer", company=company,
-                    location_text="Remote (US)", location_tags=frozenset(),
-                    seniority="senior", stack=frozenset({"python"}),
-                    comp_min=180000, comp_max=220000, apply_url=f"https://apply/{job_id}",
-                    description="", posted_at=datetime(2026, 6, 16, tzinfo=timezone.utc),
-                    source=source,
-                ),
-            )
-
-        seed("greenhouse:stripe:1", "Stripe", "greenhouse:stripe", ["Kubernetes", "Kafka"])
-        seed("lever:ramp:2", "Ramp", "lever:ramp", [])
-        yield MatchAnalytics(seen=seen)
+    seed("greenhouse:stripe:1", "Stripe", "greenhouse:stripe", ["Kubernetes", "Kafka"])
+    seed("lever:ramp:2", "Ramp", "lever:ramp", [])
+    yield MatchAnalytics(seen=seen)
 
 
 def test_match_analytics_summary_shape(analytics_provider):

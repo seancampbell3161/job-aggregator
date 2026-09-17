@@ -117,7 +117,7 @@ def test_nav_visible_logic(stores_trio):
     from src.web.coach import CoachProvider
     _, _, coach_store = stores_trio
     assert CoachProvider(store=coach_store).nav_visible is True
-    assert CoachProvider(store=None).nav_visible is False          # DynamoDB
+    assert CoachProvider(store=None).nav_visible is False
     assert CoachProvider(store=coach_store, enabled=False).nav_visible is False
 
 
@@ -153,33 +153,19 @@ async def test_run_with_cfg_degrades_on_unreadable_files(stores_trio, tmp_path):
 
 from fastapi.testclient import TestClient
 
-from src.state_sqlite import (
-    SqliteConnectorHealthStore,
-    SqliteDiscoveredSlugsStore,
-    SqliteOpsAlertStateStore,
-    SqlitePipelineEventsStore,
-    SqliteSourceStateStore,
-)
-from src.stores import Stores
 from src.web.app import create_app
 from src.web.repo import TriageRepo
+from tests.sqlite_helpers import sqlite_stores
 
 
 @pytest.fixture
 def coach_client(tmp_path, monkeypatch):
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
     conn = connect(":memory:")
-    seen = SqliteSeenJobsStore(conn)
-    rejected = SqliteRejectedPostingsStore(conn)
-    coach_store = SqliteCoachRunsStore(conn)
-    stores = Stores(
-        seen=seen, source_state=SqliteSourceStateStore(conn),
-        discovered=SqliteDiscoveredSlugsStore(conn),
-        health=SqliteConnectorHealthStore(conn),
-        events=SqlitePipelineEventsStore(conn),
-        rejected=rejected, alert_state=SqliteOpsAlertStateStore(conn),
-        coach=coach_store,
-    )
+    stores = sqlite_stores(conn)
+    seen = stores.seen
+    rejected = stores.rejected
+    coach_store = stores.coach
     seen.claim_for_notify("greenhouse:acme:1", score=8, posting=_posting("greenhouse:acme:1"))
     seen.set_status("greenhouse:acme:1", "applied")
     from src.web.coach import CoachProvider
@@ -251,12 +237,8 @@ def test_low_sample_banner(coach_client):
 def test_unavailable_store_renders_explainer(tmp_path, monkeypatch):
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
     conn = connect(":memory:")
-    seen = SqliteSeenJobsStore(conn)
-    stores = Stores(
-        seen=seen, source_state=SqliteSourceStateStore(conn),
-        discovered=SqliteDiscoveredSlugsStore(conn),
-        health=SqliteConnectorHealthStore(conn),
-    )
+    stores = sqlite_stores(conn)
+    seen = stores.seen
     from src.web.coach import CoachProvider
     app = create_app(repo=TriageRepo(seen), stores=stores, coach=CoachProvider(store=None))
     client = TestClient(app)
@@ -269,13 +251,9 @@ def test_unavailable_store_renders_explainer(tmp_path, monkeypatch):
 def test_engineless_provider_explains_not_configured(tmp_path, monkeypatch):
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "t2"))
     conn = connect(":memory:")
-    seen = SqliteSeenJobsStore(conn)
-    coach_store = SqliteCoachRunsStore(conn)
-    stores = Stores(
-        seen=seen, source_state=SqliteSourceStateStore(conn),
-        discovered=SqliteDiscoveredSlugsStore(conn),
-        health=SqliteConnectorHealthStore(conn), coach=coach_store,
-    )
+    stores = sqlite_stores(conn)
+    seen = stores.seen
+    coach_store = stores.coach
     from src.web.coach import CoachProvider
     app = create_app(repo=TriageRepo(seen), stores=stores,
                      coach=CoachProvider(store=coach_store, seen=seen))

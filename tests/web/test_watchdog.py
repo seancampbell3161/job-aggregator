@@ -5,30 +5,16 @@ from fastapi.testclient import TestClient
 
 from src.ops_alerts import OpsThresholds
 from src.sqlite_db import connect
-from src.state_sqlite import (
-    SqliteConnectorHealthStore,
-    SqliteDiscoveredSlugsStore,
-    SqliteOpsAlertStateStore,
-    SqlitePipelineEventsStore,
-    SqliteRejectedPostingsStore,
-    SqliteSeenJobsStore,
-    SqliteSourceStateStore,
-    _now_ms,
-)
-from src.stores import Stores
+from src.state_sqlite import _now_ms
 from src.web.app import create_app
 from src.web.repo import TriageRepo
 from src.web.watchdog import check_once
+from tests.sqlite_helpers import sqlite_stores
 
 
 def _sqlite_stores():
     conn = connect(":memory:")
-    return conn, Stores(
-        seen=SqliteSeenJobsStore(conn), source_state=SqliteSourceStateStore(conn),
-        discovered=SqliteDiscoveredSlugsStore(conn), health=SqliteConnectorHealthStore(conn),
-        events=SqlitePipelineEventsStore(conn), rejected=SqliteRejectedPostingsStore(conn),
-        alert_state=SqliteOpsAlertStateStore(conn),
-    )
+    return conn, sqlite_stores(conn)
 
 
 @pytest.mark.asyncio

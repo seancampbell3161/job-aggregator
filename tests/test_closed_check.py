@@ -198,13 +198,3 @@ async def test_sweep_unknown_is_noop_and_archive_never_checked():
     s.set_status("ashby:linear:xyz", "rejected")  # archived
     r2 = await run_closed_sweep(s, client_factory=_factory_responding(404))
     assert r2["checked"] == 0
-
-
-@pytest.mark.asyncio
-async def test_sweep_skips_store_without_write_method():
-    class _ReadOnly:
-        def list_matches(self):
-            return [{"job_id": "x", "status": "applied", "source": "a:b", "apply_url": "https://x"}]
-
-    r = await run_closed_sweep(_ReadOnly(), client_factory=_factory_responding(404))
-    assert r == {"checked": 0, "misses": 0, "flagged": 0, "reset": 0, "unknown": 0}

@@ -1,7 +1,7 @@
 """Résumé tailoring (sub-project A): foundation artifacts + engine + CLI.
 
 build_tailor_engine mirrors handler._build_relevance_scorer — provider/model
-default to the relevance values, ollama key from env/SSM, fail-soft to None when
+default to the relevance values, ollama key from env, fail-soft to None when
 disabled / key missing / artifacts unreadable (the caller treats None as
 'tailoring unavailable')."""
 

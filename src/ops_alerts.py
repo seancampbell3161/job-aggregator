@@ -95,7 +95,7 @@ class OpsAlertEvaluator:
         self._events = events
         self._t = thresholds
         # Optional: the per-source watchdog is skipped entirely when absent
-        # (DynamoDB deployments wire no rejected-postings store).
+        # (no rejected-postings store wired).
         self._rejected = rejected
 
     # -- state machine -------------------------------------------------------

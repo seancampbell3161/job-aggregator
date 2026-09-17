@@ -2,9 +2,9 @@
 
 A personal job-alert pipeline. It polls public ATS endpoints and a few job-board aggregators on a schedule, filters new postings against your hard requirements, asks an LLM to score how well each survivor matches your written profile, and pushes the keepers to your phone (ntfy) and a Discord channel.
 
-It runs **two ways from the same codebase**: fully locally on a machine you own (Docker Compose + SQLite, no AWS), or serverless on AWS (a single Lambda invoked by EventBridge, state in DynamoDB). Local is the supported path. The AWS path is kept in the tree and CI still validates its Terraform, but the maintainer no longer runs it, so treat it as unmaintained for now.
+It runs on a machine you own — Docker Compose with SQLite state, no cloud account required.
 
-> **Just want it running?** → **[GETTING_STARTED.md](GETTING_STARTED.md)** walks you through both paths end-to-end and how to tailor it to your job preferences.
+> **Just want it running?** → **[GETTING_STARTED.md](GETTING_STARTED.md)** walks you through setup end-to-end and how to tailor it to your job preferences.
 > **Something broken?** → **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**.
 > **What changed?** → **[CHANGELOG.md](CHANGELOG.md)** (release process in [RELEASING.md](RELEASING.md)).
 
@@ -62,7 +62,7 @@ Five tiers run on independent schedules:
 
 | Tier | Default cadence | What it does |
 |---|---|---|
-| `ats` | every 10 min (local) / 2 min (AWS) | Polls the httpx ATS families (Greenhouse … Taleo, iCIMS/JSON-LD). Cheap, low-latency. Fetches run with bounded concurrency (semaphore) so the connection pool can't be exhausted as connectors grow. |
+| `ats` | every 10 min | Polls the httpx ATS families (Greenhouse … Taleo, iCIMS/JSON-LD). Cheap, low-latency. Fetches run with bounded concurrency (semaphore) so the connection pool can't be exhausted as connectors grow. |
 | `slow` | every 15 min | HN Who Is Hiring + aggregators. Rate-friendlier endpoints. |
 | `headless` | every ~45 min | JS-gated boards that need a real browser (Avature). Playwright/Chromium; opt-in via the `[headless]` extra. |
 | `discovery` | every 24 h | Drains aggregator-sighted (Adzuna) and VC-portfolio candidates first, then runs the conversion chain over yc-oss + `manual_companies` (slug variants → careers-page fingerprint) and fingerprints the enterprise seed list — all within one probe budget that reserves a slice for revalidating known-good boards. Fully-exhausted misses re-probe last, from leftover budget only. Promotes healthy boards into the active poll set. Re-fetches configured VC portfolios weekly (inert by default). No notifications. |
@@ -70,19 +70,15 @@ Five tiers run on independent schedules:
 
 ### State and secrets
 
-The SQLite backend keeps **eight tables** — `seen_jobs` (dedup; also stores each notified posting's relevance score, résumé gaps, and triage/board status + application history), `source_state` (per-connector ETag / cursor), `discovered_slugs` and `discovered_boards` (auto-discovered startup slugs and enterprise boards, with health), `connector_health` (a poll-health circuit breaker that auto-suppresses connectors which 404/410 repeatedly, re-probed daily), `rejected_postings` (the audit trail — what was filtered/suppressed and why), `pipeline_events` (per-cycle telemetry behind `/pipeline`), and `ops_alert_state` (cooldowns for the degraded / zero-yield / pipeline-stopped push alerts).
+SQLite keeps **eight tables** — `seen_jobs` (dedup; also stores each notified posting's relevance score, résumé gaps, and triage/board status + application history), `source_state` (per-connector ETag / cursor), `discovered_slugs` and `discovered_boards` (auto-discovered startup slugs and enterprise boards, with health), `connector_health` (a poll-health circuit breaker that auto-suppresses connectors which 404/410 repeatedly, re-probed daily), `rejected_postings` (the audit trail — what was filtered/suppressed and why), `pipeline_events` (per-cycle telemetry behind `/pipeline`), and `ops_alert_state` (cooldowns for the degraded / zero-yield / pipeline-stopped push alerts).
 
-The storage backend is selected by `JOB_AGG_BACKEND`:
+State lives in a single SQLite file at `./data/job_aggregator.db`.
 
-- **`sqlite`** (default) — a single file in `./data/job_aggregator.db`. This is what the local Docker stack uses, and the only backend for the audit, ops-alert, board-history, and enterprise-discovery features.
-- **`dynamodb`** — the four core DynamoDB tables (`seen_jobs`, `source_state`, `discovered_slugs`, `connector_health`). This is what the Lambda uses (`infra/lambda.tf` sets the env var); the SQLite-only features above are inert on this backend.
-
-Secrets (ntfy URL, Discord webhook, and the LLM API key for your provider) come from a git-ignored `.env` locally, or from SSM SecureString parameters injected into the Lambda at deploy time.
+Secrets (ntfy URL, Discord webhook, and the LLM API key for your provider) come from a git-ignored `.env`.
 
 ### Cost
 
 - **Local:** $0 infrastructure (your electricity). LLM cost is $0 if you run Ollama locally, otherwise your provider's rate.
-- **AWS:** roughly **$15–25/month** infra at ~200 connectors on a 2-minute cadence (mostly Lambda + DynamoDB; ATS frequency is the main driver). LLM cost depends on provider: **Ollama Cloud** is a flat GPU-time subscription (fixed regardless of volume); **Anthropic** (Claude Haiku) is per-token (bursty — a few dollars/day while clearing a backlog, peaks ~$12, pennies/day at steady state); **Google Gemini** has a free tier. All three are one-line `config.yaml` swaps.
 
 ## Web UI
 
@@ -104,19 +100,19 @@ several pages over the same state as the pipeline:
 - **Triage inbox** (`/`) — browse, search, and filter notified matches; set a status (New → Interested → Applied → Interviewing, or Dismissed) and click through to apply.
 - **Application board** (`/board`) — a kanban view of where each application stands, with a status-history timeline and a staleness badge. Maintains itself with a daily closed-posting sweep + digest, and (opt-in) Gmail-suggested status badges. **Add a job manually** for an opportunity that never came through a connector (a recruiter DM, a referral): it's stored as an ordinary match under the `manual:` source, so it appears on the board, in triage, and in every analytics section — and its description feeds tailoring and gap analysis like any other posting. Hand-added rows carry no relevance score (nothing scored them) and never expire.
 - **Rejection audit** (`/audit`) — every posting the pipeline filtered or suppressed, with the gate that dropped it; rescue a wrongly-dropped posting back into the inbox or confirm the rejection (those verdicts feed threshold self-tuning).
-- **Pipeline / ops dashboard** (`/pipeline`) — a health strip, connector health, match & score analytics, LLM-failure tally, and cycle stats & fetch failures (from CloudWatch on AWS, rolling 7 days). Each panel is fail-soft.
+- **Pipeline / ops dashboard** (`/pipeline`) — a health strip, connector health, match & score analytics, LLM-failure tally, and cycle stats & fetch failures (rolling 7 days). Each panel is fail-soft.
 - **Match analytics** (`/analytics`) — matches over time, where matches come from (by company and ATS), and your most common résumé stretch-skills.
 - **Coach** (`/coach`) — on-demand LLM recommendations for improving your application response rate, grounded in your own funnel, audit trail, config, and résumé; keeps a run history.
 - **Apply kit** (`/kit`) — a tap-to-copy sheet of your recurring application answers (work authorization, links, EEO), sourced from a gitignored `resume/facts.yaml`.
 - **Resume builder** (`/builder`) — manage résumé template packs and rendering settings. Switch between the two built-in designs, upload your own (a Jinja2 HTML file, a zip pack with fonts, or a `.docx` converted once via the LLM and held for your review), and set bullet caps, max pages, and page size/margins. The active template drives every tailored-résumé PDF (the alert deep-links and the CLI); a finished run can be re-rendered in any template instantly, no LLM call. Template contract: [`resume/README.md`](resume/README.md).
 
-See [GETTING_STARTED.md](GETTING_STARTED.md#a5-open-the-web-ui) for how to open it.
+See [GETTING_STARTED.md](GETTING_STARTED.md#a4-open-the-web-ui) for how to open it.
 
 ## Repo layout
 
 ```
 src/
-  handler.py          Lambda entrypoint + CLI
+  handler.py          pipeline entrypoint + CLI
   scheduler.py        local APScheduler daemon (the Docker poller)
   orchestrator.py     fetch → dedup → filter → score → gaps → notify
   connectors/         one module per source (ATS + aggregators + headless)
@@ -131,17 +127,13 @@ src/
   sightings.py        aggregator sighting capture (Adzuna) → staged discovery candidates
   vc_portfolio.py     VC portfolio drivers (a16z, Sequoia, CSV) — shared by the CLI and weekly auto-discovery
   digest.py           résumé-gap tally + weekly Discord digest
-  stores.py           build_stores() factory — selects sqlite or dynamodb backend
-  state.py            DynamoDB stores
-  state_sqlite.py     SQLite stores (local backend)
+  stores.py           build_stores() — wires the SQLite stores
+  state.py            shared row types + item shaping for the SQLite stores
+  state_sqlite.py     SQLite stores
   web/                local UI (FastAPI + HTMX): triage, board, /audit, /pipeline ops, /analytics, /coach, /kit, /builder
-  tailor/             résumé tailoring engine + render/ (template packs → PDF via WeasyPrint) + endpoint/ (hosted container-Lambda)
-infra/                Terraform: Lambda, EventBridge, DynamoDB, SSM, IAM, alarms
-  bootstrap/          one-time S3 + DynamoDB lock table for TF state
+  tailor/             résumé tailoring engine + render/ (template packs → PDF via WeasyPrint) + endpoint/ (deep-link auth, loading page, run orchestration)
 scripts/
-  package.sh                builds build/lambda.zip (vendored deps for Linux x86_64)
   add_company.sh            appends a slug to config.yaml
-  migrate_dynamo_to_sqlite.py  one-shot DynamoDB → SQLite migration
   capture_fixture.py        saves an ATS response for connector tests
   discover.py               one-shot local discovery run
   discover_enterprise.py    fingerprint a seed CSV of enterprise careers pages (dry-run + --merge)
@@ -152,7 +144,7 @@ docker-compose.yml    local stack: poller + web + (opt-in) ollama
 config.yaml           filters + sources + schedules + thresholds
 profile.md            the prose the LLM scores postings against
 resume.md.example     template résumé for gap analysis (copy to resume.md — gitignored)
-GETTING_STARTED.md    end-to-end setup for local + AWS, and tailoring
+GETTING_STARTED.md    end-to-end setup and tailoring
 TROUBLESHOOTING.md    common setup and runtime issues
 ```
 
@@ -168,20 +160,20 @@ Two files do almost all the customization — no code changes needed:
 with `cp config.example.yaml config.yaml && cp profile.example.md profile.md`;
 `git pull` never touches them.
 
-Step-by-step tuning — filters, the relevance profile, providers and calibration, adding companies, gap analysis — is in **[GETTING_STARTED.md §3](GETTING_STARTED.md#3-tailor-it-to-your-job-preferences)**.
+Step-by-step tuning — filters, the relevance profile, providers and calibration, adding companies, gap analysis — is in **[GETTING_STARTED.md §2](GETTING_STARTED.md#2-tailor-it-to-your-job-preferences)**.
 
 The complete flag-by-flag reference (every knob, default, and env secret) is **[docs/CONFIG.md](docs/CONFIG.md)**.
 
 ## Extending it
 
-The codebase is ~13,000 lines of Python with strict typing (Pydantic) and a large, small-grained test suite. Most changes don't require touching Terraform or AWS. Recipes are sorted from least to most work.
+The codebase is ~13,000 lines of Python with strict typing (Pydantic) and a large, small-grained test suite. Recipes are sorted from least to most work.
 
 ### Picking your skill tier
 
 | You want to… | Skill needed | Where |
 |---|---|---|
-| Change titles, stack, comp, locations, companies, quiet hours, LLM provider/thresholds, the LLM judgment criteria, résumé gap analysis | None — YAML/Markdown only | `config.yaml`, `profile.md`, `resume.md` ([Getting Started §3](GETTING_STARTED.md#3-tailor-it-to-your-job-preferences)) |
-| Change polling cadence | None — config or one Terraform variable | `config.yaml` `schedules:` (local) / `infra/variables.tf` (AWS) |
+| Change titles, stack, comp, locations, companies, quiet hours, LLM provider/thresholds, the LLM judgment criteria, résumé gap analysis | None — YAML/Markdown only | `config.yaml`, `profile.md`, `resume.md` ([Getting Started §2](GETTING_STARTED.md#2-tailor-it-to-your-job-preferences)) |
+| Change polling cadence | None — YAML only | `config.yaml` `schedules:` |
 | Add a new notification target (Slack, email, SMS, Telegram) | Beginner Python | `src/notify/` |
 | Add a new filter (reject by company, require remote-only) | Beginner Python | `src/filters.py` |
 | Tweak the notification message format | Beginner Python | `src/notify/format.py` |
@@ -195,7 +187,6 @@ The codebase is ~13,000 lines of Python with strict typing (Pydantic) and a larg
 - **Async Python.** The whole pipeline is `httpx.AsyncClient` + `asyncio.gather`, with per-run fetch concurrency capped by a semaphore (`run_once(max_concurrency=...)`, default 40). If `async`/`await` are new, read the [Python asyncio tutorial](https://docs.python.org/3/library/asyncio-task.html) first.
 - **Pytest with async + mocks.** Tests use `pytest-asyncio` and `unittest.mock.AsyncMock`; `tests/test_relevance.py` shows the pattern.
 - **Pydantic v2.** Config and data models are all Pydantic `BaseModel`s — mostly you'll just add fields.
-- **AWS + Terraform** are only needed for the Lambda deploy. Ignore `infra/` entirely if you run locally.
 
 ### Recipe: add a new notification sink
 
@@ -211,7 +202,7 @@ def _build_sinks(cfg: AppConfig) -> list[Sink]:
     ]
 ```
 
-Add `slack_webhook_url: str = ""` to `Secrets` in `src/config.py`, read it from `JOB_AGG_SLACK_WEBHOOK_URL` in `_load_secrets()`, and (for deploys) add the SSM param in `infra/ssm.tf` + the env var in `infra/lambda.tf`. Discord is the cleanest template. Write a test that mocks `httpx.AsyncClient.post`; `tests/notify/test_discord.py` is the template.
+Add `slack_webhook_url: str = ""` to `Secrets` in `src/config.py` and read it from `JOB_AGG_SLACK_WEBHOOK_URL` in `_load_secrets()`. Discord is the cleanest template. Write a test that mocks `httpx.AsyncClient.post`; `tests/notify/test_discord.py` is the template.
 
 ### Recipe: add a new filter
 
@@ -241,8 +232,7 @@ Mirror `GeminiRelevanceScorer` / `OllamaRelevanceScorer` in `src/relevance.py`:
 3. **Add the secret.** `Secrets.openai_api_key: str = ""`, read from `JOB_AGG_OPENAI_API_KEY`.
 4. **Add the SDK to `pyproject.toml`.**
 5. **Branch in the handler.** `_build_relevance_scorer` in `src/handler.py` has an `anthropic / gemini / ollama` ladder — add another branch.
-6. **For deploys**, add an SSM param + env var (`infra/ssm.tf`, `infra/lambda.tf`, `infra/iam.tf`).
-7. **Tests.** Copy the Gemini/Ollama tests in `tests/test_relevance.py` (happy path, network error, rate limit, malformed/empty JSON, missing fields, clipping, truncation, timeout).
+6. **Tests.** Copy the Gemini/Ollama tests in `tests/test_relevance.py` (happy path, network error, rate limit, malformed/empty JSON, missing fields, clipping, truncation, timeout).
 
 ### Recipe: add a new ATS family
 
@@ -265,10 +255,9 @@ Read the tests. Every behavior is covered by a small test (most 5–15 lines). T
 
 ## Reference
 
-- **Setup (local + AWS) and tailoring:** [GETTING_STARTED.md](GETTING_STARTED.md)
+- **Setup and tailoring:** [GETTING_STARTED.md](GETTING_STARTED.md)
 - **Common issues:** [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 - **Relevance calibration runbook:** [`docs/runbooks/calibrating-relevance-scores.md`](docs/runbooks/calibrating-relevance-scores.md)
-- **Hosted tailor endpoint runbook:** [`docs/runbooks/deploy-tailor-endpoint.md`](docs/runbooks/deploy-tailor-endpoint.md)
 - **Upgrading a running local stack:** [`docs/runbooks/deploy-local-stack.md`](docs/runbooks/deploy-local-stack.md)
 - **Release process:** [RELEASING.md](RELEASING.md) · changes in [CHANGELOG.md](CHANGELOG.md)
 - **Security policy & threat model:** [SECURITY.md](SECURITY.md)
