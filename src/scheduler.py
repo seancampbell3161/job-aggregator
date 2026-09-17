@@ -1,37 +1,74 @@
 """Long-running scheduler daemon: runs handler._run(tier) on cadences read
-from config.schedules. Run as `python -m src.scheduler`.
+from the settings service. Run as `python -m src.scheduler`.
 
-A fifth job (`prune`) runs daily at 04:00 UTC and calls
-SqliteSeenJobsStore.prune_expired() to remove TTL-expired rows."""
+Every job is registered at boot whether or not the instance is set up:
+triggers come from the current settings, or the model defaults. Each job takes
+its own snapshot when it fires and no-ops until setup. config_watch re-applies
+trigger changes within CONFIG_WATCH_SECONDS of a settings save — no restart.
+A daily `prune` job (04:00 UTC) removes TTL-expired rows."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import os
 
 import httpx
+from apscheduler.schedulers.base import BaseScheduler
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from src.board_digest import compose_board_digest, send_board_digest
 from src.closed_check import run_closed_sweep
-from src.config import AppConfig, load_config
+from src.config import AppConfig
 from src.gmail_ingest import run_gmail_check
 from src.handler import _run
 from src.logging_setup import configure_logging
+from src.settings.service import ConfigService, ConfigSnapshot
 from src.stores import build_stores
 
 log = logging.getLogger(__name__)
 
+CONFIG_WATCH_SECONDS = 30
 
-def _tick(tier: str) -> None:
+# (kind, value): kind is an IntervalTrigger unit ("minutes"/"hours") or "cron".
+# Comparing specs is how config_watch spots a changed trigger.
+TriggerSpec = tuple[str, int | str]
+
+
+def _trigger_specs(cfg: AppConfig) -> dict[str, TriggerSpec]:
+    return {
+        "ats": ("minutes", cfg.schedules.ats_minutes),
+        "slow": ("minutes", cfg.schedules.slow_minutes),
+        "discovery": ("hours", cfg.schedules.discovery_hours),
+        "headless": ("minutes", cfg.schedules.headless_minutes),
+        "digest": ("cron", cfg.schedules.digest_cron),
+        "closed_check": ("cron", cfg.board.closed_check_cron),
+        "board_digest": ("cron", cfg.board.digest_cron),
+        "gmail_check": ("cron", cfg.gmail.check_cron),
+    }
+
+
+def _make_trigger(spec: TriggerSpec):
+    kind, value = spec
+    if kind == "cron":
+        return CronTrigger.from_crontab(str(value), timezone="UTC")
+    return IntervalTrigger(**{kind: int(value)})
+
+
+def _snapshot_or_skip(service: ConfigService, job: str) -> ConfigSnapshot | None:
+    snap = service.snapshot()
+    if snap is None:
+        log.info("awaiting_setup", extra={"job": job})
+    return snap
+
+
+def _tick(service: ConfigService, tier: str) -> None:
     """Run one tier cycle. Each job is sync (APScheduler default executor); the
     async pipeline is driven with asyncio.run so a slow cycle blocks only its
     own job thread, not the scheduler."""
     try:
-        asyncio.run(_run(tier=tier))
+        asyncio.run(_run(tier=tier, service=service))
     except Exception:  # noqa: BLE001 — never let one bad cycle kill the daemon
         log.exception("scheduled_cycle_failed", extra={"tier": tier})
 
@@ -56,12 +93,16 @@ def _integrity_check() -> None:
         log.exception("scheduled_integrity_check_failed")
 
 
-def _prune(cfg: AppConfig) -> None:
+def _prune(service: ConfigService) -> None:
     """Daily maintenance: remove expired seen-jobs rows and sweep the audit
     trail past its retention window. Failures are logged, never re-raised,
     so the daemon keeps running."""
     try:
-        stores = build_stores(cfg)
+        snap = _snapshot_or_skip(service, "prune")
+        if snap is None:
+            return
+        cfg = snap.cfg
+        stores = build_stores()
         removed = stores.seen.prune_expired()
         log.info("scheduled_prune_complete", extra={"removed": removed})
         if cfg.audit.enabled:
@@ -71,23 +112,29 @@ def _prune(cfg: AppConfig) -> None:
         log.exception("scheduled_prune_failed")
 
 
-def _closed_check(cfg: AppConfig) -> None:
+def _closed_check(service: ConfigService) -> None:
     """Daily posting-closed sweep over active board cards. Fail-soft: a
     failure is logged and the daemon keeps running."""
     try:
-        stores = build_stores(cfg)
+        if _snapshot_or_skip(service, "closed_check") is None:
+            return
+        stores = build_stores()
         result = asyncio.run(run_closed_sweep(stores.seen))
         log.info("scheduled_closed_check_complete", extra=result)
     except Exception:  # noqa: BLE001
         log.exception("scheduled_closed_check_failed")
 
 
-def _board_digest(cfg: AppConfig) -> None:
+def _board_digest(service: ConfigService) -> None:
     """Daily stale/closed digest on the job channel. closed_notified is
     marked only after a sink accepted the send, so a total failure
     re-announces tomorrow instead of losing the event."""
     try:
-        stores = build_stores(cfg)
+        snap = _snapshot_or_skip(service, "board_digest")
+        if snap is None:
+            return
+        cfg = snap.cfg
+        stores = build_stores()
         cards = stores.seen.list_matches()
         result = compose_board_digest(cards, stale_after_days=cfg.board.stale_after_days)
         if result is None:
@@ -109,20 +156,25 @@ def _board_digest(cfg: AppConfig) -> None:
         if sent:
             for job_id in to_mark:
                 stores.seen.mark_closed_notified(job_id)
-        log.info("scheduled_board_digest_done", extra={"sent": sent, "closed_marked": len(to_mark) if sent else 0})
+        log.info("scheduled_board_digest_done",
+                 extra={"sent": sent, "closed_marked": len(to_mark) if sent else 0})
     except Exception:  # noqa: BLE001
         log.exception("scheduled_board_digest_failed")
 
 
-def _gmail_check(cfg: AppConfig) -> None:
+def _gmail_check(service: ConfigService) -> None:
     """Hourly read-only Gmail sweep writing suggest-only board badges.
-    Env-gated on the two JOB_AGG_GMAIL_* secrets; fail-soft: a failure is
-    logged, the watermark stays put, and the daemon keeps running."""
+    Gated on the two gmail secrets; fail-soft: a failure is logged, the
+    watermark stays put, and the daemon keeps running."""
     try:
+        snap = _snapshot_or_skip(service, "gmail_check")
+        if snap is None:
+            return
+        cfg = snap.cfg
         if not (cfg.secrets.gmail_address and cfg.secrets.gmail_app_password):
             log.debug("scheduled_gmail_check_skipped: gmail secrets not configured")
             return
-        stores = build_stores(cfg)
+        stores = build_stores()
         result = run_gmail_check(
             stores.seen, stores.source_state,
             address=cfg.secrets.gmail_address,
@@ -136,61 +188,67 @@ def _gmail_check(cfg: AppConfig) -> None:
         log.exception("scheduled_gmail_check_failed")
 
 
-def build_scheduler(cfg: AppConfig) -> BlockingScheduler:
+def _config_watch(sched: BaseScheduler, service: ConfigService, applied: dict[str, TriggerSpec]) -> None:
+    """Re-apply schedule triggers whose settings changed. ``applied`` holds the
+    spec each job currently runs on; only jobs whose spec differs are
+    rescheduled, and a failed reschedule is retried on the next pass."""
+    try:
+        snap = service.snapshot()
+        cfg = snap.cfg if snap is not None else AppConfig()
+        for job_id, spec in _trigger_specs(cfg).items():
+            if applied.get(job_id) == spec:
+                continue
+            try:
+                sched.reschedule_job(job_id, trigger=_make_trigger(spec))
+            except Exception:  # noqa: BLE001 — one bad job must not block the rest
+                log.exception("job_reschedule_failed", extra={"job": job_id})
+                continue
+            applied[job_id] = spec
+            log.info("job_rescheduled", extra={"job": job_id, "trigger": f"{spec[0]}={spec[1]}"})
+    except Exception:  # noqa: BLE001 — the watch must never kill the daemon
+        log.exception("config_watch_failed")
+
+
+def _boot_config(service: ConfigService) -> AppConfig:
+    """Settings for the initial triggers: the snapshot, or model defaults when
+    not set up or the DB is unreadable at boot (config_watch catches up)."""
+    try:
+        snap = service.snapshot()
+    except Exception:  # noqa: BLE001
+        log.exception("scheduler_boot_snapshot_failed")
+        return AppConfig()
+    return snap.cfg if snap is not None else AppConfig()
+
+
+def build_scheduler(service: ConfigService) -> BlockingScheduler:
     sched = BlockingScheduler(timezone="UTC")
-    sched.add_job(
-        _tick, IntervalTrigger(minutes=cfg.schedules.ats_minutes),
-        args=["ats"], id="ats", max_instances=1, coalesce=True,
-    )
-    sched.add_job(
-        _tick, IntervalTrigger(minutes=cfg.schedules.slow_minutes),
-        args=["slow"], id="slow", max_instances=1, coalesce=True,
-    )
-    sched.add_job(
-        _tick, IntervalTrigger(hours=cfg.schedules.discovery_hours),
-        args=["discovery"], id="discovery", max_instances=1, coalesce=True,
-    )
-    sched.add_job(
-        _tick, IntervalTrigger(minutes=cfg.schedules.headless_minutes),
-        args=["headless"], id="headless", max_instances=1, coalesce=True,
-    )
-    sched.add_job(
-        _tick, CronTrigger.from_crontab(cfg.schedules.digest_cron, timezone="UTC"),
-        args=["digest"], id="digest", max_instances=1, coalesce=True,
-    )
-    sched.add_job(
-        _prune, CronTrigger.from_crontab("0 4 * * *", timezone="UTC"),
-        args=[cfg], id="prune", max_instances=1, coalesce=True,
-    )
-    sched.add_job(
-        _closed_check, CronTrigger.from_crontab(cfg.board.closed_check_cron, timezone="UTC"),
-        args=[cfg], id="closed_check", max_instances=1, coalesce=True,
-    )
-    sched.add_job(
-        _board_digest, CronTrigger.from_crontab(cfg.board.digest_cron, timezone="UTC"),
-        args=[cfg], id="board_digest", max_instances=1, coalesce=True,
-    )
-    sched.add_job(
-        _gmail_check, CronTrigger.from_crontab(cfg.gmail.check_cron, timezone="UTC"),
-        args=[cfg], id="gmail_check", max_instances=1, coalesce=True,
-    )
-    sched.add_job(
-        _integrity_check, IntervalTrigger(hours=1),
-        id="integrity", max_instances=1, coalesce=True,
-    )
+    specs = _trigger_specs(_boot_config(service))
+    for tier in ("ats", "slow", "discovery", "headless", "digest"):
+        sched.add_job(_tick, _make_trigger(specs[tier]), args=[service, tier],
+                      id=tier, max_instances=1, coalesce=True)
+    for job_id, func in (("closed_check", _closed_check), ("board_digest", _board_digest),
+                         ("gmail_check", _gmail_check)):
+        sched.add_job(func, _make_trigger(specs[job_id]), args=[service],
+                      id=job_id, max_instances=1, coalesce=True)
+    sched.add_job(_prune, CronTrigger.from_crontab("0 4 * * *", timezone="UTC"), args=[service],
+                  id="prune", max_instances=1, coalesce=True)
+    sched.add_job(_integrity_check, IntervalTrigger(hours=1),
+                  id="integrity", max_instances=1, coalesce=True)
+    sched.add_job(_config_watch, IntervalTrigger(seconds=CONFIG_WATCH_SECONDS),
+                  args=[sched, service, dict(specs)],
+                  id="config_watch", max_instances=1, coalesce=True)
     return sched
 
 
 def main() -> int:
     configure_logging()
-    cfg = load_config(os.environ.get("JOB_AGG_CONFIG_PATH", "config.yaml"))
-    sched = build_scheduler(cfg)
-    log.info("scheduler_starting", extra={
-        "ats_minutes": cfg.schedules.ats_minutes,
-        "slow_minutes": cfg.schedules.slow_minutes,
-        "discovery_hours": cfg.schedules.discovery_hours,
-        "digest_cron": cfg.schedules.digest_cron,
-    })
+    service = ConfigService(build_stores().settings)
+    try:
+        service.ensure_signing_secret()
+    except Exception:  # noqa: BLE001 — deep-link signing degrades; polling must still start
+        log.exception("tailor_signing_secret_bootstrap_failed")
+    sched = build_scheduler(service)
+    log.info("scheduler_starting", extra={"jobs": sorted(j.id for j in sched.get_jobs())})
     sched.start()
     return 0
 
