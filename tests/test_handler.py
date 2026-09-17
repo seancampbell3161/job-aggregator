@@ -1,8 +1,6 @@
 import httpx
 import pytest
 
-from src.handler import handler
-
 
 @pytest.fixture(autouse=True)
 def _env(monkeypatch, tmp_path):
@@ -37,12 +35,6 @@ def test_run_returns_zero_result_summary_for_empty_sources():
     assert result["tier"] == "ats"
 
 
-def test_handler_rejects_invalid_tier():
-    with pytest.raises(ValueError):
-        handler({"tier": "bogus"}, None)
-
-
-import os
 from unittest.mock import AsyncMock, patch
 
 import pytest

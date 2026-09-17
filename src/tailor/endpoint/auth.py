@@ -1,8 +1,9 @@
-"""HMAC signed tokens for the hosted tailor endpoint.
+"""HMAC signed tokens for the tailor deep link.
 
 Token = "<exp>.<sig>" where sig = urlsafe-b64(HMAC-SHA256(secret, "<job_id>|<exp>")).
 The signature is the gate (unforgeable without the secret); exp bounds a leaked
-link's lifetime. Rotate the SSM secret to invalidate every outstanding link."""
+link's lifetime. Rotate JOB_AGG_TAILOR_SIGNING_SECRET to invalidate every
+outstanding link."""
 
 from __future__ import annotations
 

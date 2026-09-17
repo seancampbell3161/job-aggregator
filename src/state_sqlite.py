@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
 from src.models import ConnectorState, NormalizedPosting
+from src.sanitize import sanitize_description
 from src.state import (
     _KEPT_STATUSES,
     _TTL_DAYS,
@@ -389,7 +390,7 @@ class SqliteSeenJobsStore:
             return None
         it = rows[0]
         return PostingJD(
-            description=it["description_snapshot"],
+            description=sanitize_description(it["description_snapshot"])[0],
             title=it.get("title", ""),
             company=it.get("company", ""),
         )

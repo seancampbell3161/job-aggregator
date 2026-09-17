@@ -486,14 +486,6 @@ async def _run(tier: str, dry_run: bool = False, calibrate: bool = False) -> dic
     return {**asdict(result), "tier": tier}
 
 
-def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG001
-    configure_logging()
-    tier = event.get("tier")
-    if tier not in _VALID_TIERS:
-        raise ValueError(f"event.tier must be one of {_VALID_TIERS}, got: {tier!r}")
-    return asyncio.run(_run(tier=tier))
-
-
 def _cli() -> int:
     parser = argparse.ArgumentParser(prog="job-aggregator")
     parser.add_argument("--tier", choices=sorted(_VALID_TIERS), required=False)

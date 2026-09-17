@@ -1,6 +1,5 @@
-"""Local tailor routes — the on-box replacement for the hosted Lambda Function
-URL. Same signed-token gate and loading/run two-step, but PDFs are written to a
-local directory and served by this app."""
+"""The tailor deep-link routes. Signed-token gate and loading/run two-step,
+with PDFs written to a local directory and served by this app."""
 
 from __future__ import annotations
 

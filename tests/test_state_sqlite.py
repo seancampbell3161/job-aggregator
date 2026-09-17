@@ -106,6 +106,29 @@ def test_get_jd_returns_snapshot():
     assert s.get_jd("missing") is None
 
 
+def test_get_jd_sanitizes_legacy_unsanitized_snapshot():
+    """Rows written before the injection filter existed hold raw text; the
+    tailor prompt reads through get_jd, so sanitization must happen on read."""
+    import json
+    from src.sanitize import _MARKER
+    from src.sqlite_db import connect
+    from src.state_sqlite import SqliteSeenJobsStore
+    from tests.test_sanitize import TRIGGERDEV
+
+    s = SqliteSeenJobsStore(connect(":memory:"))
+    item = {"job_id": "legacy:1", "notified": True, "first_seen": "2026-07-01T00:00:00+00:00",
+            "title": "SWE", "company": "Acme", "description_snapshot": TRIGGERDEV}
+    s._conn.execute(
+        "INSERT INTO seen_jobs (job_id, first_seen, notified, ttl, score, title, data) "
+        "VALUES (?, ?, 1, NULL, NULL, ?, ?)",
+        (item["job_id"], item["first_seen"], item["title"], json.dumps(item)),
+    )
+    jd = s.get_jd("legacy:1")
+    assert jd is not None
+    assert "ignore all previous instructions" not in jd.description.lower()
+    assert _MARKER in jd.description
+
+
 def test_set_status_concurrent_no_transaction_error():
     """Regression: concurrent set_status on a shared connection must not raise
     'cannot start a transaction within a transaction'. Before the fix, two threads
