@@ -17,8 +17,15 @@ YAML is the import/export format:
 - **Changes made outside your files** — `add-source`, `restore`, and the
   `--merge` / `seed_companies.py` scripts save to the database only. After one,
   export, bring the changes into your files, then import. Until then an import
-  refuses (listing the settings versions it would replace, writing nothing);
-  `import --force` overwrites them.
+  that would undo one of those changes refuses, naming each setting and writing
+  nothing; `import --force` overwrites them. The check compares against your
+  last import: a value your file changes to something new imports normally, but
+  list entries added or removed outside your files (compared as whole entries)
+  and optional sections such as `quiet_hours` switched on or off must stay that
+  way in your file. To undo one of those changes on purpose, import once with
+  it, then again without it. With no usable last import (settings set up some
+  other way, or the last import no longer validates), the file must keep every
+  setting that differs from its default.
 - **Secrets** — the [secrets](#secrets) table at the bottom. Never part of the
   settings document or an export.
 

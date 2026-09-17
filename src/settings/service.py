@@ -251,16 +251,20 @@ class ConfigService:
 
     # -- writes ------------------------------------------------------------------
 
-    def _prepare(self, doc: object, schema_version: int | None) -> dict:
-        """Migrate an incoming document (default: already current), validate
-        it, and return its canonical form."""
+    def parse_settings(self, doc: object, schema_version: int | None = None) -> AppConfig:
+        """Migrate an incoming document (default: already current) and validate
+        it, without writing anything. Raises SettingsInvalid."""
         from_version = self._schema_version if schema_version is None else schema_version
         try:
             migrated = migrate(doc, from_version,  # type: ignore[arg-type]
                                migrations=self._migrations, to_version=self._schema_version)
         except Exception as exc:  # noqa: BLE001 — a broken migration must report as invalid, not crash the caller
             raise SettingsInvalid([{"loc": "", "msg": str(exc)}]) from exc
-        return canonical_doc(self._validate(migrated))
+        return self._validate(migrated)
+
+    def _prepare(self, doc: object, schema_version: int | None) -> dict:
+        """The canonical form an incoming document is stored in."""
+        return canonical_doc(self.parse_settings(doc, schema_version))
 
     def save_settings(
         self, doc: dict, *, source: str, note: str | None = None,
@@ -326,15 +330,33 @@ class ConfigService:
         with self._store.read():
             return self._store.settings_versions(limit)
 
-    def current_doc(self) -> tuple[int, dict] | None:
-        """(version id, canonical doc) of the settings version in effect — no
-        secrets, no env overlays. The basis for export and read-modify-write."""
+    def current_config(self) -> tuple[int, AppConfig] | None:
+        """(version id, config) of the settings version in effect — no secrets,
+        no env overlays."""
         with self._store.read():
             effective = self._effective_version()
         if effective is None:
             return None
         row, cfg, _ = effective
-        return row.id, canonical_doc(cfg)
+        return row.id, cfg
+
+    def current_doc(self) -> tuple[int, dict] | None:
+        """(version id, canonical doc) of the settings version in effect — no
+        secrets, no env overlays. The basis for export and read-modify-write."""
+        current = self.current_config()
+        return None if current is None else (current[0], canonical_doc(current[1]))
+
+    def version_config(self, version_id: int) -> AppConfig | None:
+        """The config of a stored settings version; None when the version does
+        not exist or no longer migrates and validates."""
+        with self._store.read():
+            row = self._store.get_settings_version(version_id)
+            if row is None:
+                return None
+            try:
+                return self._parse_row(row)
+            except SettingsInvalid:
+                return None
 
     def restore(self, version_id: int) -> int:
         with self._store.read():
