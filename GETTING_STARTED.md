@@ -382,8 +382,9 @@ laptop on the same network.
 > can reach port 8000 can read your résumé, every application and its status, and
 > your apply-kit answers (work authorization, links, EEO). The LAN address above
 > is reachable by every device on that network, which is fine at home and not
-> fine on shared or public Wi-Fi. To reach it away from home use Tailscale
-> (§A9) rather than port-forwarding. To restrict it to this machine only,
+> fine on shared or public Wi-Fi. To reach it away from home use
+> [Tailscale](#reach-it-from-your-phone-anywhere-tailscale) rather than
+> port-forwarding. To restrict it to this machine only,
 > publish `127.0.0.1:8000:8000` in `docker-compose.yml`.
 
 Everything persists in **`./data`** (the SQLite DB + generated PDFs), which is

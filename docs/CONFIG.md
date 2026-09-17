@@ -21,7 +21,7 @@ a row outlives its flag).
 ## filters
 
 Hard gates run on every posting before LLM scoring — a posting rejected here
-is never scored. Details and tuning advice: GETTING_STARTED §3a.
+is never scored. Details and tuning advice: GETTING_STARTED §2a.
 
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
@@ -54,7 +54,7 @@ is unaffected, so nothing is lost. All three keys required.
 What gets polled. Two kinds of entries: **slug-list families** (one string
 per company board, added with `./scripts/add_company.sh <family> <slug>`)
 and **structured families** (hand-curated mapping entries — see the example
-block below the table). Adding/removing companies: GETTING_STARTED §3d.
+block below the table). Adding/removing companies: GETTING_STARTED §2d.
 
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
@@ -151,7 +151,7 @@ candidate mining", and "VC portfolio auto-discovery".
 ## relevance
 
 LLM scoring of postings that survive the hard filters. Provider setup and
-threshold calibration: GETTING_STARTED §3c and
+threshold calibration: GETTING_STARTED §2c and
 [runbooks/calibrating-relevance-scores.md](runbooks/calibrating-relevance-scores.md).
 
 | Flag | Default | What it does / when to touch it |

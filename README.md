@@ -4,7 +4,7 @@ A personal job-alert pipeline. It polls public ATS endpoints and a few job-board
 
 It runs on a machine you own — Docker Compose with SQLite state, no cloud account required.
 
-> **Just want it running?** → **[GETTING_STARTED.md](GETTING_STARTED.md)** walks you through both paths end-to-end and how to tailor it to your job preferences.
+> **Just want it running?** → **[GETTING_STARTED.md](GETTING_STARTED.md)** walks you through setup end-to-end and how to tailor it to your job preferences.
 > **Something broken?** → **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**.
 > **What changed?** → **[CHANGELOG.md](CHANGELOG.md)** (release process in [RELEASING.md](RELEASING.md)).
 
