@@ -302,10 +302,18 @@ def test_import_refusal_lists_at_most_ten_versions(tmp_path):
     assert "and 2 more" in str(exc.value)
 
 
-def test_import_does_not_replace_a_save_that_lands_during_the_import(tmp_path, monkeypatch):
+@pytest.mark.parametrize("changed_since_the_import", [False, True])
+def test_import_does_not_replace_a_save_that_lands_during_the_import(
+    tmp_path, monkeypatch, changed_since_the_import,
+):
     svc = make_service()
     d = _config_dir(tmp_path)
     import_dir(svc, d, templates_dir=tmp_path / "t")
+    if changed_since_the_import:
+        # The guard compares the files and lets them through; the write still
+        # pins the version it compared against.
+        append_slug_sources(svc, {"greenhouse": ["stripe"]}, label="add-source")
+        (d / "config.yaml").write_text("schedules: {slow_minutes: 30}\nsources: {greenhouse: [stripe]}\n")
     real_save_bundle = svc.save_bundle
 
     def save_bundle_after_a_concurrent_write(*args, **kwargs):
@@ -414,3 +422,33 @@ def test_an_unusable_last_import_falls_back_to_a_strict_comparison(tmp_path):
     (d / "config.yaml").write_text("schedules: {slow_minutes: 60, ats_minutes: 5}\n")
     import_dir(svc, d, templates_dir=tmp_path / "t")
     assert svc.snapshot().cfg.schedules.ats_minutes == 5
+
+
+def test_a_stale_file_cannot_bring_back_default_list_entries_removed_since_the_import(tmp_path):
+    svc = make_service()
+    d = _config_dir(tmp_path, "schedules: {slow_minutes: 30}\nfilters: {blocked_employment_types: []}\n")
+    first = import_dir(svc, d, templates_dir=tmp_path / "t").version_id
+    (d / "config.yaml").write_text("schedules: {slow_minutes: 30}\n")
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    svc.restore(first)
+
+    with pytest.raises(ImportFailed) as exc:
+        import_dir(svc, d, templates_dir=tmp_path / "t")
+
+    assert ("filters.blocked_employment_types: would bring back contract, temporary, "
+            "part_time, internship") in str(exc.value)
+    assert svc.snapshot().cfg.filters.blocked_employment_types == []
+
+
+def test_import_refusal_explains_how_to_bring_the_changes_into_the_files(tmp_path):
+    svc = make_service()
+    d = _config_dir(tmp_path)
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    append_slug_sources(svc, {"greenhouse": ["stripe"]}, label="add-source")
+    with pytest.raises(ImportFailed) as exc:
+        import_dir(svc, d, templates_dir=tmp_path / "t")
+    assert str(exc.value).splitlines()[-1] == (
+        "Nothing was written. Run `python -m src.settings export DIR`, bring those changes "
+        "into your files, then import again — or re-run the import with --force to "
+        "overwrite them."
+    )

@@ -67,7 +67,9 @@ docker compose run --rm web python -m src.settings export /data/export   # lands
 
 Until then an import that would undo one of those changes refuses, naming each
 setting it would undo (nothing is written); once your files carry the changes it
-imports normally. `import --force` overwrites them on purpose.
+imports normally. `import --force` overwrites them on purpose. Import your own
+files rather than `./data/export`: each import is only checked for changes since
+the last one.
 
 The host-side scripts (`uv run python scripts/discover_enterprise.py --merge`,
 `import_vc_portfolio.py … --merge`, `seed_companies.py`) write `./data/job_aggregator.db`

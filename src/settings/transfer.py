@@ -60,9 +60,9 @@ _MAX_LISTED_CHANGES = 10
 
 
 class ImportFailed(Exception):
-    """The import could not run: a file is missing, unreadable, or malformed,
-    or settings changed outside an import since the last one. Nothing was
-    written."""
+    """The import could not run: a file is missing, unreadable, or malformed;
+    the files would undo settings saved outside an import since the last one;
+    or another process saved settings mid-import. Nothing was written."""
 
 
 @dataclass
@@ -229,14 +229,14 @@ def _import_base_version(service: ConfigService, raw: dict) -> int | None:
 
 def _undone_by(service: ConfigService, raw: dict, last_import: SettingsRow | None) -> list[str]:
     try:
-        incoming = service.canonicalize(raw)
+        incoming = service.parse_settings(raw)
     except SettingsInvalid:
         return []  # save_bundle reports every validation error at once; nothing is written
-    current = service.current_doc()
+    current = service.current_config()
     # No usable baseline (never imported, or that version no longer validates):
     # compare strictly against the settings in effect.
-    base = service.version_doc(last_import.id) if last_import is not None else None
-    return undone_changes(base, current[1] if current is not None else {}, incoming)
+    base = service.version_config(last_import.id) if last_import is not None else None
+    return undone_changes(base, current[1] if current is not None else AppConfig(), incoming)
 
 
 def _undone_changes_message(
@@ -253,7 +253,7 @@ def _undone_changes_message(
     if len(changes) > _MAX_LISTED_CHANGES:
         lines.append(f"  … and {len(changes) - _MAX_LISTED_CHANGES} more")
     lines.append(
-        "Nothing was written. Run `python -m src.settings export DIR`, merge those values "
+        "Nothing was written. Run `python -m src.settings export DIR`, bring those changes "
         "into your files, then import again — or re-run the import with --force to "
         "overwrite them."
     )

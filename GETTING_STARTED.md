@@ -97,10 +97,14 @@ cp profile.example.md profile.md
 > ```
 >
 > The export holds non-default values only and none of your comments, so copy
-> the changes across rather than the whole file. Until your files catch up, an
-> import that would undo one of those changes refuses to run, naming each setting
-> it would undo (nothing is written); a value you deliberately changed again
-> imports normally, and `--force` overwrites everything anyway.
+> the changes across rather than the whole file — and import your own files, not
+> the export: an import is only checked for changes since the last import, so
+> importing the export and later an older copy of your files would drop those
+> changes silently. Until your files catch up, an import that would undo one of
+> those changes refuses to run, naming each setting it would undo (nothing is
+> written). A setting your file gives a new value imports normally; to remove an
+> entry one of those changes added, import once with it, then again without it.
+> `--force` overwrites everything anyway.
 
 Every settings flag — including the ones this guide doesn't narrate — is
 catalogued with its default in **[docs/CONFIG.md](docs/CONFIG.md)**.
