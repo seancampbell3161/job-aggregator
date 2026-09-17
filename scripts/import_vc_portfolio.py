@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Import VC-portfolio companies into config.yaml via the unified two-stage
+"""Import VC-portfolio companies into settings via the unified two-stage
 discovery pipeline (slug-probe + fingerprint residual). Offline manual tool —
 run locally, review the dry-run report, then re-run with --merge.
 
     uv run python scripts/import_vc_portfolio.py a16z               # dry-run report
-    uv run python scripts/import_vc_portfolio.py a16z --merge       # write config.yaml
+    uv run python scripts/import_vc_portfolio.py a16z --merge       # save into settings
     uv run python scripts/import_vc_portfolio.py csv --csv lightspeed.csv --merge
 
 Library: src/vc_portfolio.py.
@@ -26,30 +26,34 @@ import httpx  # noqa: E402
 from src.vc_portfolio import FIRMS, discover_portfolio  # noqa: E402
 from src.user_agent import headers as ua_headers  # noqa: E402
 from src.fingerprint import (  # noqa: E402
-    merge_results_into_config,
-    gather_already_polled,
+    merge_results_into_settings,
     _store_names_fail_soft,
     format_report,
 )
-
-DEFAULT_CONFIG = REPO_ROOT / "config.yaml"
+from src.settings import open_service  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="import_vc_portfolio", description=__doc__)
     ap.add_argument("firm", choices=FIRMS)
     ap.add_argument("--csv", type=Path, default=None, help="name[,domain] CSV for firm 'csv'")
-    ap.add_argument("--merge", action="store_true", help="write matched entries into config.yaml")
+    ap.add_argument("--merge", action="store_true", help="save matched entries into settings")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--only", type=str, default=None, help="name substring filter")
-    ap.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     ap.add_argument("--out", type=Path, default=None, help="results JSON path")
     args = ap.parse_args(argv)
+
+    service = open_service()
+    snap = service.snapshot()
+    if args.merge and snap is None:
+        print("not set up — import settings first: python -m src.settings import DIR", file=sys.stderr)
+        return 1
+    manual = set(snap.cfg.discovery.manual_companies) if snap is not None else set()
 
     async def _run() -> list:
         async with httpx.AsyncClient(follow_redirects=True, headers=ua_headers()) as client:
             return await discover_portfolio(
-                args.firm, client=client, config_path=args.config,
+                args.firm, client=client, manual_companies=manual,
                 limit=args.limit, only=args.only, csv_path=args.csv,
             )
 
@@ -61,11 +65,12 @@ def main(argv: list[str] | None = None) -> int:
         args.out.write_text(json.dumps([dataclasses.asdict(r) for r in results], indent=2))
 
     if args.merge:
-        already = gather_already_polled(args.config) | _store_names_fail_soft()
-        added, diff = merge_results_into_config(results, config_path=args.config, already_polled=already)
+        added, summary = merge_results_into_settings(
+            service, results, label=f"import_vc_portfolio {args.firm}",
+            already_polled=_store_names_fail_soft(),
+        )
         if added:
-            print(f"\nMerged {added} new entries into {args.config}:\n{diff}")
-            print("Rollout: config is bind-mounted -> `docker compose restart poller`.")
+            print(f"\nMerged {added} new entries into settings (applies live):\n{summary}")
         else:
             print("\nNothing new to merge (all matched entries already polled).")
     return 0

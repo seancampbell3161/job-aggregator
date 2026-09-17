@@ -262,9 +262,7 @@ import src.vc_portfolio as vc
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_discover_two_stage_slug_then_fingerprint_residual(tmp_path, monkeypatch):
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text("sources: {}\n")
+async def test_discover_two_stage_slug_then_fingerprint_residual(monkeypatch):
     # Driver returns 2 companies: one the slug-probe will claim, one it won't
     # (but which has a domain → goes to the fingerprint residual).
     companies = [
@@ -291,7 +289,7 @@ async def test_discover_two_stage_slug_then_fingerprint_residual(tmp_path, monke
     monkeypatch.setattr(vc, "fingerprint_company", fake_fp)
 
     async with httpx.AsyncClient() as client:
-        results = await vc.discover_portfolio("a16z", client=client, config_path=cfg)
+        results = await vc.discover_portfolio("a16z", client=client)
 
     by_name = {r.name: r for r in results}
     assert connector_name(by_name["Figma"]) == "greenhouse:figma"     # slug-normalized
@@ -301,9 +299,7 @@ async def test_discover_two_stage_slug_then_fingerprint_residual(tmp_path, monke
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_discover_skips_fingerprint_when_no_domain(tmp_path, monkeypatch):
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text("sources: {}\n")
+async def test_discover_skips_fingerprint_when_no_domain(monkeypatch):
     companies = [PortfolioCompany(name="X", slug_candidates=["x"], domain=None)]
 
     async def fake_driver(client):
@@ -319,15 +315,13 @@ async def test_discover_skips_fingerprint_when_no_domain(tmp_path, monkeypatch):
     monkeypatch.setattr(vc, "fingerprint_company", fake_fp)
 
     async with httpx.AsyncClient() as client:
-        results = await vc.discover_portfolio("sequoia", client=client, config_path=cfg)
+        results = await vc.discover_portfolio("sequoia", client=client)
     assert results == []
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_discover_prefilters_manual_companies(tmp_path, monkeypatch):
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text("discovery:\n  manual_companies: [figma]\nsources: {}\n")
+async def test_discover_prefilters_manual_companies(monkeypatch):
     companies = [PortfolioCompany(name="Figma", slug_candidates=["figma"], domain="figma.com")]
 
     async def fake_driver(client):
@@ -339,15 +333,13 @@ async def test_discover_prefilters_manual_companies(tmp_path, monkeypatch):
     monkeypatch.setattr(vc, "_probe_one_ats", fake_probe)
 
     async with httpx.AsyncClient() as client:
-        results = await vc.discover_portfolio("a16z", client=client, config_path=cfg)
+        results = await vc.discover_portfolio("a16z", client=client, manual_companies={"figma"})
     assert results == []
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_discover_dedups_same_identity(tmp_path, monkeypatch):
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text("sources: {}\n")
+async def test_discover_dedups_same_identity(monkeypatch):
     # Two companies whose slug-probe resolves to the SAME board identity.
     companies = [
         PortfolioCompany(name="A", slug_candidates=["dup"], domain=None),
@@ -363,5 +355,5 @@ async def test_discover_dedups_same_identity(tmp_path, monkeypatch):
     monkeypatch.setattr(vc, "_probe_one_ats", fake_probe)
 
     async with httpx.AsyncClient() as client:
-        results = await vc.discover_portfolio("a16z", client=client, config_path=cfg)
+        results = await vc.discover_portfolio("a16z", client=client)
     assert [connector_name(r) for r in results] == ["greenhouse:dup"]  # deduped to one

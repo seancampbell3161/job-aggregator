@@ -1,27 +1,30 @@
 """Enterprise ATS fingerprinting: locate a company's careers page, identify
 the ATS behind it (including Workday/ORC triples that cannot be guessed from
-a company name), and live-verify the identity. Pure library — the CLI in
-scripts/discover_enterprise.py and any future discovery-tier integration
-both import from here."""
+a company name), and live-verify the identity. Matched boards merge into the
+settings sources. Pure library — the CLI in scripts/discover_enterprise.py
+and any future discovery-tier integration both import from here."""
 
 from __future__ import annotations
 
 import asyncio
 import csv
-import difflib
+import json
 import logging
 import re
 from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
+from typing import TYPE_CHECKING, Iterable
 from urllib.parse import urlparse
 
 import httpx
-import yaml
 from bs4 import BeautifulSoup
 
+from src.config import SLUG_SOURCE_FAMILIES, AppConfig
 from src.models import ConnectorState
 from src.user_agent import headers as ua_headers
+
+if TYPE_CHECKING:
+    from src.settings.service import ConfigService
 
 log = logging.getLogger(__name__)
 
@@ -495,9 +498,6 @@ async def fingerprint_many(
         return list(await asyncio.gather(*(_one(s) for s in seeds)))
 
 
-_TOP_KEY_RE = re.compile(r"^  (\w[\w_]*):")
-
-
 def connector_name(result: FingerprintResult) -> str:
     ident = result.identity or {}
     if result.family in ("workday", "oraclecloud"):
@@ -511,225 +511,71 @@ def connector_name(result: FingerprintResult) -> str:
     return f"{result.family}:{ident['slug']}"
 
 
-def config_entry_lines(result: FingerprintResult) -> list[str]:
-    """Yaml lines (2-space list indent, matching config.yaml's style) for one
-    matched result, tagged with the company name and discovery date."""
+def config_entry(result: FingerprintResult) -> tuple[str, str | dict]:
+    """(sources key, entry) for one matched result, in the shape SourcesConfig
+    expects under that key. jsonld results go under jsonld_boards."""
     ident = result.identity or {}
-    tag = f"# {result.name} — fingerprint-discovered {date.today().isoformat()}"
     if result.family in ("workday", "oraclecloud"):
-        lines = [
-            f"  - tenant: {ident['tenant']}            {tag}",
-            f"    region: {ident['region']}",
-            f"    site: {ident['site']}",
-        ]
+        entry: dict = {"tenant": ident["tenant"], "region": ident["region"], "site": ident["site"]}
         if result.family == "oraclecloud":
-            lines.append(f"    company: {result.name}")
-        return lines
+            entry["company"] = result.name
+        return result.family, entry
     if result.family == "jsonld":
-        return [
-            f"  - family: {ident['family']}            {tag}",
-            f"    slug: {ident['slug']}",
-            f"    base_url: {ident['base_url']}",
-            f"    company: {result.name}",
-        ]
+        return "jsonld_boards", {"family": ident["family"], "slug": ident["slug"],
+                                 "base_url": ident["base_url"], "company": result.name}
     if result.family == "eightfold":
-        return [
-            f"  - slug: {ident['slug']}            {tag}",
-            f"    domain: {ident['domain']}",
-            f"    flavor: {ident.get('flavor', 'pcsx')}",
-            f"    company: {result.name}",
-        ]
+        return "eightfold", {"slug": ident["slug"], "domain": ident["domain"],
+                             "flavor": ident.get("flavor", "pcsx"), "company": result.name}
     if result.family == "taleo":
-        return [
-            f"  - tenant: {ident['tenant']}            {tag}",
-            f'    section: "{ident["section"]}"',
-            f"    company: {result.name}",
-        ]
-    return [f"  - {ident['slug']}            {tag}"]
+        # str(): a bare-number section ("2") must stay a string for TaleoBoard.
+        return "taleo", {"tenant": ident["tenant"], "section": str(ident["section"]),
+                         "company": result.name}
+    return result.family, ident["slug"]
 
 
-def _family_line_re(family: str) -> re.Pattern:
-    """A `  {family}: ...` line, tolerating an optional `[]` and an optional
-    trailing inline comment (e.g. `  workable: []  # deprecated, keep empty`).
-    Group 1 captures `[]` if present; group 2 captures the comment if present."""
-    return re.compile(rf"^  {re.escape(family)}: *(\[\])? *(#.*)? *$")
-
-
-def _insert_into_family(lines: list[str], family: str, entry_lines: list[str]) -> list[str]:
-    """Append entry_lines at the end of `sources.{family}`'s list, preserving
-    every existing line. Handles `family: []` and missing-family cases."""
-    out = list(lines)
-    in_sources = False
-    family_start = None
-    family_re = _family_line_re(family)
-    for i, line in enumerate(out):
-        if line.startswith("sources:"):
-            in_sources = True
-            continue
-        if in_sources and not line.startswith(" ") and line.strip():
-            in_sources = False  # left the sources mapping
-        if in_sources and family_re.match(line):
-            family_start = i
-            break
-
-    if family_start is None:
-        # Family key absent: create it right after the end of the workday block
-        # (or at the end of sources if workday itself is absent).
-        anchor = None
-        for i, line in enumerate(out):
-            if line.startswith("sources:"):
-                anchor = i
-        if anchor is None:
-            raise ValueError("config.yaml has no sources: block")
-        insert_at = _family_block_end(out, "workday") or (anchor + 1)
-        return out[:insert_at] + [f"  {family}:"] + entry_lines + out[insert_at:]
-
-    m = family_re.match(out[family_start])
-    if m.group(1):  # "[]" present — expand into a real list, preserving any comment
-        comment = m.group(2)
-        suffix = f"  {comment}" if comment else ""
-        out[family_start] = f"  {family}:{suffix}"
-        return out[:family_start + 1] + entry_lines + out[family_start + 1:]
-
-    end = _family_block_end(out, family)
-    assert end is not None
-    return out[:end] + entry_lines + out[end:]
-
-
-def _family_block_end(lines: list[str], family: str) -> int | None:
-    """Index of the first line AFTER family's block inside sources (the next
-    2-space-indented key, or the first non-indented line)."""
-    in_sources = False
-    in_family = False
-    for i, line in enumerate(lines):
-        if line.startswith("sources:"):
-            in_sources = True
-            continue
-        if in_sources and line.strip() and not line.startswith(" "):
-            return i if in_family else None
-        if in_sources and _TOP_KEY_RE.match(line):
-            if in_family:
-                return i
-            if _TOP_KEY_RE.match(line).group(1) == family:
-                in_family = True
-    return len(lines) if in_family else None
-
-
-def _config_family(result: FingerprintResult) -> str:
-    """The sources.<key> a result merges under (jsonld -> jsonld_boards)."""
-    return "jsonld_boards" if result.family == "jsonld" else result.family
-
-
-def _family_entries(cfg: dict, family: str) -> list:
-    """Comparable identities for every entry under sources.{family} in a
-    parsed config. workday/oraclecloud entries compare by (tenant, region,
-    site); jsonld_boards entries compare by (family, slug); slug families
-    compare by the slug string itself."""
-    entries = ((cfg or {}).get("sources") or {}).get(family) or []
-    if family in ("workday", "oraclecloud"):
-        return [(e.get("tenant"), e.get("region"), e.get("site")) for e in entries]
-    if family == "jsonld_boards":
-        return [(e.get("family"), e.get("slug")) for e in entries]
-    if family == "eightfold":
-        return [e.get("slug") for e in entries]
-    if family == "taleo":
-        return [(e.get("tenant"), e.get("section")) for e in entries]
-    return list(entries)
-
-
-def _result_identity(result: FingerprintResult) -> tuple | str | None:
-    """The same comparable shape as _family_entries' elements, for one
-    matched FingerprintResult."""
-    ident = result.identity or {}
-    if result.family in ("workday", "oraclecloud"):
-        return (ident.get("tenant"), ident.get("region"), ident.get("site"))
-    if result.family == "jsonld":
-        return (ident.get("family"), ident.get("slug"))
-    if result.family == "taleo":
-        return (ident.get("tenant"), ident.get("section"))
-    return ident.get("slug")
-
-
-def merge_results_into_config(
-    results: list[FingerprintResult], *, config_path: Path, already_polled: set[str],
-) -> tuple[int, str]:
-    original = config_path.read_text()
-    original_cfg = yaml.safe_load(original)  # refuse to run on an unparseable config
-
-    lines = original.splitlines()
-    added = 0
-    touched: dict[str, list[FingerprintResult]] = {}
-    seen = set(already_polled)  # local copy — never mutate the caller's set
-    for r in results:
-        if r.status != "matched" or not r.family or not r.identity:
-            continue
-        name = connector_name(r)
-        if name in seen:
-            continue
-        config_family = _config_family(r)
-        lines = _insert_into_family(lines, config_family, config_entry_lines(r))
-        touched.setdefault(config_family, []).append(r)
-        seen.add(name)
-        added += 1
-
-    if added == 0:
-        return 0, ""
-
-    new_text = "\n".join(lines) + "\n"
-    config_path.write_text(new_text)
-    try:
-        new_cfg = yaml.safe_load(new_text)
-    except yaml.YAMLError:
-        config_path.write_text(original)  # abort + restore
-        raise
-
-    # Structural post-check: confirm the new entries parsed into the expected
-    # structures and that no pre-existing entry got shadowed (e.g. by a
-    # duplicate mapping key silently resolved via PyYAML's last-wins).
-    for family, family_results in touched.items():
-        new_entries = _family_entries(new_cfg, family)
-        for orig_entry in _family_entries(original_cfg, family):
-            if orig_entry not in new_entries:
-                config_path.write_text(original)  # abort + restore
-                raise ValueError(
-                    f"merge_results_into_config: structural post-check failed for "
-                    f"family {family!r} — an existing entry went missing after merge "
-                    f"(possible duplicate-key shadowing)"
-                )
-        for r in family_results:
-            if _result_identity(r) not in new_entries:
-                config_path.write_text(original)  # abort + restore
-                raise ValueError(
-                    f"merge_results_into_config: structural post-check failed for "
-                    f"family {family!r} — new entry {connector_name(r)!r} not found after merge"
-                )
-
-    diff = "\n".join(difflib.unified_diff(
-        original.splitlines(), new_text.splitlines(),
-        fromfile="config.yaml", tofile="config.yaml (merged)", lineterm="",
-    ))
-    return added, diff
-
-
-def gather_already_polled(config_path: Path) -> set[str]:
-    """Connector names currently in config (slug families + triples)."""
-    cfg = yaml.safe_load(config_path.read_text()) or {}
-    sources = cfg.get("sources") or {}
-    names: set[str] = set()
-    for family in ("greenhouse", "lever", "ashby", "workable", "smartrecruiters",
-                   "rippling", "personio", "recruitee", "teamtailor"):
-        for slug in sources.get(family) or []:
-            names.add(f"{family}:{slug}")
-    for family in ("workday", "oraclecloud"):
-        for entry in sources.get(family) or []:
-            names.add(f"{family}:{entry['tenant']}:{entry['site']}")
-    for entry in sources.get("jsonld_boards") or []:
-        names.add(f"{entry['family']}:{entry['slug']}")
-    for entry in sources.get("eightfold") or []:
-        names.add(f"eightfold:{entry['slug']}")
-    for entry in sources.get("taleo") or []:
-        names.add(f"taleo:{entry['tenant']}:{entry['section']}")
+def gather_already_polled(cfg: AppConfig) -> set[str]:
+    """Connector names for every source in a settings config."""
+    sources = cfg.sources
+    names = {f"{family}:{slug}" for family in SLUG_SOURCE_FAMILIES for slug in getattr(sources, family)}
+    names |= {f"workday:{e.tenant}:{e.site}" for e in sources.workday}
+    names |= {f"oraclecloud:{e.tenant}:{e.site}" for e in sources.oraclecloud}
+    names |= {f"{e.family}:{e.slug}" for e in sources.jsonld_boards}
+    names |= {f"eightfold:{e.slug}" for e in sources.eightfold}
+    names |= {f"taleo:{e.tenant}:{e.section}" for e in sources.taleo}
     return names
+
+
+def merge_results_into_settings(
+    service: "ConfigService", results: list[FingerprintResult], *, label: str,
+    already_polled: Iterable[str] = (),
+) -> tuple[int, str]:
+    """Append matched results to the settings' sources as ONE new version
+    (source=cli, note "<label>: merged N entries"), deduped against the sources
+    already in settings, ``already_polled`` (discovered/suppressed connector
+    names), and within the batch. A concurrent save is retried once
+    (ConfigService.update_settings). Returns (added, summary lines).
+    Raises NotConfigured before setup."""
+    extra = set(already_polled)
+    added: list[str] = []
+
+    def mutate(doc: dict) -> str | None:
+        added.clear()  # may run twice on a StaleWrite retry
+        seen = gather_already_polled(AppConfig.model_validate(doc)) | extra
+        sources = doc.setdefault("sources", {})
+        for r in results:
+            if r.status != "matched" or not r.family or not r.identity:
+                continue
+            name = connector_name(r)
+            if name in seen:
+                continue
+            family, entry = config_entry(r)
+            sources.setdefault(family, []).append(entry)
+            seen.add(name)
+            added.append(name)
+        return f"{label}: merged {len(added)} entries" if added else None
+
+    service.update_settings(mutate, source="cli")
+    return len(added), "\n".join(f"  + {name}" for name in added)
 
 
 def _store_names_fail_soft() -> set[str]:
@@ -756,7 +602,8 @@ def format_report(results: list[FingerprintResult]) -> str:
         for r in sorted(rows, key=lambda x: x.name.lower()):
             if status == "matched":
                 out.append(f"  {r.name:<30} {connector_name(r):<45} {r.posting_count:>4} postings")
-                out.extend("    " + line for line in config_entry_lines(r))
+                family, entry = config_entry(r)
+                out.append(f"    sources.{family}: {json.dumps(entry)}")
             elif status == "unsupported":
                 note = f"  ({r.note})" if r.note else ""
                 out.append(f"  {r.name:<30} {r.family:<15} {r.evidence_url or ''}{note}")

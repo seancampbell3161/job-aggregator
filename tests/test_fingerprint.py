@@ -231,31 +231,19 @@ async def test_fingerprint_many_is_fail_soft_per_company():
     assert len(results) == 2
 
 
-import yaml as _yaml
+from src.fingerprint import config_entry, merge_results_into_settings
+from tests.settings_helpers import make_service
 
-from src.fingerprint import config_entry_lines, merge_results_into_config
-
-_MINI_CONFIG = """filters:
-  titles:
-  - software engineer
-sources:
-  greenhouse:
-  - stripe            # existing, with comment
-  lever: []
-  workday:
-  - tenant: salesforce
-    region: wd12
-    site: External_Career_Site
-  oraclecloud:
-  - tenant: egug             # American Express
-    region: us2
-    site: CX_1
-    company: American Express
-  hn_who_is_hiring:
-    enabled: true
-schedules:
-  ats_minutes: 1
-"""
+_MINI_SETTINGS = {
+    "filters": {"titles": ["software engineer"]},
+    "sources": {
+        "greenhouse": ["stripe"],
+        "workday": [{"tenant": "salesforce", "region": "wd12", "site": "External_Career_Site"}],
+        "oraclecloud": [{"tenant": "egug", "region": "us2", "site": "CX_1", "company": "American Express"}],
+        "hn_who_is_hiring": {"enabled": False},
+    },
+    "schedules": {"ats_minutes": 1},
+}
 
 
 def _matched(name, domain, family, identity, count=5):
@@ -263,96 +251,68 @@ def _matched(name, domain, family, identity, count=5):
                              family=family, identity=identity, posting_count=count)
 
 
-def test_merge_appends_preserving_comments(tmp_path):
-    p = tmp_path / "config.yaml"
-    p.write_text(_MINI_CONFIG)
+def test_merge_saves_one_settings_version_per_batch():
+    svc = make_service(_MINI_SETTINGS)
+    before = len(svc.versions())
     results = [
         _matched("Acme Corp", "acme.com", "workday", {"tenant": "acme", "region": "wd5", "site": "External"}),
         _matched("Big Oil", "bigoil.com", "oraclecloud", {"tenant": "zzz", "region": "us6", "site": "CX_2"}),
         _matched("Widget Co", "widget.com", "greenhouse", {"slug": "widgetco"}),
     ]
-    added, diff = merge_results_into_config(results, config_path=p, already_polled=set())
+    added, summary = merge_results_into_settings(svc, results, label="discover_enterprise")
     assert added == 3
-    text = p.read_text()
-    assert "# existing, with comment" in text            # comments preserved
-    cfg = _yaml.safe_load(text)
-    assert {"tenant": "acme", "region": "wd5", "site": "External"} in [
-        {k: v for k, v in e.items() if k in ("tenant", "region", "site")} for e in cfg["sources"]["workday"]]
-    orc = cfg["sources"]["oraclecloud"]
-    assert any(e["tenant"] == "zzz" and e.get("company") == "Big Oil" for e in orc)
-    assert "widgetco" in cfg["sources"]["greenhouse"]
-    assert cfg["sources"]["hn_who_is_hiring"]["enabled"] is True  # neighbors untouched
-    assert "+" in diff and "acme" in diff
+    assert len(svc.versions()) == before + 1
+    row = svc.versions()[0]
+    assert (row.source, row.note) == ("cli", "discover_enterprise: merged 3 entries")
+    sources = svc.snapshot().cfg.sources
+    assert [(w.tenant, w.region, w.site) for w in sources.workday] == [
+        ("salesforce", "wd12", "External_Career_Site"), ("acme", "wd5", "External"),
+    ]
+    assert any(o.tenant == "zzz" and o.company == "Big Oil" for o in sources.oraclecloud)
+    assert sources.greenhouse == ["stripe", "widgetco"]
+    assert sources.hn_who_is_hiring.enabled is False  # neighbors untouched
+    assert "  + workday:acme:External" in summary.splitlines()
 
 
-def test_merge_dedupes_against_already_polled(tmp_path):
-    p = tmp_path / "config.yaml"
-    p.write_text(_MINI_CONFIG)
-    results = [_matched("Stripe", "stripe.com", "greenhouse", {"slug": "stripe"})]
-    added, _ = merge_results_into_config(results, config_path=p, already_polled={"greenhouse:stripe"})
-    assert added == 0
-    assert p.read_text() == _MINI_CONFIG                  # untouched
+def test_merge_dedupes_against_already_polled():
+    svc = make_service(_MINI_SETTINGS)
+    before = len(svc.versions())
+    results = [_matched("Figma", "figma.com", "greenhouse", {"slug": "figma"})]
+    assert merge_results_into_settings(svc, results, label="t", already_polled={"greenhouse:figma"}) == (0, "")
+    assert len(svc.versions()) == before
 
 
-def test_merge_expands_empty_list_family(tmp_path):
-    p = tmp_path / "config.yaml"
-    p.write_text(_MINI_CONFIG)
-    results = [_matched("Lever Co", "leverco.com", "lever", {"slug": "leverco"})]
-    added, _ = merge_results_into_config(results, config_path=p, already_polled=set())
+def test_merge_dedupes_against_sources_already_in_settings():
+    svc = make_service(_MINI_SETTINGS)
+    results = [
+        _matched("Stripe", "stripe.com", "greenhouse", {"slug": "stripe"}),
+        _matched("Salesforce", "salesforce.com", "workday",
+                 {"tenant": "salesforce", "region": "wd12", "site": "External_Career_Site"}),
+    ]
+    assert merge_results_into_settings(svc, results, label="t") == (0, "")
+
+
+def test_merge_creates_a_missing_family_list():
+    svc = make_service(_MINI_SETTINGS)
+    added, _ = merge_results_into_settings(
+        svc, [_matched("Lever Co", "leverco.com", "lever", {"slug": "leverco"})], label="t",
+    )
     assert added == 1
-    cfg = _yaml.safe_load(p.read_text())
-    assert cfg["sources"]["lever"] == ["leverco"]
+    assert svc.snapshot().cfg.sources.lever == ["leverco"]
 
 
-def test_merge_skips_non_matched(tmp_path):
-    p = tmp_path / "config.yaml"
-    p.write_text(_MINI_CONFIG)
+def test_merge_skips_non_matched():
+    svc = make_service(_MINI_SETTINGS)
     results = [FingerprintResult(name="X", domain="x.com", status="unsupported", family="icims")]
-    added, _ = merge_results_into_config(results, config_path=p, already_polled=set())
-    assert added == 0
+    assert merge_results_into_settings(svc, results, label="t") == (0, "")
 
 
-def test_merge_appends_into_commented_empty_list_family(tmp_path):
-    # Reviewer-reproduced bug: a family line carrying a trailing inline
-    # comment (`lever: []  # keep empty until vetted`) used to fail the
-    # family-detection regex, causing a SECOND `lever:` key to be inserted
-    # elsewhere — silently shadowing the original block (with its comment).
-    config = _MINI_CONFIG.replace("  lever: []", "  lever: []  # keep empty until vetted")
-    p = tmp_path / "config.yaml"
-    p.write_text(config)
-    results = [_matched("Lever Co", "leverco.com", "lever", {"slug": "leverco"})]
-    added, _ = merge_results_into_config(results, config_path=p, already_polled=set())
-    assert added == 1
-    text = p.read_text()
-    assert text.count("  lever:") == 1                    # no duplicate key inserted
-    assert "# keep empty until vetted" in text             # comment preserved
-    cfg = _yaml.safe_load(text)
-    assert cfg["sources"]["lever"] == ["leverco"]
-
-
-def test_merge_structural_check_restores_on_shadowing(tmp_path, monkeypatch):
-    # Simulate the pre-fix bug directly: _insert_into_family always treats the
-    # family as missing and inserts a SECOND `greenhouse:` key inside
-    # `sources:`, producing a duplicate mapping key. PyYAML resolves duplicate
-    # keys via last-wins, so this either drops the original entry or the new
-    # one — the structural post-check must catch it, raise, and restore the
-    # file untouched.
-    import src.fingerprint as fingerprint
-
-    def fake_insert(lines, family, entry_lines):
-        out = list(lines)
-        anchor = next(i for i, line in enumerate(out) if line.startswith("sources:"))
-        insert_at = anchor + 1
-        return out[:insert_at] + [f"  {family}:"] + entry_lines + out[insert_at:]
-
-    monkeypatch.setattr(fingerprint, "_insert_into_family", fake_insert)
-
-    p = tmp_path / "config.yaml"
-    p.write_text(_MINI_CONFIG)
-    results = [_matched("Widget Co", "widget.com", "greenhouse", {"slug": "widgetco"})]
-    with pytest.raises(ValueError, match="greenhouse"):
-        merge_results_into_config(results, config_path=p, already_polled=set())
-    assert p.read_text() == _MINI_CONFIG                   # restored, byte-for-byte
+def test_merge_requires_setup():
+    from src.settings.errors import NotConfigured
+    with pytest.raises(NotConfigured):
+        merge_results_into_settings(
+            make_service(), [_matched("A", "a.com", "lever", {"slug": "a"})], label="t",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -461,21 +421,19 @@ def test_parse_workday_tolerates_bare_two_letter_locale():
     assert ident2["site"] == "External"
 
 
-def test_merge_dedupes_within_same_run(tmp_path):
+def test_merge_dedupes_within_same_run():
     # Two seeds resolving to the same board must only insert once, and the
     # caller's already_polled set must not be mutated as a side effect.
-    p = tmp_path / "config.yaml"
-    p.write_text(_MINI_CONFIG)
+    svc = make_service(_MINI_SETTINGS)
     results = [
         _matched("Acme Corp", "acme.com", "greenhouse", {"slug": "acmeco"}),
         _matched("Acme Corp (alt seed)", "acme-corp.com", "greenhouse", {"slug": "acmeco"}),
     ]
-    caller_set = set()
-    added, _ = merge_results_into_config(results, config_path=p, already_polled=caller_set)
+    caller_set: set[str] = set()
+    added, _ = merge_results_into_settings(svc, results, label="t", already_polled=caller_set)
     assert added == 1
-    cfg = _yaml.safe_load(p.read_text())
-    assert cfg["sources"]["greenhouse"].count("acmeco") == 1
-    assert caller_set == set()                              # caller's set untouched
+    assert svc.snapshot().cfg.sources.greenhouse.count("acmeco") == 1
+    assert caller_set == set()
 
 
 @pytest.mark.asyncio
@@ -497,7 +455,7 @@ async def test_locate_skips_homepage_fetch_when_already_fingerprintable():
 # Task 6: jsonld (iCIMS auto-detect) fingerprint probe + jsonld_boards merge.
 # ---------------------------------------------------------------------------
 
-from src.fingerprint import parse_jsonld_url, connector_name, config_entry_lines, FingerprintResult
+from src.fingerprint import parse_jsonld_url, connector_name, config_entry, FingerprintResult
 
 
 def test_parse_jsonld_url_icims():
@@ -525,17 +483,15 @@ def test_connector_name_jsonld():
     assert connector_name(r) == "icims:steeldynamics"
 
 
-def test_config_entry_lines_jsonld():
+def test_config_entry_jsonld():
     r = FingerprintResult(name="Steel Dynamics", domain="steeldynamics.com", status="matched",
                           family="jsonld",
                           identity={"family": "icims", "slug": "steeldynamics",
                                     "base_url": "https://careers-steeldynamics.icims.com"})
-    lines = config_entry_lines(r)
-    body = "\n".join(lines)
-    assert "family: icims" in body
-    assert "slug: steeldynamics" in body
-    assert "base_url: https://careers-steeldynamics.icims.com" in body
-    assert "company: Steel Dynamics" in body
+    assert config_entry(r) == ("jsonld_boards", {
+        "family": "icims", "slug": "steeldynamics",
+        "base_url": "https://careers-steeldynamics.icims.com", "company": "Steel Dynamics",
+    })
 
 
 @pytest.mark.asyncio
@@ -621,41 +577,36 @@ async def test_fingerprint_walled_icims_is_not_found():
                            "base_url": "https://careers-walled.icims.com"}
 
 
-def test_merge_writes_jsonld_board_entry(tmp_path):
-    p = tmp_path / "config.yaml"
-    p.write_text(_MINI_CONFIG)
+def test_merge_writes_jsonld_board_entry():
+    svc = make_service(_MINI_SETTINGS)
     r = FingerprintResult(
         name="Steel Dynamics", domain="steeldynamics.com", status="matched", family="jsonld",
         identity={"family": "icims", "slug": "steeldynamics",
                   "base_url": "https://careers-steeldynamics.icims.com"},
         posting_count=40,
     )
-    added, diff = merge_results_into_config([r], config_path=p, already_polled=set())
+    added, summary = merge_results_into_settings(svc, [r], label="t")
     assert added == 1
-    cfg = _yaml.safe_load(p.read_text())
-    boards = cfg["sources"]["jsonld_boards"]
-    assert any(b["family"] == "icims" and b["slug"] == "steeldynamics"
-               and b["base_url"] == "https://careers-steeldynamics.icims.com"
-               and b["company"] == "Steel Dynamics"
-               for b in boards)
-    # existing entries preserved (structural post-check would abort otherwise)
-    assert cfg["sources"]["greenhouse"] == ["stripe"]
-    assert cfg["sources"]["oraclecloud"][0]["tenant"] == "egug"
-    assert "jsonld_boards" in diff
+    sources = svc.snapshot().cfg.sources
+    assert any(b.family == "icims" and b.slug == "steeldynamics"
+               and b.base_url == "https://careers-steeldynamics.icims.com"
+               and b.company == "Steel Dynamics"
+               for b in sources.jsonld_boards)
+    assert sources.greenhouse == ["stripe"]
+    assert sources.oraclecloud[0].tenant == "egug"
+    assert "icims:steeldynamics" in summary
 
 
-def test_merge_dedupes_jsonld_board_against_already_polled(tmp_path):
-    p = tmp_path / "config.yaml"
-    p.write_text(_MINI_CONFIG)
+def test_merge_dedupes_jsonld_board_against_already_polled():
+    svc = make_service(_MINI_SETTINGS)
     r = FingerprintResult(
         name="Steel Dynamics", domain="steeldynamics.com", status="matched", family="jsonld",
         identity={"family": "icims", "slug": "steeldynamics",
                   "base_url": "https://careers-steeldynamics.icims.com"},
         posting_count=40,
     )
-    added, _ = merge_results_into_config([r], config_path=p, already_polled={"icims:steeldynamics"})
-    assert added == 0
-    assert p.read_text() == _MINI_CONFIG
+    assert merge_results_into_settings(svc, [r], label="t",
+                                       already_polled={"icims:steeldynamics"}) == (0, "")
 
 
 # ---------------------------------------------------------------------------
@@ -664,7 +615,7 @@ def test_merge_dedupes_jsonld_board_against_already_polled(tmp_path):
 # ---------------------------------------------------------------------------
 
 from src.fingerprint import (
-    parse_eightfold_url, connector_name, config_entry_lines, FingerprintResult,
+    parse_eightfold_url, connector_name, config_entry, FingerprintResult,
 )
 
 
@@ -687,30 +638,26 @@ def test_connector_name_eightfold():
     assert connector_name(r) == "eightfold:bms"
 
 
-def test_config_entry_lines_eightfold():
+def test_config_entry_eightfold():
     r = FingerprintResult(name="Bristol Myers Squibb", domain="bms.com", status="matched",
                           family="eightfold",
                           identity={"slug": "bms", "domain": "bms.com", "flavor": "pcsx"})
-    body = "\n".join(config_entry_lines(r))
-    assert "slug: bms" in body
-    assert "domain: bms.com" in body
-    assert "flavor: pcsx" in body
-    assert "company: Bristol Myers Squibb" in body
+    assert config_entry(r) == ("eightfold", {
+        "slug": "bms", "domain": "bms.com", "flavor": "pcsx", "company": "Bristol Myers Squibb",
+    })
 
 
-def test_merge_writes_eightfold_entry(tmp_path):
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text("sources:\n  greenhouse: [stripe]\n")
+def test_merge_writes_eightfold_entry():
+    svc = make_service({"sources": {"greenhouse": ["stripe"]}})
     r = FingerprintResult(name="Bristol Myers Squibb", domain="bms.com", status="matched",
                           family="eightfold",
                           identity={"slug": "bms", "domain": "bms.com", "flavor": "pcsx"},
                           posting_count=40)
-    added, _diff = merge_results_into_config([r], config_path=cfg, already_polled=set())
+    added, _ = merge_results_into_settings(svc, [r], label="t")
     assert added == 1
-    loaded = _yaml.safe_load(cfg.read_text())
-    assert any(e["slug"] == "bms" and e["domain"] == "bms.com" and e["flavor"] == "pcsx"
-               for e in loaded["sources"]["eightfold"])
-    assert loaded["sources"]["greenhouse"] == ["stripe"]
+    sources = svc.snapshot().cfg.sources
+    assert [(e.slug, e.domain, e.flavor) for e in sources.eightfold] == [("bms", "bms.com", "pcsx")]
+    assert sources.greenhouse == ["stripe"]
 
 
 @pytest.mark.asyncio
@@ -857,7 +804,7 @@ async def test_fingerprint_eightfold_no_domain_scrape_is_not_found():
     assert r.posting_count == 0
 
 
-from src.fingerprint import parse_taleo_url, connector_name, config_entry_lines, FingerprintResult
+from src.fingerprint import parse_taleo_url, connector_name, config_entry, FingerprintResult
 
 
 def test_parse_taleo_url():
@@ -884,63 +831,44 @@ def test_connector_name_taleo():
     assert connector_name(r) == "taleo:cinfin:ex"
 
 
-def test_config_entry_lines_taleo():
+def test_config_entry_taleo():
     r = FingerprintResult(name="Cincinnati Financial", domain="cinfin.com", status="matched",
                           family="taleo", identity={"tenant": "cinfin", "section": "ex"})
-    body = "\n".join(config_entry_lines(r))
-    assert "tenant: cinfin" in body
-    assert 'section: "ex"' in body
-    assert "company: Cincinnati Financial" in body
+    assert config_entry(r) == ("taleo", {"tenant": "cinfin", "section": "ex",
+                                         "company": "Cincinnati Financial"})
 
 
-def test_merge_writes_taleo_entry(tmp_path):
-    from src.fingerprint import merge_results_into_config
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text("sources:\n  greenhouse: [stripe]\n")
+def test_merge_writes_taleo_entry():
+    svc = make_service({"sources": {"greenhouse": ["stripe"]}})
     r = FingerprintResult(name="Cincinnati Financial", domain="cinfin.com", status="matched",
                           family="taleo", identity={"tenant": "cinfin", "section": "ex"},
                           posting_count=40)
-    added, _diff = merge_results_into_config([r], config_path=cfg, already_polled=set())
+    added, _ = merge_results_into_settings(svc, [r], label="t")
     assert added == 1
-    import yaml
-    loaded = yaml.safe_load(cfg.read_text())
-    assert any(e["tenant"] == "cinfin" and e["section"] == "ex"
-               for e in loaded["sources"]["taleo"])
-    assert loaded["sources"]["greenhouse"] == ["stripe"]
+    sources = svc.snapshot().cfg.sources
+    assert [(e.tenant, e.section) for e in sources.taleo] == [("cinfin", "ex")]
+    assert sources.greenhouse == ["stripe"]
 
 
-def test_merge_quotes_numeric_taleo_section(tmp_path):
-    """A tenant whose section is a bare number (e.g. valero's "2") must be
-    merged as a YAML string, not an int — else the post-check identity
-    comparison mismatches and the merge rolls back, and TaleoBoard(section:
-    str) would reject the int at poller boot."""
-    from src.fingerprint import merge_results_into_config
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text("sources:\n  greenhouse: [stripe]\n")
+def test_merge_keeps_a_numeric_taleo_section_a_string():
+    """A tenant whose section is a bare number (valero's "2") must be stored as
+    a string — TaleoBoard.section is a str."""
+    svc = make_service({})
     r = FingerprintResult(name="Valero Energy", domain="valero.com", status="matched",
-                          family="taleo", identity={"tenant": "valero", "section": "2"},
+                          family="taleo", identity={"tenant": "valero", "section": 2},
                           posting_count=40)
-    added, _diff = merge_results_into_config([r], config_path=cfg, already_polled=set())
+    added, _ = merge_results_into_settings(svc, [r], label="t")
     assert added == 1
-    import yaml
-    loaded = yaml.safe_load(cfg.read_text())
-    entry = next(e for e in loaded["sources"]["taleo"] if e["tenant"] == "valero")
-    assert isinstance(entry["section"], str)
-    assert entry["section"] == "2"
-    from src.config import TaleoBoard
-    TaleoBoard(**entry)  # round-trips without error
+    assert svc.snapshot().cfg.sources.taleo[0].section == "2"
 
 
-def test_gather_already_polled_importable_from_fingerprint(tmp_path):
+def test_gather_already_polled_reads_a_settings_config():
+    from src.config import AppConfig
     from src.fingerprint import gather_already_polled
-    p = tmp_path / "config.yaml"
-    p.write_text(
-        "sources:\n"
-        "  greenhouse: [stripe]\n"
-        "  taleo:\n"
-        "    - {tenant: cinfin, section: ex}\n"
-    )
-    names = gather_already_polled(p)
+    cfg = AppConfig.model_validate({"sources": {
+        "greenhouse": ["stripe"], "taleo": [{"tenant": "cinfin", "section": "ex"}],
+    }})
+    names = gather_already_polled(cfg)
     assert "greenhouse:stripe" in names
     assert "taleo:cinfin:ex" in names
 
