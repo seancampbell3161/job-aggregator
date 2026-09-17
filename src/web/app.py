@@ -167,7 +167,7 @@ def _register_setup_gate(app: FastAPI) -> None:
     async def _snapshot_and_setup_gate(request: Request, call_next):
         snap = await run_in_threadpool(request.app.state.service.snapshot)
         request.state.snapshot = snap
-        if snap is None and not _setup_exempt(request.url.path):
+        if snap is None and not _setup_exempt(request.scope["path"]):
             if request.method in ("GET", "HEAD"):
                 return RedirectResponse("/setup", status_code=303)
             return PlainTextResponse("This instance is not set up yet — see /setup.", status_code=409)

@@ -70,17 +70,34 @@ def _throttled(request: Request, template: str, wait: int, **context) -> HTMLRes
                  error=f"Too many attempts. Try again in {wait} s.", **context)
 
 
+def _has_password_or_fail_closed(request: Request) -> bool | PlainTextResponse:
+    """auth.has_password(), or the login gate's own fail-closed 503 if the
+    store can't be read. /welcome and /login are in PUBLIC_PATHS, so the
+    gate's try/except never runs for them — without this they'd 500 instead."""
+    try:
+        return request.app.state.auth.has_password()
+    except Exception as exc:  # noqa: BLE001 — fail closed, matching the login gate
+        log.error("auth_store_unavailable", extra={"error": str(exc)})
+        return PlainTextResponse("Cannot read the login database.", status_code=503)
+
+
 def register_auth_routes(app: FastAPI) -> None:
     @app.get("/welcome", response_class=HTMLResponse)
     def welcome(request: Request):
-        if request.app.state.auth.has_password():
+        has_password = _has_password_or_fail_closed(request)
+        if isinstance(has_password, PlainTextResponse):
+            return has_password
+        if has_password:
             return RedirectResponse("/login?claimed=1", status_code=303)
         return _page(request, "welcome.html")
 
     @app.post("/welcome", response_class=HTMLResponse)
     def create_password(request: Request, password: str = Form(""), confirm: str = Form("")):
         auth = request.app.state.auth
-        if auth.has_password():
+        has_password = _has_password_or_fail_closed(request)
+        if isinstance(has_password, PlainTextResponse):
+            return has_password
+        if has_password:
             return RedirectResponse("/login?claimed=1", status_code=303)
         if password != confirm:
             return _page(request, "welcome.html", status_code=400,
@@ -96,7 +113,10 @@ def register_auth_routes(app: FastAPI) -> None:
 
     @app.get("/login", response_class=HTMLResponse)
     def login(request: Request, next_path: str = Query("", alias="next"), claimed: str = ""):
-        if not request.app.state.auth.has_password():
+        has_password = _has_password_or_fail_closed(request)
+        if isinstance(has_password, PlainTextResponse):
+            return has_password
+        if not has_password:
             return RedirectResponse("/welcome", status_code=303)
         return _page(request, "login.html", next=safe_next(next_path), claimed=claimed == "1")
 
@@ -105,7 +125,10 @@ def register_auth_routes(app: FastAPI) -> None:
                 next_path: str = Form("", alias="next")):
         auth, throttle = request.app.state.auth, request.app.state.login_throttle
         target = safe_next(next_path)
-        if not auth.has_password():
+        has_password = _has_password_or_fail_closed(request)
+        if isinstance(has_password, PlainTextResponse):
+            return has_password
+        if not has_password:
             return RedirectResponse("/welcome", status_code=303)
         wait = throttle.check()
         if wait is not None:
@@ -168,8 +191,10 @@ def _is_htmx(request: Request) -> bool:
 
 
 def _return_path(request: Request) -> str:
-    """Where to land after signing in: this page, or — for an htmx request —
-    the page that issued it (HX-Current-URL), never the fragment URL."""
+    """Where to land after signing in: for an htmx request that sent
+    HX-Current-URL, the page that issued it; otherwise this request's own
+    URL — which, for an htmx request missing that header, is the fragment
+    endpoint, not the page the browser is showing."""
     current = request.headers.get("hx-current-url") if _is_htmx(request) else None
     parts = urlsplit(current) if current else request.url
     path = parts.path or "/"
@@ -200,7 +225,7 @@ def register_login_gate(app: FastAPI) -> None:
     @app.middleware("http")
     async def _login_gate(request: Request, call_next):
         request.state.session = None
-        if is_public(request.url.path):
+        if is_public(request.scope["path"]):
             return await call_next(request)
         auth = request.app.state.auth
         token = request.cookies.get(SESSION_COOKIE)

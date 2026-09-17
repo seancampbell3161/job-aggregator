@@ -265,7 +265,7 @@ def test_pdf_route_never_serves_the_stored_render_input(tmp_path, monkeypatch):
 def test_pdf_route_404s_a_missing_pdf(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
     r = TestClient(app).get("/tailor/pdf", params={"job_id": "j1", "t": _token()})
-    assert r.status_code == 404 and "isn't stored anymore" in r.text
+    assert r.status_code == 404 and "stored anymore" in r.text
 
 
 def test_pdf_route_stays_inside_the_tailored_dir(tmp_path, monkeypatch):

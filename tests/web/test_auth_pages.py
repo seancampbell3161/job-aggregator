@@ -1,4 +1,6 @@
 """The /welcome, /login, /logout, and /account/password pages."""
+import sqlite3
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -225,6 +227,21 @@ def test_auth_pages_work_before_setup():
     assert client.post("/login", data={"password": PW}).status_code == 303
     assert client.get("/account/password").status_code == 200
     assert client.post("/logout").status_code == 303
+
+
+class _BrokenAuth:
+    def has_password(self):
+        raise sqlite3.OperationalError("disk I/O error")
+
+
+@pytest.mark.parametrize("path", ["/welcome", "/login"])
+def test_auth_pages_503_when_the_login_store_is_unreadable(path, caplog):
+    stores = configured_stores(connect(":memory:"))
+    client = TestClient(create_app(stores=stores, auth=_BrokenAuth()), follow_redirects=False)
+    with caplog.at_level("ERROR", logger="src.web.auth"):
+        r = client.get(path)
+    assert r.status_code == 503 and r.text == "Cannot read the login database."
+    assert "auth_store_unavailable" in [x.message for x in caplog.records]
 
 
 @pytest.mark.parametrize("value, expected", [

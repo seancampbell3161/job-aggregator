@@ -68,10 +68,7 @@ go('');
 
 
 def error_page(message: str) -> str:
-    # quote=False: these messages are static, hardcoded strings (never user
-    # input) rendered as text, not inside an HTML attribute — apostrophes read
-    # naturally instead of turning into &#x27;.
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Tailored résumé</title>
 <style>{_STYLE}</style></head><body><div class="wrap">
-<h1>Tailored résumé</h1><p class="err">{_html.escape(message, quote=False)}</p></div></body></html>"""
+<h1>Tailored résumé</h1><p class="err">{_html.escape(message, quote=True)}</p></div></body></html>"""
