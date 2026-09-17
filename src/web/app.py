@@ -20,6 +20,7 @@ from src.web.analytics import MatchAnalytics, register_analytics_routes
 from src.web.board import BoardProvider, register_board_routes
 from src.web.coach import CoachProvider, register_coach_routes
 from src.web.context import config_ctx
+from src.web.cross_origin import register_cross_origin_guard
 from src.web.generation_cache import GenerationCache
 from src.web.ops import OpsProvider, register_ops_routes
 from src.web.repo import TriageRepo
@@ -118,7 +119,10 @@ def create_app(
     templates.env.globals["coach_nav_visible"] = coach_nav_visible
     app.state.templates = templates
     app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
+    # Middleware runs in reverse registration order: the cross-origin guard
+    # runs before the snapshot + setup gate.
     _register_setup_gate(app)
+    register_cross_origin_guard(app)
     _register_routes(app)
     register_ops_routes(app)
     register_analytics_routes(app)
