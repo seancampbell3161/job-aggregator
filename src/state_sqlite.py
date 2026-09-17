@@ -14,7 +14,7 @@ from src.state import (
     VALID_STATUSES,
     DiscoveredSlug,
     DiscoveredBoard,
-    SeenJobsStore,
+    match_view,
     _row_from_item,
     _board_from_item,
     posting_display_fields,
@@ -37,7 +37,7 @@ def _ttl() -> int:
 class SqliteSeenJobsStore:
     """SQLite twin of state.SeenJobsStore. Stores the full DynamoDB-shaped item
     dict as JSON in `data`, plus mirror columns for the fields used in queries,
-    so read methods can reuse SeenJobsStore._to_match for identical view shaping.
+    so read methods share state.match_view for view shaping.
     Expired rows (ttl < now) are hidden on read and removed by prune_expired."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
@@ -136,7 +136,7 @@ class SqliteSeenJobsStore:
 
     def list_matches(self) -> list[dict]:
         items = self._live_rows("notified = 1 AND title IS NOT NULL")
-        return [SeenJobsStore._to_match(it) for it in items]
+        return [match_view(it) for it in items]
 
     def list_suppressed(self) -> list[dict]:
         items = self._live_rows("notified = 0 AND score IS NOT NULL")
@@ -165,7 +165,7 @@ class SqliteSeenJobsStore:
         item = rows[0]
         if "title" not in item or not item.get("notified"):
             return None
-        return SeenJobsStore._to_match(item)
+        return match_view(item)
 
     def set_status(self, job_id: str, status: str) -> bool:
         if status not in VALID_STATUSES:

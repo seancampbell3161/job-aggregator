@@ -91,6 +91,36 @@ def posting_from_item(item: dict) -> NormalizedPosting:
     )
 
 
+def match_view(item: dict) -> dict:
+    """Normalize a raw stored seen_jobs item into the triage view shape: coerce
+    numbers to int, default absent status to 'new', gaps to []."""
+    def _int(v):
+        return int(v) if v is not None else None
+    return {
+        "job_id": item["job_id"],
+        "title": item.get("title", ""),
+        "company": item.get("company", ""),
+        "location_text": item.get("location_text", ""),
+        "workplace_type": item.get("workplace_type"),
+        "comp_min": _int(item.get("comp_min")),
+        "comp_max": _int(item.get("comp_max")),
+        "apply_url": item.get("apply_url", ""),
+        "source": item.get("source", ""),
+        "posted_at": item.get("posted_at"),
+        "score": _int(item.get("score")),
+        "rationale": item.get("rationale"),
+        "gaps": list(item.get("gaps", []) or []),
+        "first_seen": item.get("first_seen", ""),
+        "status": item.get("status", "new"),
+        "history": list(item.get("history", []) or []),
+        "posting_closed_at": item.get("posting_closed_at"),
+        "closed_misses": int(item.get("closed_misses", 0) or 0),
+        "closed_notified": bool(item.get("closed_notified", False)),
+        "email_suggestion": item.get("email_suggestion"),
+        "dismissed_suggestions": list(item.get("dismissed_suggestions", []) or []),
+    }
+
+
 class SeenJobsStore:
     def __init__(self, table_name: str, *, region: str = "us-east-1") -> None:
         self._table_name = table_name
@@ -236,36 +266,6 @@ class SeenJobsStore:
                 return
             raise
 
-    @staticmethod
-    def _to_match(item: dict) -> dict:
-        """Normalize a raw DynamoDB item into the triage view shape: coerce
-        Decimal numbers to int, default absent status to 'new', gaps to []."""
-        def _int(v):
-            return int(v) if v is not None else None
-        return {
-            "job_id": item["job_id"],
-            "title": item.get("title", ""),
-            "company": item.get("company", ""),
-            "location_text": item.get("location_text", ""),
-            "workplace_type": item.get("workplace_type"),
-            "comp_min": _int(item.get("comp_min")),
-            "comp_max": _int(item.get("comp_max")),
-            "apply_url": item.get("apply_url", ""),
-            "source": item.get("source", ""),
-            "posted_at": item.get("posted_at"),
-            "score": _int(item.get("score")),
-            "rationale": item.get("rationale"),
-            "gaps": list(item.get("gaps", []) or []),
-            "first_seen": item.get("first_seen", ""),
-            "status": item.get("status", "new"),
-            "history": list(item.get("history", []) or []),
-            "posting_closed_at": item.get("posting_closed_at"),
-            "closed_misses": int(item.get("closed_misses", 0) or 0),
-            "closed_notified": bool(item.get("closed_notified", False)),
-            "email_suggestion": item.get("email_suggestion"),
-            "dismissed_suggestions": list(item.get("dismissed_suggestions", []) or []),
-        }
-
     def list_matches(self) -> list[dict]:
         """All notified rows that carry display fields (title present), shaped
         for the triage UI. Pre-migration rows (no title) are skipped — triage
@@ -279,7 +279,7 @@ class SeenJobsStore:
         while True:
             resp = self._table.scan(**params)
             for item in resp.get("Items", []):
-                out.append(self._to_match(item))
+                out.append(match_view(item))
             last = resp.get("LastEvaluatedKey")
             if not last:
                 break
@@ -323,7 +323,7 @@ class SeenJobsStore:
         item = resp.get("Item")
         if not item or "title" not in item or not item.get("notified"):
             return None
-        return self._to_match(item)
+        return match_view(item)
 
     def set_status(self, job_id: str, status: str) -> bool:
         """Set the triage status on an existing match and append a {status, at}

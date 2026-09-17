@@ -547,12 +547,11 @@ def test_posting_display_fields_omits_workplace_type_without_tag_signal():
     assert "workplace_type" not in fields
 
 
-def test_to_match_passes_workplace_type_through_and_defaults_none():
-    from src.state import SeenJobsStore
-    assert SeenJobsStore._to_match({"job_id": "x:1", "workplace_type": "hybrid"})[
-        "workplace_type"] == "hybrid"
+def test_match_view_passes_workplace_type_through_and_defaults_none():
+    from src.state import match_view
+    assert match_view({"job_id": "x:1", "workplace_type": "hybrid"})["workplace_type"] == "hybrid"
     # legacy row without the field → None (triage falls back to text derivation)
-    assert SeenJobsStore._to_match({"job_id": "x:2"})["workplace_type"] is None
+    assert match_view({"job_id": "x:2"})["workplace_type"] is None
 
 
 def test_posting_from_item_tolerates_sparse_item():
