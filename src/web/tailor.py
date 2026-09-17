@@ -19,11 +19,42 @@ from src.tailor.render.settings import settings_from_dict
 log = logging.getLogger(__name__)
 
 
+def tailor_boot(request: Request):
+    """(engine, content) for tailoring runs: the override set on app.state
+    (tests), else built from the request's snapshot and cached per settings
+    generation. None when not set up, tailoring is disabled, or no résumé
+    content document exists. The engine itself may be None (no key/evidence):
+    stored results can still be re-rendered."""
+    override = request.app.state.tailor_boot_override
+    if override is not None:
+        return override
+    snap = request.state.snapshot
+    if snap is None:
+        return None
+    return request.app.state.cache.get("tailor_boot", snap, _build_tailor_boot)
+
+
+def _build_tailor_boot(snap):
+    if not snap.cfg.tailoring.enabled:
+        return None
+    content = snap.documents.content()
+    if content is None:
+        return None
+    try:
+        from src.tailor import build_tailor_engine
+        engine = build_tailor_engine(snap.cfg, content, snap.documents.evidence_bank())
+    except Exception as exc:  # noqa: BLE001 — Ruling G: a builder must never 500 the request
+        log.warning("tailor_engine_build_failed", extra={"error": str(exc)})
+        engine = None
+    return engine, content
+
+
 def register_tailor_routes(app: FastAPI) -> None:
     @app.get("/tailor", response_class=HTMLResponse)
     def tailor(request: Request, job_id: str = "", t: str = "", run: str = "",
                regen: str = "", template: str = ""):
-        secret = os.environ.get("JOB_AGG_TAILOR_SIGNING_SECRET", "")
+        snap = request.state.snapshot
+        secret = snap.cfg.secrets.tailor_signing_secret if snap is not None else ""
         if not job_id or not secret or not verify_token(t, job_id, secret):
             return HTMLResponse(error_page("This link has expired or is invalid."))
 
@@ -38,7 +69,7 @@ def register_tailor_routes(app: FastAPI) -> None:
                 active=settings.active_template,
             ))
 
-        boot = getattr(request.app.state, "tailor_boot", None)
+        boot = tailor_boot(request)
         if boot is None:
             return JSONResponse({"error": "Tailoring is not enabled on this server."})
         engine, content = boot

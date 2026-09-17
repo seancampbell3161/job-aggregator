@@ -93,7 +93,8 @@ async def test_importer_rejects_output_without_doc_refs():
 def _cfg(*, tailoring_timeout: int) -> SimpleNamespace:
     return SimpleNamespace(
         tailoring=SimpleNamespace(provider=None, model=None, timeout_seconds=tailoring_timeout),
-        relevance=SimpleNamespace(provider="ollama", model="gpt-oss:120b"),
+        relevance=SimpleNamespace(provider="ollama", model="gpt-oss:120b",
+                                  ollama_host="https://ollama.com", ollama_is_local=False),
         secrets=SimpleNamespace(ollama_api_key="key123"),
     )
 
@@ -111,3 +112,27 @@ def test_build_docx_importer_respects_longer_tailoring_timeout():
     imp = build_docx_importer(_cfg(tailoring_timeout=180))
     assert imp is not None
     assert imp._timeout == 180
+
+
+def test_build_docx_importer_uses_a_local_host_without_a_key(monkeypatch):
+    captured = {}
+
+    class FakeClient:
+        def __init__(self, host=None, headers=None):
+            captured.update(host=host, headers=headers)
+
+    monkeypatch.setattr("ollama.AsyncClient", FakeClient)
+    cfg = SimpleNamespace(
+        tailoring=SimpleNamespace(provider=None, model=None, timeout_seconds=60),
+        relevance=SimpleNamespace(provider="ollama", model="m",
+                                  ollama_host="http://ollama:11434", ollama_is_local=True),
+        secrets=SimpleNamespace(ollama_api_key=""),
+    )
+    assert build_docx_importer(cfg) is not None
+    assert captured == {"host": "http://ollama:11434", "headers": {}}
+
+
+def test_build_docx_importer_cloud_host_requires_a_key():
+    cfg = _cfg(tailoring_timeout=60)
+    cfg.secrets.ollama_api_key = ""
+    assert build_docx_importer(cfg) is None

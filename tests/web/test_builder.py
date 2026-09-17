@@ -5,11 +5,11 @@ from tests.conftest import requires_weasyprint
 from tests.settings_helpers import WEB_TEST_SETTINGS, make_service
 
 
-def _app(tmp_path, monkeypatch):
+def _app(tmp_path, monkeypatch, service=None):
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
     monkeypatch.setenv("JOB_AGG_TEMPLATES_DIR", str(tmp_path / "templates"))
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
-    return create_app(service=make_service(WEB_TEST_SETTINGS))
+    return create_app(service=service if service is not None else make_service(WEB_TEST_SETTINGS))
 
 
 def test_builder_page_lists_builtins_and_settings(tmp_path, monkeypatch):
@@ -444,3 +444,44 @@ def test_docx_reimport_failure_preserves_pending_pack_of_same_slug(tmp_path, mon
     assert r.status_code == 200
     assert 'class="bad"' in r.text
     assert (pending_dir / "template.html.j2").read_text() == "<html>pre-existing pending</html>"
+
+
+def test_builder_content_comes_from_the_settings_document(tmp_path, monkeypatch):
+    import json
+    from pathlib import Path
+    raw = json.loads(Path("resume/content.example.json").read_text())
+    raw["name"] = "Saved Person"
+    service = make_service({}, documents={"resume_content": json.dumps(raw)})
+    app = _app(tmp_path, monkeypatch, service=service)
+    assert app.state.builder.content().name == "Saved Person"
+
+
+def test_builder_content_falls_back_to_the_example(tmp_path, monkeypatch):
+    from src.tailor.content import load_content
+    from src.web.builder import EXAMPLE_CONTENT_PATH
+    app = _app(tmp_path, monkeypatch)
+    assert app.state.builder.content() == load_content(EXAMPLE_CONTENT_PATH)
+
+
+def test_builder_importer_follows_settings(tmp_path, monkeypatch):
+    service = make_service({"relevance": {"provider": "anthropic"}})
+    app = _app(tmp_path, monkeypatch, service=service)
+    assert app.state.builder.importer is None
+    service.save_settings({"relevance": {"provider": "ollama"}}, source="cli")  # local host: no key
+    assert app.state.builder.importer is not None
+
+
+def test_builder_importer_degrades_when_the_builder_raises(tmp_path, monkeypatch):
+    """Ruling G: a build_docx_importer exception must not 500 /builder — the
+    cache builder catches it, logs, and the importer degrades to None."""
+    import src.tailor.render.docx_import as docx_import_mod
+
+    def boom(cfg):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(docx_import_mod, "build_docx_importer", boom)
+    service = make_service({"relevance": {"provider": "ollama"}})  # local host: no key needed
+    app = _app(tmp_path, monkeypatch, service=service)
+    assert app.state.builder.importer is None
+    r = TestClient(app).get("/builder")
+    assert r.status_code == 200

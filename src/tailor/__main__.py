@@ -1,11 +1,11 @@
 """CLI to dogfood the tailoring engine locally.
 
-    JOB_AGG_NTFY_TOPIC_URL=x JOB_AGG_DISCORD_WEBHOOK_URL=x JOB_AGG_OLLAMA_API_KEY=<key> \\
-      python -m src.tailor --jd jd.txt --job-id some-id
+    python -m src.tailor --jd jd.txt --job-id some-id
 
-Writes tailored/<job-id>/{content.json,cover_letter.md,fit.md}. The content.json
-is the render input sub-project B consumes. (load_config requires the dummy
-NTFY/DISCORD vars even though tailoring never notifies.)"""
+Reads settings plus the resume_content and evidence documents from the app DB
+(JOB_AGG_SQLITE_PATH; load them with `python -m src.settings import`). Writes
+tailored/<job-id>/{content.json,cover_letter.md,fit.md}; content.json is the
+render input sub-project B consumes."""
 
 from __future__ import annotations
 
@@ -15,10 +15,14 @@ import json
 import sys
 from pathlib import Path
 
-from src.config import load_config
+from src.settings import open_service
 from src.tailor import build_tailor_engine
-from src.tailor.content import load_content
 from src.tailor.models import TailorResult, render_input_dict
+
+
+def _snapshot():
+    """The current settings snapshot from the app DB, or None when not set up."""
+    return open_service().snapshot()
 
 
 def _builder_settings():
@@ -58,10 +62,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--template", default="", help="template pack slug (default: the active template)")
     args = ap.parse_args(argv)
 
-    cfg = load_config()
-    engine = build_tailor_engine(cfg)
+    snap = _snapshot()
+    if snap is None:
+        print("not set up — import settings first: python -m src.settings import DIR", file=sys.stderr)
+        return 1
+    content = snap.documents.content()
+    engine = build_tailor_engine(snap.cfg, content, snap.documents.evidence_bank())
     if engine is None:
-        print("tailoring unavailable (disabled, missing ollama key, or unreadable artifacts)", file=sys.stderr)
+        print("tailoring unavailable (disabled, missing Ollama key, or missing "
+              "resume_content/evidence documents)", file=sys.stderr)
         return 1
 
     jd_text = Path(args.jd).read_text()
@@ -76,7 +85,6 @@ def main(argv: list[str] | None = None) -> int:
             from src.tailor.render.registry import get_template
             settings = _builder_settings()
             pack = get_template(args.template or settings.active_template)
-            content = load_content(cfg.tailoring.content_path)
             rendered = render_with_fallback(content, result, pack=pack, settings=settings)
             (out / "resume.pdf").write_bytes(rendered.pdf)
             msg = f"[{status}] wrote {out}/resume.pdf (template: {rendered.template})"

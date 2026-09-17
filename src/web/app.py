@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,8 @@ from src.web.context import config_ctx
 from src.web.generation_cache import GenerationCache
 from src.web.ops import OpsProvider, register_ops_routes
 from src.web.repo import TriageRepo
+
+log = logging.getLogger(__name__)
 
 _HERE = Path(__file__).parent
 
@@ -64,8 +67,38 @@ def create_app(
     from src.web.audit import AuditProvider, register_audit_routes
     app.state.audit = AuditProvider(rejected=stores.rejected, seen=stores.seen)
     app.state.coach_override = coach
-    from src.web.builder import BuilderProvider, register_builder_routes
-    app.state.builder = BuilderProvider(store=stores.builder)
+    from src.web.builder import EXAMPLE_CONTENT_PATH, BuilderProvider, register_builder_routes
+
+    service_ref, cache = app.state.service, app.state.cache
+
+    def _builder_content():
+        # Previews are not tied to one request, so they read the current snapshot.
+        snap = service_ref.snapshot()
+        content = snap.documents.content() if snap is not None else None
+        if content is not None:
+            return content
+        from src.tailor.content import load_content
+        return load_content(EXAMPLE_CONTENT_PATH)
+
+    def _docx_importer():
+        snap = service_ref.snapshot()
+        if snap is None:
+            return None
+
+        def _build(s):
+            try:
+                from src.tailor.render.docx_import import build_docx_importer
+                return build_docx_importer(s.cfg)
+            except Exception as exc:  # noqa: BLE001 — Ruling G: a builder must never 500 the request
+                log.warning("docx_importer_build_failed", extra={"error": str(exc)})
+                return None
+
+        return cache.get("docx_importer", snap, _build)
+
+    app.state.builder = BuilderProvider(
+        store=stores.builder, content_loader=_builder_content, importer_source=_docx_importer,
+    )
+    app.state.tailor_boot_override = None
     app.state.page_size = page_size
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
     from src.web.pipeline_activity import format_ago
@@ -91,28 +124,6 @@ def create_app(
     tailored_dir = os.environ.get("JOB_AGG_TAILORED_DIR", "tailored")
     os.makedirs(tailored_dir, exist_ok=True)
     app.mount("/tailored", StaticFiles(directory=tailored_dir), name="tailored")
-
-    app.state.tailor_boot = None
-    try:
-        from src.config import load_config
-        cfg = load_config(os.environ.get("JOB_AGG_CONFIG_PATH", "config.yaml"))
-
-        def _builder_content():
-            from src.tailor.content import load_content
-            try:
-                return load_content(cfg.tailoring.content_path)
-            except Exception:  # noqa: BLE001 — previews fall back to the example
-                return load_content("resume/content.example.json")
-        from src.tailor.render.docx_import import build_docx_importer
-        app.state.builder = BuilderProvider(store=stores.builder, content_loader=_builder_content,
-                                            importer=build_docx_importer(cfg))
-        if cfg.tailoring.enabled:
-            from src.tailor import build_tailor_engine
-            from src.tailor.content import load_content
-            app.state.tailor_boot = (build_tailor_engine(cfg), load_content(cfg.tailoring.content_path))
-    except Exception as exc:  # noqa: BLE001 — tailoring is optional; UI must still boot
-        log_app = __import__("logging").getLogger(__name__)
-        log_app.warning("tailor_boot_skipped", extra={"error": str(exc)})
 
     register_tailor_routes(app)
 

@@ -32,6 +32,10 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_UNPACKED_ZIP_BYTES = 50 * 1024 * 1024
 _TEMPLATE_EXTS = (".j2", ".html")  # covers .html.j2 too (endswith .j2)
 
+# Committed example résumé — the preview fallback when no resume_content
+# document has been saved. Anchored to the repo, not the working directory.
+EXAMPLE_CONTENT_PATH = Path(__file__).resolve().parents[2] / "resume" / "content.example.json"
+
 
 def _require_safe_slug(slug: str) -> str:
     """Slugs are registry-generated ([a-z0-9-]); anything else (dots, slashes,
@@ -108,10 +112,24 @@ def _force_upload_meta_source(meta_path: Path) -> None:
 
 
 class BuilderProvider:
-    def __init__(self, *, store=None, content_loader=None, importer=None) -> None:
+    def __init__(self, *, store=None, content_loader=None, importer=None, importer_source=None) -> None:
         self._store = store
         self._content_loader = content_loader
-        self.importer = importer  # DocxTemplateImporter | None (Task 12)
+        self._importer = importer
+        self._importer_source = importer_source
+
+    @property
+    def importer(self):
+        """DocxTemplateImporter | None — built from current settings by
+        importer_source, unless an importer was assigned explicitly."""
+        if self._importer_source is not None:
+            return self._importer_source()
+        return self._importer
+
+    @importer.setter
+    def importer(self, value) -> None:
+        self._importer = value
+        self._importer_source = None  # an explicit assignment pins the importer
 
     def settings(self) -> BuilderSettings:
         try:
@@ -149,15 +167,12 @@ class BuilderProvider:
         self._store.put(current)
 
     def content(self):
-        """The user's real content.json, or the committed example as fallback —
+        """The saved résumé content, or the committed example as fallback —
         used for previews and upload validation renders."""
-        from src.tailor.content import load_content
         if self._content_loader is not None:
             return self._content_loader()
-        try:
-            return load_content("resume/content.json")
-        except Exception:  # noqa: BLE001
-            return load_content("resume/content.example.json")
+        from src.tailor.content import load_content
+        return load_content(EXAMPLE_CONTENT_PATH)
 
     def pending(self) -> list[TemplateInfo]:
         root = user_templates_dir() / ".pending"
