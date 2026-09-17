@@ -26,7 +26,7 @@ def test_connector_health_counts_and_unhealthy_sorted():
         _slug("e", "quarantined", fails=5), _slug("f", "no_match"),
     ]
     h = connector_health(rows)
-    # "failed" is the real validation_status DiscoveredSlugsStore writes
+    # "failed" is the real validation_status the discovered-slugs store writes
     assert (h.ok, h.failed, h.quarantined, h.no_match) == (2, 2, 1, 1)
     # unhealthy = only failed/quarantined (actual broken connectors), sorted by
     # consecutive_failures desc. no_match is a discovery negative-cache entry, NOT
@@ -144,12 +144,12 @@ def test_provider_analytics_includes_suppressed_rows(provider):
 
 
 def test_provider_health_fail_soft(provider, monkeypatch):
-    monkeypatch.setattr(provider._discovered, "list_all", lambda: (_ for _ in ()).throw(RuntimeError("ddb down")))
+    monkeypatch.setattr(provider._discovered, "list_all", lambda: (_ for _ in ()).throw(RuntimeError("db down")))
     assert provider.health() is None
 
 
 def test_provider_analytics_fail_soft(provider, monkeypatch):
-    monkeypatch.setattr(provider._seen, "list_matches", lambda: (_ for _ in ()).throw(RuntimeError("ddb down")))
+    monkeypatch.setattr(provider._seen, "list_matches", lambda: (_ for _ in ()).throw(RuntimeError("db down")))
     assert provider.analytics() is None
 
 
@@ -158,7 +158,7 @@ def test_provider_health_suppressed_subsection_fail_soft(provider, monkeypatch):
     but the panel still renders with the discovered-derived counts intact."""
     monkeypatch.setattr(
         provider._health, "suppressed_names",
-        lambda: (_ for _ in ()).throw(RuntimeError("ddb down")),
+        lambda: (_ for _ in ()).throw(RuntimeError("db down")),
     )
     h = provider.health()
     assert h is not None

@@ -5,10 +5,10 @@ outbound heartbeat instead (handler._ping_heartbeat) — no local watchdog can
 report its own host dying.
 
 Inert unless an ops sink env var is set AND the local events/alert-state
-stores are wired — checked at registration time, so ineligible apps (the
-test suite, apps that don't wire the events/alert-state stores, etc.) never
-register the on_event handlers at all, avoiding both the loop and the
-on_event DeprecationWarning noise."""
+stores are wired — checked at registration time, so ineligible apps (an app
+without app.state.stores, e.g. in tests) never register the on_event
+handlers at all, avoiding both the loop and the on_event DeprecationWarning
+noise."""
 from __future__ import annotations
 
 import asyncio

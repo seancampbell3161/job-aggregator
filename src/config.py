@@ -296,7 +296,7 @@ class AuditConfig(BaseModel):
 class CoachConfig(BaseModel):
     """The /coach page: on-demand LLM recommendations for improving application
     response rates, grounded in the user's own funnel/audit/config/résumé data.
-    Run history is SQLite-only (like the audit trail)."""
+    Run history persists in SQLite (like the audit trail)."""
     enabled: bool = True
     # provider/model default to the relevance values when None (see _build_coach)
     provider: Literal["anthropic", "gemini", "ollama"] | None = None
@@ -507,7 +507,7 @@ def load_config(path: Path | str = "config.yaml") -> AppConfig:
         raise FileNotFoundError(
             f"{path} not found — copy config.example.yaml to config.yaml and "
             "profile.example.md to profile.md, then personalize them "
-            "(GETTING_STARTED.md §3)."
+            "(GETTING_STARTED.md §2)."
         ) from None
     except IsADirectoryError:
         raise IsADirectoryError(
@@ -515,7 +515,7 @@ def load_config(path: Path | str = "config.yaml") -> AppConfig:
             "directory stub when the file is missing at first start. Remove it "
             f"(rm -r {path}; repeat for any other path that is a directory), then copy the templates: "
             "cp config.example.yaml config.yaml && cp profile.example.md "
-            "profile.md (GETTING_STARTED.md §3)."
+            "profile.md (GETTING_STARTED.md §2)."
         ) from None
     raw = yaml.safe_load(text)
     raw["secrets"] = _load_secrets().model_dump()

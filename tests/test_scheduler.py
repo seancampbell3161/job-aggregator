@@ -57,7 +57,7 @@ def test_build_scheduler_registers_all_tiers(monkeypatch):
 
 def test_integrity_check_runs_repair_on_sqlite(monkeypatch):
     """The hourly maintenance job invokes integrity_check_and_repair on a fresh
-    connection for the sqlite backend."""
+    SQLite connection."""
     import src.scheduler as scheduler
 
     calls = {"checked": 0, "closed": 0}

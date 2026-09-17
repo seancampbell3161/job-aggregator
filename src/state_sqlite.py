@@ -36,10 +36,11 @@ def _ttl() -> int:
 
 
 class SqliteSeenJobsStore:
-    """SQLite twin of state.SeenJobsStore. Stores the full item dict as JSON
-    in `data`, plus mirror columns for the fields used in queries, so read
-    methods share state.match_view for view shaping.
-    Expired rows (ttl < now) are hidden on read and removed by prune_expired."""
+    """Tracks job postings the pipeline has already seen, keyed by job_id.
+    Stores the full item dict as JSON in `data`, plus mirror columns for the
+    fields used in queries, so read methods share state.match_view for view
+    shaping. Expired rows (ttl < now) are hidden on read and removed by
+    prune_expired."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
@@ -426,7 +427,7 @@ class SqliteSeenJobsStore:
 
 
 class SqliteSourceStateStore:
-    """SQLite twin of state.SourceStateStore. Stores etag/last_modified/payload as JSON."""
+    """Tracks per-connector fetch state (etag/last_modified/payload), stored as JSON."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
@@ -467,8 +468,9 @@ class SqliteSourceStateStore:
 
 
 class SqliteDiscoveredSlugsStore:
-    """SQLite twin of state.DiscoveredSlugsStore. Stores the full item dict as
-    JSON and reuses state._row_from_item for identical row shaping."""
+    """Tracks discovered ATS slugs and their validation status. Stores the
+    full item dict as JSON and reuses state._row_from_item for identical row
+    shaping."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
@@ -528,8 +530,8 @@ class SqliteDiscoveredSlugsStore:
         website: str | None = None,
         methods_tried: list[str] | None = None,
     ) -> None:
-        """Twin of state.DiscoveredSlugsStore.upsert_no_match — omitted kwargs
-        preserve the existing row's learned fields."""
+        """Upsert a no-match discovery attempt — omitted kwargs preserve the
+        existing row's learned fields."""
         now = datetime.now(timezone.utc).isoformat()
         existing = self.get(f"nomatch:{slug}")
         self._put({
@@ -715,8 +717,8 @@ class SqliteDiscoveredBoardsStore:
 
 
 class SqliteConnectorHealthStore:
-    """SQLite twin of state.ConnectorHealthStore. A row exists only while a
-    connector is unhealthy (dead_streak > 0 or suppressed)."""
+    """Tracks connector health. A row exists only while a connector is
+    unhealthy (dead_streak > 0 or suppressed)."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn

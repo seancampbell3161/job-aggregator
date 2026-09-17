@@ -23,7 +23,7 @@ from src.user_agent import headers as ua_headers
 
 log = logging.getLogger(__name__)
 
-_MAX_DESC = 30000  # match SeenJobsStore.claim_for_notify's description_snapshot cap
+_MAX_DESC = 30000  # match state.posting_display_fields's description_snapshot cap
 _MAX_PAGES = 10    # per-board safety cap on HTML pagination
 def _headers() -> dict[str, str]:
     return ua_headers()

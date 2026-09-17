@@ -410,7 +410,7 @@ def test_run_uses_sqlite_backend(monkeypatch, tmp_path):
     monkeypatch.setenv("JOB_AGG_DISCORD_WEBHOOK_URL", "https://discord.test/x")
     # gap_analysis defaults to disabled (GapAnalysisConfig.enabled=False) and
     # config.example.yaml omits it -> digest tier returns the skip dict
-    # offline, after _run() has built stores via the SQLite backend.
+    # offline, after _run() has built the SQLite stores.
     import asyncio
     from src import handler
     result = asyncio.run(handler._run(tier="digest"))
@@ -874,7 +874,7 @@ async def test_discovery_active_set_includes_rippling_config_slugs(tmp_path, mon
     enumerates all 6 slug families — a config-listed rippling slug must not
     be re-probed by discovery. board_discovery is explicitly disabled (see
     test_handler_routes_discovery_tier_to_discovery_routine's docstring for
-    why: on the sqlite backend, stores.boards is real, and this test doesn't
+    why: stores.boards is a real SqliteDiscoveredBoardsStore here, and this test doesn't
     mock run_board_discovery)."""
     cfg_path = tmp_path / "config.yaml"
     cfg_path.write_text(

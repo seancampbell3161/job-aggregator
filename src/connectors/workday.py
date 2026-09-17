@@ -52,7 +52,7 @@ def _headers() -> dict[str, str]:
     return ua_headers(Accept="application/json")
 
 
-_MAX_DESC = 30000  # match SeenJobsStore.claim_for_notify's description_snapshot cap
+_MAX_DESC = 30000  # match state.posting_display_fields's description_snapshot cap
 
 
 def _strip_html(s: str) -> str:

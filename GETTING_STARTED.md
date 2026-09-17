@@ -11,7 +11,7 @@ Everything persists in `./data`; $0 infra; LLM cost depends on provider.
 
 ## Contents
 
-1. [Things you need either way](#1-things-you-need-either-way) — ntfy, Discord, an LLM key
+1. [Things you need](#1-things-you-need) — ntfy, Discord, an LLM key
 2. [Tailor it to your job preferences](#2-tailor-it-to-your-job-preferences) — the part that makes it yours (full flag reference: [docs/CONFIG.md](docs/CONFIG.md))
 3. [Run it with Docker Compose](#run-it-with-docker-compose)
 4. [Operating it](#operating-it)
@@ -19,7 +19,7 @@ Everything persists in `./data`; $0 infra; LLM cost depends on provider.
 
 ---
 
-## 1. Things you need either way
+## 1. Things you need
 
 Notifications and (optional) scoring work the same way no matter what else you
 configure, so set these up first.
