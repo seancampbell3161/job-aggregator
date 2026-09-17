@@ -1,5 +1,7 @@
 """SqliteSettingsStore: append-only settings versions and documents, secrets,
 and the generation counter bumped atomically with every write."""
+import sqlite3
+
 import pytest
 
 from src.settings.errors import StaleWrite
@@ -152,4 +154,40 @@ def test_build_stores_wires_the_settings_store():
     from src.stores import build_stores
     stores = build_stores()
     assert isinstance(stores.settings, SqliteSettingsStore)
-    assert stores.settings._conn is stores.seen._conn
+    assert stores.settings._conn is not stores.seen._conn
+
+
+def test_read_is_reentrant_and_consistent(tmp_path):
+    path = str(tmp_path / "read.db")
+    s = _store(path)
+    s.insert_settings(doc={"a": 1}, source="cli", note=None, schema_version=1)
+
+    # A second connection to the same file, opened up front (not while our
+    # read is open) so its own schema/pragma setup can't contend with the
+    # lock we're about to take.
+    other = connect(path)
+    other.execute("PRAGMA busy_timeout=100")
+
+    with s.read():
+        assert s.generation() == 1
+        with s.read():  # nested: reentrant, no re-BEGIN, no premature commit
+            assert s.latest_settings().doc == {"a": 1}
+        assert s.generation() == 1  # the inner exit didn't end the outer read
+
+        # Our SHARED lock (held since the first SELECT above, for the whole
+        # `with s.read():` body) must block a concurrent writer on another
+        # connection from committing — with a short busy_timeout it gives up
+        # and raises rather than landing mid-read.
+        with pytest.raises(sqlite3.OperationalError, match="locked"):
+            other.execute("BEGIN IMMEDIATE")
+            other.execute(
+                "INSERT INTO settings_versions (created_at, source, note, schema_version, doc) "
+                "VALUES ('x', 'cli', NULL, 1, '{}')"
+            )
+            other.execute("COMMIT")
+        # The failed COMMIT left `other`'s transaction open (mid-upgrade to an
+        # EXCLUSIVE lock); release it before anyone else tries a fresh read.
+        other.execute("ROLLBACK")
+
+    assert s.generation() == 1  # the blocked write never landed
+    other.close()

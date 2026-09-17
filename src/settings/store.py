@@ -75,8 +75,10 @@ class SqliteSettingsStore:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
         # One connection can be shared across threads (APScheduler workers,
-        # FastAPI's threadpool): serialize write transactions on it.
+        # FastAPI's threadpool): serialize write transactions on it, and
+        # exclude them from read() below (same lock — see read()'s docstring).
         self._lock = threading.RLock()
+        self._read_depth = 0
 
     # -- write plumbing ------------------------------------------------------
 
@@ -98,6 +100,43 @@ class SqliteSettingsStore:
             "INSERT INTO config_generation (id, n) VALUES (1, 1) "
             "ON CONFLICT(id) DO UPDATE SET n = n + 1"
         )
+
+    # -- read plumbing -------------------------------------------------------
+
+    @contextmanager
+    def read(self) -> Iterator[None]:
+        """A consistent read: every statement inside sees one committed state.
+
+        The connection runs in autocommit mode and is shared across threads,
+        and _write() above doesn't hand out any DB-level isolation until
+        COMMIT — so an unguarded read can observe another thread's INSERT
+        before its transaction resolves (and never see it again if that
+        transaction then rolls back). Taking the same lock _write() takes,
+        for the whole call, rules that out; wrapping it in a real BEGIN...
+        COMMIT (a deferred/read transaction) additionally holds a DB-level
+        SHARED lock for the duration, so a build spanning several SELECTs
+        can't be interleaved with a write landing through a *different*
+        connection to the same file either (rollback-journal locking makes
+        that write wait, or fail, at COMMIT).
+
+        Reentrant: a nested `with store.read():` on the same thread (for
+        example documents() called from within a snapshot build) is free —
+        only the outermost call opens/closes the transaction."""
+        with self._lock:
+            if self._read_depth == 0:
+                self._conn.execute("BEGIN")
+            self._read_depth += 1
+            try:
+                yield
+            except BaseException:
+                self._read_depth -= 1
+                if self._read_depth == 0 and self._conn.in_transaction:
+                    self._conn.execute("ROLLBACK")
+                raise
+            else:
+                self._read_depth -= 1
+                if self._read_depth == 0 and self._conn.in_transaction:
+                    self._conn.execute("COMMIT")
 
     # -- generation ------------------------------------------------------------
 

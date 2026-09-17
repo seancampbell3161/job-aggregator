@@ -7,7 +7,7 @@ import warnings
 from datetime import time
 from pathlib import Path
 from typing import Literal
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -109,7 +109,10 @@ class QuietHoursConfig(BaseModel):
     def _coerce_tz(cls, v: object) -> ZoneInfo:
         if isinstance(v, ZoneInfo):
             return v
-        return ZoneInfo(str(v))
+        try:
+            return ZoneInfo(str(v))
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError(f"unknown timezone {v!r}") from exc
 
     @field_validator("start", "end", mode="before")
     @classmethod

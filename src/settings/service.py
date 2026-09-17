@@ -102,19 +102,29 @@ class ConfigService:
 
     def snapshot(self) -> ConfigSnapshot | None:
         """The current settings, or None when not set up. One generation read
-        when nothing changed; a rebuild only when it moved."""
-        generation = self._store.generation()
-        with self._lock:
-            if self._cached is None or self._cached[0] != generation:
-                self._cached = (generation, self._build(generation))
-            return self._cached[1]
+        when nothing changed; a rebuild only when it moved.
+
+        The generation read, the cache check, and any rebuild all run inside
+        one store.read(): otherwise a rebuild spanning several SELECTs could
+        observe another thread's uncommitted write on the shared connection,
+        and a phantom snapshot built from it would then sit cached under the
+        current generation until the next successful write. store.read() is
+        acquired before the service lock; writers never take the service
+        lock, so there's no lock-ordering inversion."""
+        with self._store.read():
+            generation = self._store.generation()
+            with self._lock:
+                if self._cached is None or self._cached[0] != generation:
+                    self._cached = (generation, self._build(generation))
+                return self._cached[1]
 
     def documents(self) -> Documents:
-        bodies: dict[str, str | None] = {}
-        for kind in DOCUMENT_KINDS:
-            row = self._store.latest_document(kind)
-            bodies[kind] = row.body if row is not None else None
-        return Documents(**bodies)
+        with self._store.read():
+            bodies: dict[str, str | None] = {}
+            for kind in DOCUMENT_KINDS:
+                row = self._store.latest_document(kind)
+                bodies[kind] = row.body if row is not None else None
+            return Documents(**bodies)
 
     def _build(self, generation: int) -> ConfigSnapshot | None:
         effective = self._effective_version()
@@ -160,7 +170,16 @@ class ConfigService:
             raise SettingsInvalid(
                 [{"loc": "", "msg": f"cannot migrate settings version {row.id}: {exc}"}]
             ) from exc
-        return self._validate(doc)
+        try:
+            return self._validate(doc)
+        except SettingsInvalid:
+            raise
+        except Exception as exc:  # noqa: BLE001 — a validator that raises something other than
+            # ValidationError (e.g. a raw ZoneInfoNotFoundError) must still degrade, never crash
+            # snapshot().
+            raise SettingsInvalid(
+                [{"loc": "", "msg": f"cannot validate settings version {row.id}: {exc}"}]
+            ) from exc
 
     def _validate(self, doc: object) -> AppConfig:
         if not isinstance(doc, dict):
@@ -221,7 +240,7 @@ class ConfigService:
         try:
             migrated = migrate(doc, from_version,  # type: ignore[arg-type]
                                migrations=self._migrations, to_version=self._schema_version)
-        except ValueError as exc:
+        except Exception as exc:  # noqa: BLE001 — a broken migration must report as invalid, not crash the caller
             raise SettingsInvalid([{"loc": "", "msg": str(exc)}]) from exc
         return canonical_doc(self._validate(migrated))
 

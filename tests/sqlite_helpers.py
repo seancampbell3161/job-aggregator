@@ -39,7 +39,9 @@ def raw_seen_items(store: SqliteSeenJobsStore) -> list[dict]:
 
 
 def sqlite_stores(conn: sqlite3.Connection) -> Stores:
-    """Every store wired over one connection, exactly as build_stores does."""
+    """Every store wired over one connection, including settings — unlike
+    build_stores(), which gives settings its own (see its docstring); tests
+    share one in-memory connection because ":memory:" can't be reopened."""
     return Stores(
         seen=SqliteSeenJobsStore(conn),
         source_state=SqliteSourceStateStore(conn),

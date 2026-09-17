@@ -71,6 +71,14 @@ def test_load_config_quiet_hours_parses_times(tmp_path, monkeypatch):
     assert str(cfg.quiet_hours.timezone) == "America/Los_Angeles"
 
 
+def test_quiet_hours_config_rejects_unknown_timezone():
+    from pydantic import ValidationError
+
+    from src.config import QuietHoursConfig
+    with pytest.raises(ValidationError, match="unknown timezone"):
+        QuietHoursConfig(timezone="Mars/Olympus_Mons", start="22:00", end="07:00")
+
+
 def test_sources_config_accepts_smartrecruiters_list():
     from src.config import SourcesConfig
     s = SourcesConfig(smartrecruiters=["foo", "bar"])

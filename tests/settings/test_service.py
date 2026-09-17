@@ -1,4 +1,6 @@
 """ConfigService core: snapshots, validated saves, degraded fallback, secrets."""
+import sqlite3
+import threading
 from pathlib import Path
 
 import pytest
@@ -102,6 +104,17 @@ def test_stale_base_version_raises():
         svc.save_settings({"schedules": {"ats_minutes": 6}}, source="cli", base_version_id=v1)
 
 
+def test_unknown_timezone_is_a_field_error_on_save():
+    svc, store = _svc()
+    with pytest.raises(SettingsInvalid) as exc:
+        svc.save_settings(
+            {"quiet_hours": {"timezone": "Mars/Olympus_Mons", "start": "22:00", "end": "07:00"}},
+            source="cli",
+        )
+    assert exc.value.errors[0]["loc"] == "quiet_hours.timezone"
+    assert store.latest_settings() is None
+
+
 # -- snapshots --------------------------------------------------------------------
 
 def test_snapshot_is_cached_until_generation_moves(monkeypatch):
@@ -137,6 +150,69 @@ def test_snapshot_applies_the_user_agent_override(monkeypatch):
     svc.save_settings({"http": {"user_agent": "me/1"}}, source="cli")
     svc.snapshot()
     assert calls == ["me/1"]
+
+
+def test_snapshot_never_caches_an_uncommitted_write():
+    """A writer's insert is visible on the shared connection before its
+    transaction resolves. snapshot() must never read it: it has to block on
+    the store's write lock and, once the write rolls back, see only the last
+    committed state — never a generation/version that doesn't exist."""
+
+    class _BlockingStore(SqliteSettingsStore):
+        def __init__(self, conn):
+            super().__init__(conn)
+            self.insert_done = threading.Event()
+            self.release = threading.Event()
+            self._armed = False  # the baseline save below must commit normally
+
+        def _bump_generation(self):
+            if not self._armed:
+                super()._bump_generation()
+                return
+            self.insert_done.set()
+            assert self.release.wait(timeout=5), "test bug: release was never set"
+            raise sqlite3.OperationalError("simulated failure after insert, before commit")
+
+    store = _BlockingStore(connect(":memory:"))
+    svc = ConfigService(store, env={})
+    svc.save_settings({"schedules": {"ats_minutes": 7}}, source="cli")  # the only committed version
+    store._armed = True
+
+    writer_result: dict = {}
+
+    def writer():
+        try:
+            svc.save_settings({"schedules": {"ats_minutes": 3}}, source="cli")
+        except sqlite3.OperationalError:
+            writer_result["raised"] = True
+
+    t = threading.Thread(target=writer)
+    t.start()
+    assert store.insert_done.wait(timeout=5), "writer never reached the insert"
+
+    reader_result: dict = {}
+
+    def reader():
+        reader_result["snapshot"] = svc.snapshot()
+
+    r = threading.Thread(target=reader)
+    r.start()
+    r.join(timeout=0.2)
+    assert r.is_alive(), "reader did not block on the writer's open transaction"
+
+    store.release.set()
+    t.join(timeout=5)
+    r.join(timeout=5)
+    assert not t.is_alive() and not r.is_alive(), "a thread failed to finish — see stderr"
+
+    assert writer_result.get("raised") is True
+    snap = reader_result["snapshot"]
+    assert snap is not None
+    assert snap.cfg.schedules.ats_minutes == 7  # never the uncommitted 3
+
+    # And a fresh snapshot() call afterwards agrees.
+    final = svc.snapshot()
+    assert final.cfg.schedules.ats_minutes == 7
 
 
 # -- documents --------------------------------------------------------------------
@@ -194,6 +270,19 @@ def test_no_valid_version_counts_as_not_set_up(caplog):
     with caplog.at_level("ERROR", logger="src.settings.service"):
         assert svc.snapshot() is None
     assert any(r.message == "settings_no_valid_version" for r in caplog.records)
+
+
+def test_stored_row_with_unknown_timezone_degrades():
+    svc, store = _svc()
+    good = svc.save_settings({"schedules": {"ats_minutes": 7}}, source="cli")
+    store.insert_settings(
+        doc={"quiet_hours": {"timezone": "Mars/Olympus_Mons", "start": "22:00", "end": "07:00"}},
+        source="ui", note=None, schema_version=1,
+    )
+    snap = svc.snapshot()
+    assert snap.version_id == good
+    assert snap.cfg.schedules.ats_minutes == 7
+    assert snap.degraded is not None
 
 
 def test_row_from_a_newer_schema_degrades_instead_of_crashing():
