@@ -1,6 +1,8 @@
 """Tailor + render + store core for the endpoint. Dependency-injected (engine,
 content, jd_reader, storage) so it is unit-testable without WeasyPrint.
-Never raises out — failures become an {"error": ...} dict the page renders."""
+Never raises out — failures become an {"error": ...} dict the page renders.
+Success returns "pdf_key" (the stored PDF's file name); the web route turns
+it into a token-checked URL."""
 
 from __future__ import annotations
 
@@ -10,7 +12,7 @@ import logging
 from typing import Any, Callable
 
 from src.tailor.endpoint.jd import PostingJD
-from src.tailor.endpoint.storage import PdfStorage
+from src.tailor.endpoint.storage import PdfStorage, pdf_key
 from src.tailor.models import ResumeContent, TailorResult, render_input_dict, result_from_render_input
 
 log = logging.getLogger(__name__)
@@ -18,27 +20,26 @@ log = logging.getLogger(__name__)
 
 def run_tailor(*, job_id: str, regen: bool, engine: Any, content: ResumeContent,
                jd_reader: Callable[[str], PostingJD | None], storage: PdfStorage,
-               url_ttl: int = 900,
                renderer: Callable[[ResumeContent, TailorResult], Any] | None = None,
                template: str = "") -> dict:
     try:
         if template:  # re-render a stored run through a different template — no LLM
-            pdf_key = f"{job_id}.{template}.pdf"
-            if not regen and storage.exists(pdf_key):
-                return {"pdf_url": storage.url(pdf_key, url_ttl), "cached": True, "template": template}
+            key = pdf_key(job_id, template)
+            if not regen and storage.exists(key):
+                return {"pdf_key": key, "cached": True, "template": template}
             raw = storage.get(f"{job_id}.result.json")
             if raw is None:
                 return {"error": "No stored run to re-render — tailor this job first."}
             result = result_from_render_input(json.loads(raw))
             rendered = _render(renderer, content, result, template)
-            storage.put(pdf_key, rendered.pdf, "application/pdf")
-            return {"pdf_url": storage.url(pdf_key, url_ttl), "cached": False,
+            storage.put(key, rendered.pdf, "application/pdf")
+            return {"pdf_key": key, "cached": False,
                     "template": rendered.template, "fit_warning": rendered.fit_warning,
                     "trimmed": len(rendered.trimmed)}
 
-        key = f"{job_id}.pdf"
+        key = pdf_key(job_id)
         if not regen and storage.exists(key):
-            return {"pdf_url": storage.url(key, url_ttl), "cached": True}
+            return {"pdf_key": key, "cached": True}
 
         jd = jd_reader(job_id)
         if jd is None:
@@ -57,7 +58,7 @@ def run_tailor(*, job_id: str, regen: bool, engine: Any, content: ResumeContent,
         rendered = _render(renderer, content, result)
         storage.put(key, rendered.pdf, "application/pdf")
         return {
-            "pdf_url": storage.url(key, url_ttl),
+            "pdf_key": key,
             "cover_letter": result.cover_letter,
             "fit": {"matches": result.fit.matches, "gaps": result.fit.gaps, "overall": result.fit.overall},
             "trimmed": len(rendered.trimmed),

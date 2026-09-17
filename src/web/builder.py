@@ -16,7 +16,8 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import ValidationError
 
 from src.tailor.render.registry import (
-    TemplateInfo, builtin_slugs, get_template, list_templates, pack_info, user_templates_dir,
+    SLUG_RE, TemplateInfo, builtin_slugs, get_template, list_templates, pack_info,
+    user_templates_dir,
 )
 from src.tailor.render.settings import BuilderSettings, settings_from_dict
 
@@ -25,8 +26,6 @@ log = logging.getLogger(__name__)
 _INT_FIELDS = ("max_bullets_per_experience", "max_bullets_per_project",
                "min_bullets_per_entry", "max_pages")
 _STR_FIELDS = ("page_size", "margins")
-
-_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_UNPACKED_ZIP_BYTES = 50 * 1024 * 1024
@@ -40,7 +39,7 @@ EXAMPLE_CONTENT_PATH = Path(__file__).resolve().parents[2] / "resume" / "content
 def _require_safe_slug(slug: str) -> str:
     """Slugs are registry-generated ([a-z0-9-]); anything else (dots, slashes,
     empty) is a crafted request, not a template."""
-    if not _SLUG_RE.match(slug):
+    if not SLUG_RE.match(slug):
         raise HTTPException(status_code=400, detail="invalid template slug")
     return slug
 

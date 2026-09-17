@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -34,10 +33,10 @@ _HERE = Path(__file__).parent
 # value) falls back to the app-configured default, so the slice stays bounded.
 ALLOWED_PAGE_SIZES = (10, 25, 50)
 
-# Paths reachable before setup: the setup page itself, static assets, served
-# tailored PDFs, and the HMAC-token tailor deep link (it answers with its own
+# Paths reachable before setup: the setup page itself, static assets, and the
+# HMAC-token tailor deep link and PDF download (they answer with their own
 # invalid-link page when nothing is configured).
-SETUP_EXEMPT_PREFIXES = ("/setup", "/static", "/tailored", "/tailor")
+SETUP_EXEMPT_PREFIXES = ("/setup", "/static", "/tailor")
 
 
 @asynccontextmanager
@@ -132,10 +131,6 @@ def create_app(
     register_builder_routes(app)
 
     from src.web.tailor import register_tailor_routes
-
-    tailored_dir = os.environ.get("JOB_AGG_TAILORED_DIR", "tailored")
-    os.makedirs(tailored_dir, exist_ok=True)
-    app.mount("/tailored", StaticFiles(directory=tailored_dir), name="tailored")
 
     register_tailor_routes(app)
 

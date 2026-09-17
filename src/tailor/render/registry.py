@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,6 +17,10 @@ log = logging.getLogger(__name__)
 BUILTIN_DIR = Path(__file__).parent / "templates"
 DEFAULT_SLUG = "classic"
 TEMPLATE_FILENAME = "template.html.j2"
+
+# Pack slugs are directory names made by the builder's slugify(); anything else
+# (dots, slashes, uppercase, empty) in a request is crafted, not a template.
+SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
 @dataclass(frozen=True)

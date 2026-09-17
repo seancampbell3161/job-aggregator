@@ -122,8 +122,8 @@ def test_preview_error_detail_is_generic(tmp_path, monkeypatch):
 
 
 def test_slugify_produces_safe_slug_for_traversal_input():
-    from src.web.builder import _SLUG_RE, slugify
-    assert _SLUG_RE.match(slugify("../Evil Näme.html-ish"))
+    from src.web.builder import SLUG_RE, slugify
+    assert SLUG_RE.match(slugify("../Evil Näme.html-ish"))
 
 
 def _upload(client, filename, data, content_type="application/octet-stream"):

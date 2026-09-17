@@ -1,22 +1,43 @@
-"""The tailor deep-link routes. Signed-token gate and loading/run two-step,
-with PDFs written to a local directory and served by this app."""
+"""The tailor deep-link routes. The signed token is their only gate — the
+login gate leaves them public, so a phone can open an alert's link without a
+session: a loading page, a run step, and the resulting PDF served back
+through /tailor/pdf with the same token."""
 
 from __future__ import annotations
 
 import logging
 import os
+import re
+from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from src.tailor.endpoint.auth import verify_token
 from src.tailor.endpoint.page import error_page, loading_page
 from src.tailor.endpoint.run import run_tailor
-from src.tailor.endpoint.storage import LocalFileStorage
-from src.tailor.render.registry import get_template, list_templates
+from src.tailor.endpoint.storage import LocalFileStorage, pdf_key
+from src.tailor.render.registry import SLUG_RE, get_template, list_templates
 from src.tailor.render.settings import settings_from_dict
 
 log = logging.getLogger(__name__)
+
+INVALID_LINK = "This link has expired or is invalid."
+
+
+def tailored_dir() -> str:
+    return os.environ.get("JOB_AGG_TAILORED_DIR", "tailored")
+
+
+def pdf_url(job_id: str, token: str, template: str = "") -> str:
+    """The token-checked download URL for a stored PDF (see /tailor/pdf)."""
+    url = f"/tailor/pdf?job_id={quote(job_id, safe='')}&t={quote(token, safe='')}"
+    return f"{url}&template={quote(template, safe='')}" if template else url
+
+
+def download_name(job_id: str) -> str:
+    return "resume-" + re.sub(r"[^A-Za-z0-9._-]", "-", job_id) + ".pdf"
 
 
 def tailor_boot(request: Request):
@@ -49,14 +70,18 @@ def _build_tailor_boot(snap):
     return engine, content
 
 
+def _signing_secret(request: Request) -> str:
+    snap = request.state.snapshot
+    return snap.cfg.secrets.tailor_signing_secret if snap is not None else ""
+
+
 def register_tailor_routes(app: FastAPI) -> None:
     @app.get("/tailor", response_class=HTMLResponse)
     def tailor(request: Request, job_id: str = "", t: str = "", run: str = "",
                regen: str = "", template: str = ""):
-        snap = request.state.snapshot
-        secret = snap.cfg.secrets.tailor_signing_secret if snap is not None else ""
+        secret = _signing_secret(request)
         if not job_id or not secret or not verify_token(t, job_id, secret):
-            return HTMLResponse(error_page("This link has expired or is invalid."))
+            return HTMLResponse(error_page(INVALID_LINK))
 
         store = request.app.state.stores.seen
         settings = settings_from_dict(request.app.state.stores.builder.get())
@@ -73,11 +98,10 @@ def register_tailor_routes(app: FastAPI) -> None:
         if boot is None:
             return JSONResponse({"error": "Tailoring is not enabled on this server."})
         engine, content = boot
-        storage = LocalFileStorage(
-            root=os.environ.get("JOB_AGG_TAILORED_DIR", "tailored"), base_url="/tailored"
-        )
+        storage = LocalFileStorage(root=tailored_dir())
         requested = template or settings.active_template
         pack = get_template(requested)
+        key_template = pack.slug if template else ""
 
         def renderer(c, r):
             from src.tailor.render import render_with_fallback
@@ -85,9 +109,34 @@ def register_tailor_routes(app: FastAPI) -> None:
 
         out = run_tailor(job_id=job_id, regen=(regen == "1"), engine=engine,
                          content=content, jd_reader=store.get_jd, storage=storage,
-                         renderer=renderer, template=(pack.slug if template else ""))
+                         renderer=renderer, template=key_template)
+        if out.pop("pdf_key", None) is not None:
+            out["pdf_url"] = pdf_url(job_id, t, key_template)
         if "error" not in out and pack.slug != requested:
             warning = f"template '{requested}' is missing — rendered with {pack.slug}"
             existing = out.get("fit_warning")
             out["fit_warning"] = f"{existing} — {warning}" if existing else warning
         return JSONResponse(out)
+
+    @app.get("/tailor/pdf")
+    def tailor_pdf(request: Request, job_id: str = "", t: str = "", template: str = ""):
+        """A stored tailored PDF, authorized by the deep link's own token, so
+        the phone that opened /tailor downloads it without a session. Only
+        that job's PDFs are reachable: the file name is rebuilt with
+        pdf_key(), never taken from the request."""
+        secret = _signing_secret(request)
+        if not job_id or not secret or not verify_token(t, job_id, secret):
+            return HTMLResponse(error_page(INVALID_LINK), status_code=403)
+        if template and not SLUG_RE.match(template):
+            return HTMLResponse(error_page("Unknown résumé template."), status_code=400)
+        root = Path(tailored_dir()).resolve()
+        path = (root / pdf_key(job_id, template)).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            return HTMLResponse(error_page(
+                "This PDF isn't stored anymore — open the tailor link again to regenerate it."
+            ), status_code=404)
+        return FileResponse(
+            path, media_type="application/pdf", filename=download_name(job_id),
+            content_disposition_type="inline",
+            headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+        )
