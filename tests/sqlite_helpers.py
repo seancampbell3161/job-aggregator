@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
+from src.settings.store import SqliteSettingsStore
 from src.state_sqlite import (
     SqliteBuilderSettingsStore,
     SqliteCoachRunsStore,
@@ -50,4 +51,5 @@ def sqlite_stores(conn: sqlite3.Connection) -> Stores:
         boards=SqliteDiscoveredBoardsStore(conn),
         coach=SqliteCoachRunsStore(conn),
         builder=SqliteBuilderSettingsStore(conn),
+        settings=SqliteSettingsStore(conn),
     )

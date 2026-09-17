@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from src.settings.store import SqliteSettingsStore
     from src.state_sqlite import (
         SqliteBuilderSettingsStore,
         SqliteCoachRunsStore,
@@ -35,6 +36,7 @@ class Stores:
     boards: SqliteDiscoveredBoardsStore
     coach: SqliteCoachRunsStore
     builder: SqliteBuilderSettingsStore
+    settings: SqliteSettingsStore
 
 
 def build_stores(cfg: Any = None) -> Stores:
@@ -44,6 +46,7 @@ def build_stores(cfg: Any = None) -> Stores:
     backend = os.environ.get("JOB_AGG_BACKEND")
     if backend and backend != "sqlite":
         log.warning("legacy_backend_env_ignored", extra={"value": backend})
+    from src.settings.store import SqliteSettingsStore
     from src.sqlite_db import connect
     from src.state_sqlite import (
         SqliteBuilderSettingsStore,
@@ -69,4 +72,5 @@ def build_stores(cfg: Any = None) -> Stores:
         boards=SqliteDiscoveredBoardsStore(conn),
         coach=SqliteCoachRunsStore(conn),
         builder=SqliteBuilderSettingsStore(conn),
+        settings=SqliteSettingsStore(conn),
     )

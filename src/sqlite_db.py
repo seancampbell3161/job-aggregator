@@ -88,6 +88,31 @@ CREATE TABLE IF NOT EXISTS builder_settings (
     id   INTEGER PRIMARY KEY CHECK (id = 1),
     data TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS settings_versions (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at     TEXT NOT NULL,
+    source         TEXT NOT NULL,
+    note           TEXT,
+    schema_version INTEGER NOT NULL,
+    doc            TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS documents (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind       TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    source     TEXT NOT NULL,
+    body       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_documents_kind ON documents (kind, id);
+CREATE TABLE IF NOT EXISTS secrets (
+    name       TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS config_generation (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    n  INTEGER NOT NULL
+);
 """
 
 
