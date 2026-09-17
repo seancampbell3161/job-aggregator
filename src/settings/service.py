@@ -336,6 +336,23 @@ class ConfigService:
         row, cfg, _ = effective
         return row.id, canonical_doc(cfg)
 
+    def version_doc(self, version_id: int) -> dict | None:
+        """Canonical document of a stored settings version; None when the
+        version does not exist or no longer migrates and validates."""
+        with self._store.read():
+            row = self._store.get_settings_version(version_id)
+            if row is None:
+                return None
+            try:
+                return canonical_doc(self._parse_row(row))
+            except SettingsInvalid:
+                return None
+
+    def canonicalize(self, doc: dict) -> dict:
+        """The canonical form ``doc`` would be stored in, without writing it.
+        Raises SettingsInvalid for an invalid document."""
+        return self._prepare(doc, None)
+
     def restore(self, version_id: int) -> int:
         with self._store.read():
             row = self._store.get_settings_version(version_id)

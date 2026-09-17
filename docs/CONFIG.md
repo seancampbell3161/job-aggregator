@@ -17,7 +17,8 @@ YAML is the import/export format:
 - **Changes made outside your files** — `add-source`, `restore`, and the
   `--merge` / `seed_companies.py` scripts save to the database only. After one,
   export, bring the changes into your files, then import. Until then an import
-  refuses (listing the settings versions it would replace, writing nothing);
+  that would undo one of those changes refuses, naming each setting and writing
+  nothing (a value you set to something new again imports normally);
   `import --force` overwrites them.
 - **Secrets** — the [secrets](#secrets) table at the bottom. Never part of the
   settings document or an export.

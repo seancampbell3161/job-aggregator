@@ -98,8 +98,9 @@ cp profile.example.md profile.md
 >
 > The export holds non-default values only and none of your comments, so copy
 > the changes across rather than the whole file. Until your files catch up, an
-> import refuses to run and lists the settings versions it would replace
-> (nothing is written); add `--force` to overwrite them anyway.
+> import that would undo one of those changes refuses to run, naming each setting
+> it would undo (nothing is written); a value you deliberately changed again
+> imports normally, and `--force` overwrites everything anyway.
 
 Every settings flag — including the ones this guide doesn't narrate — is
 catalogued with its default in **[docs/CONFIG.md](docs/CONFIG.md)**.
@@ -234,7 +235,8 @@ docker compose run --rm web python -m src.settings add-source greenhouse stripe
 to the database, so `config.yaml` falls behind. Export and bring the new
 entries into your file before you next edit and import — see
 [Applying changes](#2-tailor-it-to-your-job-preferences). An import from a stale
-file refuses rather than dropping them; `import --force` overwrites them on purpose.
+file refuses rather than dropping them — once the file lists them it imports
+normally; `import --force` overwrites them on purpose.
 
 `scripts/discover_enterprise.py` auto-detects **iCIMS** boards (scraped via
 their static in_iframe listings + each job's schema.org JSON-LD) and merges

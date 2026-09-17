@@ -65,8 +65,9 @@ edit, export and bring those changes into your files, then import:
 docker compose run --rm web python -m src.settings export /data/export   # lands in ./data/export/
 ```
 
-Until then an import refuses, listing the settings versions it would replace
-(nothing is written); `import --force` overwrites them on purpose.
+Until then an import that would undo one of those changes refuses, naming each
+setting it would undo (nothing is written); once your files carry the changes it
+imports normally. `import --force` overwrites them on purpose.
 
 The host-side scripts (`uv run python scripts/discover_enterprise.py --merge`,
 `import_vc_portfolio.py … --merge`, `seed_companies.py`) write `./data/job_aggregator.db`

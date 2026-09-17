@@ -22,7 +22,8 @@ import yaml
 from pydantic import BaseModel
 
 from src.config import AppConfig
-from src.settings.errors import NotConfigured, StaleWrite
+from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
+from src.settings.import_guard import undone_changes
 from src.settings.service import ConfigService
 from src.settings.store import SettingsRow
 
@@ -87,8 +88,9 @@ def import_dir(
     scripts, seed_companies, and restore change settings in the database
     only — so re-importing files that predate those changes would silently
     drop them. Unless ``force``, an import refuses (ImportFailed, nothing
-    written) when any settings version not saved by an import is newer than
-    the last import."""
+    written) when the files would undo a setting saved outside an import since
+    the last one (see import_guard.undone_changes); files that already carry
+    those changes, or set a new value on purpose, import normally."""
     directory = Path(directory)
     config_file = Path(config_path) if config_path is not None else directory / "config.yaml"
     raw = _read_config(config_file)
@@ -123,7 +125,7 @@ def import_dir(
             documents[kind] = _read_text(path)
             files.append(_display(path, directory))
 
-    base_version_id = None if force else _import_base_version(service)
+    base_version_id = None if force else _import_base_version(service, raw)
     try:
         version_id, doc_ids = service.save_bundle(
             raw, documents, source="import", note="import: " + ", ".join(files),
@@ -205,11 +207,11 @@ def _model_in(annotation: object) -> type[BaseModel] | None:
     return None
 
 
-def _import_base_version(service: ConfigService) -> int | None:
+def _import_base_version(service: ConfigService, raw: dict) -> int | None:
     """The newest settings version id (None before setup): the base version
     an import writes against, so a save landing mid-import makes it fail
-    rather than be replaced. Raises ImportFailed, listing them, when versions
-    saved some other way are newer than the last import."""
+    rather than be replaced. Raises ImportFailed when versions saved some
+    other way since the last import changed settings that ``raw`` would undo."""
     rows = service.versions(limit=None)  # newest first
     changes: list[SettingsRow] = []
     last_import: SettingsRow | None = None
@@ -219,24 +221,39 @@ def _import_base_version(service: ConfigService) -> int | None:
             break
         changes.append(row)
     if changes:
-        raise ImportFailed(_unimported_changes_message(changes, last_import))
+        undone = _undone_by(service, raw, last_import)
+        if undone:
+            raise ImportFailed(_undone_changes_message(undone, changes, last_import))
     return rows[0].id if rows else None
 
 
-def _unimported_changes_message(changes: list[SettingsRow], last_import: SettingsRow | None) -> str:
+def _undone_by(service: ConfigService, raw: dict, last_import: SettingsRow | None) -> list[str]:
+    try:
+        incoming = service.canonicalize(raw)
+    except SettingsInvalid:
+        return []  # save_bundle reports every validation error at once; nothing is written
+    current = service.current_doc()
+    # No usable baseline (never imported, or that version no longer validates):
+    # compare strictly against the settings in effect.
+    base = service.version_doc(last_import.id) if last_import is not None else None
+    return undone_changes(base, current[1] if current is not None else {}, incoming)
+
+
+def _undone_changes_message(
+    undone: list[str], changes: list[SettingsRow], last_import: SettingsRow | None,
+) -> str:
     if last_import is not None:
-        head = (f"settings were saved after your last import (version {last_import.id}); "
-                "importing these files would replace these versions:")
+        head = (f"these files would undo settings saved after your last import "
+                f"(version {last_import.id}):")
     else:
-        head = ("settings were saved without an import; importing these files would replace "
-                "these versions:")
-    lines = [head]
+        head = "these files would undo settings that were saved without an import:"
+    lines = [head, *(f"  {line}" for line in undone), "saved in:"]
     lines += [f"  {row.id}  {row.source}  {row.note or '(no note)'}"
               for row in changes[:_MAX_LISTED_CHANGES]]
     if len(changes) > _MAX_LISTED_CHANGES:
         lines.append(f"  … and {len(changes) - _MAX_LISTED_CHANGES} more")
     lines.append(
-        "Nothing was written. Run `python -m src.settings export DIR`, merge those changes "
+        "Nothing was written. Run `python -m src.settings export DIR`, merge those values "
         "into your files, then import again — or re-run the import with --force to "
         "overwrite them."
     )

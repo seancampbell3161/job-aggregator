@@ -136,3 +136,26 @@ def test_import_env_secrets_copies_non_empty_values_only():
                        "JOB_AGG_UNRELATED": "x"})
     assert svc.import_env_secrets() == ["ntfy_topic_url"]
     assert store.all_secrets() == {"ntfy_topic_url": "https://n"}
+
+
+def test_canonicalize_returns_the_stored_form_without_writing():
+    svc, store = _svc()
+    doc = svc.canonicalize({"schedules": {"ats_minutes": 10, "slow_minutes": 20}, "bogus": 1})
+    assert doc == {"schedules": {"slow_minutes": 20}}
+    assert store.generation() == 0
+
+
+def test_canonicalize_raises_for_an_invalid_document():
+    svc, _ = _svc()
+    with pytest.raises(SettingsInvalid):
+        svc.canonicalize({"schedules": {"ats_minutes": 0}})
+
+
+def test_version_doc_is_the_canonical_document_of_a_valid_version():
+    svc, store = _svc()
+    vid = svc.save_settings({"schedules": {"slow_minutes": 20}}, source="cli")
+    bad = store.insert_settings(doc={"schedules": {"ats_minutes": 0}}, source="ui",
+                                note=None, schema_version=1)
+    assert svc.version_doc(vid) == {"schedules": {"slow_minutes": 20}}
+    assert svc.version_doc(bad) is None
+    assert svc.version_doc(999) is None

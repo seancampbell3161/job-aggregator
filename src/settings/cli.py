@@ -30,8 +30,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--config", type=Path, default=None, metavar="FILE",
                    help="config file to read instead of DIR/config.yaml")
     p.add_argument("--force", action="store_true",
-                   help="replace settings changed since the last import (add-source, "
-                        "--merge scripts, restore) instead of refusing")
+                   help="import even when these files would undo settings changed since "
+                        "the last import (add-source, --merge scripts, restore)")
 
     p = sub.add_parser("export", help="write settings and documents to a directory (never secrets)")
     p.add_argument("directory", type=Path, metavar="DIR")
