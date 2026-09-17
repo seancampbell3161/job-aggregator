@@ -50,9 +50,9 @@ def test_load_config_parses_valid_yaml(tmp_path, monkeypatch):
     assert cfg.secrets.discord_webhook_url == "https://discord/x"
 
 
-def test_load_config_rejects_missing_required(tmp_path, monkeypatch):
+def test_load_config_rejects_invalid_values(tmp_path, monkeypatch):
     bad = dict(CONFIG_FIXTURE)
-    bad.pop("filters")
+    bad["schedules"] = {"ats_minutes": 0, "slow_minutes": 15}
     p = tmp_path / "bad.yaml"
     p.write_text(yaml.safe_dump(bad))
     monkeypatch.setenv("JOB_AGG_NTFY_TOPIC_URL", "x")
@@ -972,3 +972,77 @@ def test_adzuna_secrets_load_from_env(monkeypatch):
     s = _load_secrets()
     assert s.adzuna_app_id == "my-id"
     assert s.adzuna_app_key == "my-key"
+
+
+# --- settings foundation (sub-project 1): every section has a default ---
+
+def test_app_config_validates_empty_document():
+    from src.config import AppConfig
+    cfg = AppConfig.model_validate({})
+    assert cfg.filters.titles == []
+    assert cfg.filters.seniority_allow == ["mid", "senior"]
+    assert cfg.filters.comp_floor_usd == 0
+    assert cfg.filters.stack_any_of == []
+    assert cfg.filters.location.allowed_countries == ["US"]
+    assert cfg.quiet_hours is None
+    assert cfg.sources.greenhouse == []
+    assert cfg.schedules.ats_minutes == 10
+    assert cfg.schedules.slow_minutes == 15
+    assert cfg.secrets.ntfy_topic_url == ""
+    assert cfg.secrets.discord_webhook_url == ""
+
+
+def test_filters_location_annotation_is_resolved():
+    """LocationFilterConfig is defined before FiltersConfig, so the field's
+    annotation is the class itself (not a ForwardRef) — the settings import's
+    unknown-key walker relies on this."""
+    from src.config import FiltersConfig, LocationFilterConfig
+    assert FiltersConfig.model_fields["location"].annotation is LocationFilterConfig
+
+
+def test_relevance_ollama_host_default_and_locality():
+    from src.config import RelevanceConfig
+    assert RelevanceConfig().ollama_host == "http://ollama:11434"
+    assert RelevanceConfig().ollama_is_local is True
+    assert RelevanceConfig(ollama_host="https://ollama.com").ollama_is_local is False
+
+
+def test_ollama_is_local_is_not_a_config_field():
+    from src.config import RelevanceConfig
+    assert "ollama_is_local" not in RelevanceConfig.model_fields
+
+
+@pytest.mark.parametrize("section,field", [
+    ("schedules", "digest_cron"),
+    ("board", "closed_check_cron"),
+    ("board", "digest_cron"),
+    ("gmail", "check_cron"),
+])
+def test_cron_fields_reject_invalid_crontab(section, field):
+    from pydantic import ValidationError
+    from src.config import AppConfig
+    with pytest.raises(ValidationError, match="invalid crontab"):
+        AppConfig.model_validate({section: {field: "not a cron"}})
+
+
+def test_cron_fields_accept_valid_crontab():
+    from src.config import AppConfig
+    cfg = AppConfig.model_validate({"schedules": {"digest_cron": "15 9 * * 2"}})
+    assert cfg.schedules.digest_cron == "15 9 * * 2"
+
+
+def test_location_legacy_key_does_not_survive_a_dump_round_trip():
+    """The legacy shim must drop remote_must_be_us, or a dumped document
+    carries both keys and fails re-validation with 'not both'."""
+    from src.config import LocationFilterConfig
+    with pytest.warns(DeprecationWarning):
+        loc = LocationFilterConfig.model_validate({"remote_must_be_us": False})
+    dumped = loc.model_dump(mode="json", exclude_defaults=True)
+    assert dumped == {"remote_policy": "anywhere"}
+    assert LocationFilterConfig.model_validate(dumped).remote_policy == "anywhere"
+
+
+def test_slug_source_families_are_plain_slug_lists():
+    from src.config import SLUG_SOURCE_FAMILIES, SourcesConfig
+    for family in SLUG_SOURCE_FAMILIES:
+        assert SourcesConfig.model_fields[family].annotation == list[str]

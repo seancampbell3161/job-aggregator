@@ -25,15 +25,15 @@ is never scored. Details and tuning advice: GETTING_STARTED §2a.
 
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
-| `filters.titles` | (required) | Title allowlist. A posting must match at least one entry — each entry matches as an exact phrase, case-insensitive, on word boundaries (no regex syntax; add variants like `full-stack engineer` / `fullstack engineer` explicitly). |
-| `filters.seniority_allow` | (required) | Allowed seniority bands inferred from the title: any of `junior`, `mid`, `senior`, `staff`. |
+| `filters.titles` | `[]` | Title allowlist. A posting must match at least one entry — each entry matches as an exact phrase, case-insensitive, on word boundaries (no regex syntax; add variants like `full-stack engineer` / `fullstack engineer` explicitly). Empty matches nothing. |
+| `filters.seniority_allow` | `[mid, senior]` | Allowed seniority bands inferred from the title: any of `junior`, `mid`, `senior`, `staff`. |
 | `filters.location.allowed_countries` | `[US]` | ISO 3166-1 alpha-2 codes (`UK` accepted as `GB`). A remote posting passes when its stated area covers one of these; onsite/hybrid postings gate on `allowed_cities`. Must not be empty. |
 | `filters.location.allowed_cities` | `[]` | Lowercase city names that onsite/hybrid postings may be in. |
 | `filters.location.remote_policy` | `allowed_countries` | `anywhere` disables the remote geo gate entirely (any remote posting passes); `allowed_countries` applies the coverage rule above. |
 | `filters.location.allow_unknown` | `true` | Postings whose location can't be parsed pass through to scoring instead of being rejected. |
 | `filters.location.remote_must_be_us` | `null` | **Deprecated** pre-v0.6 key: `true` maps to `remote_policy: allowed_countries`, `false` to `anywhere`. Warns at load; setting both keys is an error. Migrate to `remote_policy`. |
-| `filters.comp_floor_usd` | (required) | Reject postings whose advertised **minimum** comp is below this — a $150k–$200k range with a $160k floor is rejected. Raw-number comparison, USD-only (a `€85.000` posting is not converted). Postings advertising no comp — or only a maximum — are never comp-rejected. `0` disables. |
-| `filters.stack_any_of` | (required) | A posting must mention at least one listed technology. |
+| `filters.comp_floor_usd` | `0` | Reject postings whose advertised **minimum** comp is below this — a $150k–$200k range with a $160k floor is rejected. Raw-number comparison, USD-only (a `€85.000` posting is not converted). Postings advertising no comp — or only a maximum — are never comp-rejected. `0` disables. |
+| `filters.stack_any_of` | `[]` | A posting must mention at least one listed technology. |
 | `filters.max_age_days` | `null` | Reject postings older than N days (`null` = no age gate). `config.example.yaml` leaves it unset; `2` is the recommended value once you are past the first run — postings are alert-worthy only while fresh. |
 | `filters.blocked_companies` | `[]` | Companies to hard-reject regardless of which source surfaced them. An entry matches when its words appear **consecutively as whole words** in the posting's company name — so `microsoft` covers `Microsoft Corporation` and the slug-derived `Eightfold:Microsoft`, while `apple` does **not** match `Applebee's`. Case- and punctuation-insensitive; not a substring test. Multi-word entries (`career launch`) match as a phrase. Runs before the role gate, so rejections are audited under the `company` gate. Purely additive to `sources` — a blocked company's board keeps being polled, its postings are just dropped; delete the entry and they return on the next poll. `[]` disables the gate. |
 | `filters.blocked_employment_types` | `[contract, temporary, part_time, internship]` | Employment types to hard-reject when a posting's type is **known**. Valid values: `full_time`, `part_time`, `contract`, `contract_to_hire`, `temporary`, `internship`. Only connectors that expose the signal populate it (currently Hiring.cafe's `commitment` and Lever's `categories.commitment`); postings with an **unknown** type are never rejected here (fails open, so recall is unchanged). `contract_to_hire` is treated as distinct from `contract` and is allowed by default. Set to `[]` to disable the gate. |
@@ -41,13 +41,14 @@ is never scored. Details and tuning advice: GETTING_STARTED §2a.
 ## quiet_hours
 
 Suppresses **phone pushes** (ntfy) during a nightly window; Discord delivery
-is unaffected, so nothing is lost. All three keys required.
+is unaffected, so nothing is lost. Optional — unset (the default) means no
+quiet window. When set, all three keys are required.
 
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
-| `quiet_hours.timezone` | (required) | IANA zone name, e.g. `America/Los_Angeles`. |
-| `quiet_hours.start` | (required) | Window start, `HH:MM` (quote values with a leading zero — YAML). |
-| `quiet_hours.end` | (required) | Window end, `HH:MM`. |
+| `quiet_hours.timezone` | (required when set) | IANA zone name, e.g. `America/Los_Angeles`. |
+| `quiet_hours.start` | (required when set) | Window start, `HH:MM` (quote values with a leading zero — YAML). |
+| `quiet_hours.end` | (required when set) | Window end, `HH:MM`. |
 
 ## sources
 
@@ -114,8 +115,8 @@ Poll cadence per tier. Intervals are read by the scheduler daemon.
 
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
-| `schedules.ats_minutes` | (required) | Fast-tier interval: direct ATS boards (shipped: 10). |
-| `schedules.slow_minutes` | (required) | Slow-tier interval: aggregators — HN, Remotive, RemoteOK, Adzuna (shipped: 15). |
+| `schedules.ats_minutes` | `10` | Fast-tier interval: direct ATS boards (shipped: 10). |
+| `schedules.slow_minutes` | `15` | Slow-tier interval: aggregators — HN, Remotive, RemoteOK, Adzuna (shipped: 15). |
 | `schedules.discovery_hours` | `24` | Discovery-tier interval (candidate validation sweeps). |
 | `schedules.headless_minutes` | `45` | Headless (Playwright/Avature) tier interval. |
 | `schedules.digest_cron` | `"0 13 * * 1"` | UTC cron for the weekly digest tier (gap-analysis skills digest — Mondays 13:00 UTC). |
@@ -157,8 +158,9 @@ threshold calibration: GETTING_STARTED §2c and
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
 | `relevance.enabled` | `false` | Master switch. Off, every filtered posting alerts (no scoring). |
-| `relevance.provider` | `anthropic` | `anthropic`, `gemini`, or `ollama` (Ollama covers both local and hosted cloud — the base URL comes from the runtime env). |
+| `relevance.provider` | `anthropic` | `anthropic`, `gemini`, or `ollama` (Ollama covers both local and hosted cloud — the base URL is `relevance.ollama_host`). |
 | `relevance.model` | `claude-haiku-4-5` | Model name passed to the provider. |
+| `relevance.ollama_host` | `http://ollama:11434` | Ollama base URL for every Ollama-backed feature (scoring, gap analysis, coach, tailoring, .docx template import). `https://ollama.com` is hosted Ollama Cloud and needs `secrets.ollama_api_key`; any other host is treated as a local server and needs no key. A non-empty `JOB_AGG_OLLAMA_HOST` env var overrides it. |
 | `relevance.score_high` | `7` | Scores ≥ this get the instant phone push; below it (but above `score_low`) postings go to Discord/inbox only. |
 | `relevance.score_low` | `3` | Scores ≤ this are suppressed (still recorded — visible in `/audit`). Shipped: 4. Re-calibrate after any provider/model change. |
 | `relevance.profile_path` | `profile.md` | The prose profile the LLM grades against. Keep it in sync with the hard filters — it independently down-scores what it's told is a dealbreaker. |
