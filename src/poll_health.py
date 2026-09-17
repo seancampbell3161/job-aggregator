@@ -25,13 +25,20 @@ _RATE_LIMIT_STATUS = 429
 # a WAF rule, a revoked key. Distinct from 'transient' because these do NOT
 # clear on their own — hiring.cafe put a Cloudflare challenge up on 2026-07-14
 # and every poll 403'd for 13 days while 'transient' silently no-oped.
-_BLOCKED_STATUSES = frozenset({401, 403})
+#
+# 400 is here for the same reason even though it usually means "malformed
+# request": Workday answers 400 (not 403) to a client it will not serve, so a
+# refusal that never clears would otherwise land in 'transient' and be invisible
+# in connector_health. Misfiling a genuine client-side 400 as 'blocked' is
+# cheap — 'blocked' only records a streak and warns, it never auto-suppresses —
+# whereas missing a permanent refusal costs days of silent zero yield.
+_BLOCKED_STATUSES = frozenset({400, 401, 403})
 
 
 def classify_outcome(res: object) -> str:
     """Map a connector fetch result/exception to a poll-health outcome:
     'ok' (a FetchResult — includes 304 not-modified), 'dead' (permanent 404/410),
-    'blocked' (401/403 — reachable but refusing us), 'rate_limited' (429 — back
+    'blocked' (400/401/403 — reachable but refusing us), 'rate_limited' (429 — back
     off temporarily), or 'transient' (any other failure — timeout, 5xx, connect,
     protocol)."""
     if isinstance(res, FetchResult):
@@ -111,8 +118,9 @@ def update_poll_health(
                     log.warning(
                         "connector_blocked",
                         extra={"connector": name, "streak": streak,
-                               "detail": "401/403 for consecutive cycles — "
-                                         "bot challenge, WAF rule, or revoked credential"},
+                               "detail": "400/401/403 for consecutive cycles — "
+                                         "bot challenge, WAF rule, revoked credential, "
+                                         "or a client the board refuses to serve"},
                     )
             elif outcome == "rate_limited":
                 secs = retry_after.get(name) or DEFAULT_BACKOFF_SECONDS
