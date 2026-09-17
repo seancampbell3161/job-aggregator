@@ -353,6 +353,20 @@ def test_export_merge_import_loop_succeeds_without_force(tmp_path):
     assert cfg.schedules.slow_minutes == 60
 
 
+def test_export_merge_import_succeeds_after_a_restore_removed_an_entry(tmp_path):
+    svc = make_service()
+    d = _config_dir(tmp_path, "sources: {greenhouse: [acme]}\n")
+    first = import_dir(svc, d, templates_dir=tmp_path / "t").version_id
+    (d / "config.yaml").write_text("sources: {greenhouse: [acme, stripe]}\n")
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    svc.restore(first)
+
+    # Merged: stripe stays out, and figma is a new edit.
+    (d / "config.yaml").write_text("sources: {greenhouse: [acme, figma]}\n")
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    assert svc.snapshot().cfg.sources.greenhouse == ["acme", "figma"]
+
+
 def test_a_file_edited_after_merging_imports_without_force(tmp_path):
     svc = make_service()
     d = _config_dir(tmp_path)

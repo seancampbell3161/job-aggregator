@@ -29,10 +29,11 @@ def undone_changes(base: AppConfig | None, current: AppConfig, incoming: AppConf
     since that import count: a value counts when the file still carries the
     value from the import; a list counts entries added since the import that
     the file lacks and entries removed since the import that the file still has
-    (order is ignored). Without a base (the settings never came from an import)
-    every setting that differs from its default counts, and the file must keep
-    it: a value exactly; a list every entry, and none of the default entries it
-    no longer has."""
+    (order is ignored), comparing entries as whole values; an optional section
+    unset since the import counts when the file sets it at all. Without a base
+    (the settings never came from an import) every setting that differs from
+    its default counts, and the file must keep it: a value exactly; a list every
+    entry, and none of the default entries it no longer has."""
     lines: list[str] = []
     _compare(None if base is None else _values(base), _values(current), _values(incoming),
              _values(AppConfig()), "", lines)
@@ -47,11 +48,14 @@ def _compare(
     base: dict | None, current: dict, incoming: dict, defaults: dict | None,
     prefix: str, out: list[str],
 ) -> None:
-    for key, now in current.items():
+    # Model sections share their keys; a free-form mapping's may differ, and a
+    # missing key reads as unset.
+    for key in dict.fromkeys([*current, *(base or {})]):
         path = f"{prefix}{key}"
-        new = incoming[key]
-        default = _UNKNOWN if defaults is None else defaults[key]
-        old = _UNKNOWN if base is None else base[key]
+        now = current.get(key)
+        new = incoming.get(key)
+        default = _UNKNOWN if defaults is None else defaults.get(key, _UNKNOWN)
+        old = _UNKNOWN if base is None else base.get(key)
         if now == (default if base is None else old):
             continue  # unchanged: the file may set anything
         if _all_are(dict, now, new, old):
@@ -63,8 +67,10 @@ def _compare(
         elif base is None:
             if new != now:
                 out.append(_change(path, now, new, default, "to"))
-        elif new == old:
-            out.append(_change(path, now, old, default, "back to"))
+        elif new == old or _all_are(dict, old, new):
+            # A section unset since the import stays unset, like a removed list
+            # entry — even when the file edits it.
+            out.append(_change(path, now, new, default, "back to"))
 
 
 def _compare_lists(

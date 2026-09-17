@@ -19,10 +19,13 @@ YAML is the import/export format:
   export, bring the changes into your files, then import. Until then an import
   that would undo one of those changes refuses, naming each setting and writing
   nothing; `import --force` overwrites them. The check compares against your
-  last import: a setting your file gives a new value imports normally, and an
-  entry added outside your files is removed by importing once with it, then
-  without it. With no usable last import (settings set up some other way), the
-  file must keep every setting that differs from its default.
+  last import: a value your file changes to something new imports normally, but
+  list entries added or removed outside your files (compared as whole entries)
+  and optional sections such as `quiet_hours` switched on or off must stay that
+  way in your file. To undo one of those changes on purpose, import once with
+  it, then again without it. With no usable last import (settings set up some
+  other way, or the last import no longer validates), the file must keep every
+  setting that differs from its default.
 - **Secrets** — the [secrets](#secrets) table at the bottom. Never part of the
   settings document or an export.
 

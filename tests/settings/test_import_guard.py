@@ -74,6 +74,12 @@ def test_list_entries_removed_since_the_import_must_not_come_back():
     ]
 
 
+def test_a_file_without_the_entries_removed_since_the_import_is_allowed():
+    base = cfg({"sources": {"greenhouse": ["acme", "stripe"]}})
+    current = cfg({"sources": {"greenhouse": ["acme"]}})
+    assert undone_changes(base, current, cfg({"sources": {"greenhouse": ["acme", "figma"]}})) == []
+
+
 def test_a_reordered_list_is_not_a_change():
     base = cfg({"sources": {"greenhouse": ["acme", "stripe"]}})
     current = cfg({"sources": {"greenhouse": ["stripe", "acme"]}})
@@ -159,10 +165,13 @@ def test_an_optional_section_removed_since_the_import_must_stay_removed():
     assert undone_changes(base, cfg(), base) == [f"quiet_hours: would set it back to {QUIET_SHOWN}"]
 
 
-def test_an_optional_section_removed_since_the_import_may_come_back_changed():
+def test_an_optional_section_removed_since_the_import_stays_removed_even_when_edited():
     base = cfg({"quiet_hours": QUIET})
-    changed = cfg({"quiet_hours": {**QUIET, "timezone": "Europe/Berlin"}})
-    assert undone_changes(base, cfg(), changed) == []
+    edited = cfg({"quiet_hours": {**QUIET, "start": "23:00"}})
+    assert undone_changes(base, cfg(), edited) == [
+        'quiet_hours: would set it back to {"end": "07:00:00", "start": "23:00:00", '
+        '"timezone": "America/New_York"}'
+    ]
 
 
 def test_an_optional_section_added_since_the_import_must_stay():
@@ -170,6 +179,18 @@ def test_an_optional_section_added_since_the_import_must_stay():
     assert undone_changes(cfg(), current, cfg()) == [
         f"quiet_hours: would unset it (now {QUIET_SHOWN})"
     ]
+
+
+def test_an_optional_section_added_since_the_import_may_be_kept_or_edited():
+    current = cfg({"quiet_hours": QUIET})
+    assert undone_changes(cfg(), current, current) == []
+    assert undone_changes(cfg(), current, cfg({"quiet_hours": {**QUIET, "start": "23:00"}})) == []
+
+
+def test_an_optional_section_changed_since_the_import_may_be_removed():
+    base = cfg({"quiet_hours": QUIET})
+    current = cfg({"quiet_hours": {**QUIET, "timezone": "Europe/Berlin"}})
+    assert undone_changes(base, current, cfg()) == []
 
 
 def test_an_optional_section_that_stays_set_compares_field_by_field():
@@ -194,6 +215,21 @@ def test_strings_that_would_read_ambiguously_are_quoted():
     titles = cfg({"filters": {"titles": ["Engineer, Platform", " staff "]}})
     assert undone_changes(cfg(), titles, cfg()) == [
         'filters.titles: would drop "Engineer, Platform", " staff "'
+    ]
+
+
+class WithLabels(AppConfig):
+    labels: dict[str, str] = {}
+
+
+def test_keys_of_a_free_form_mapping_compare_like_optional_values():
+    base = WithLabels(labels={"acme": "Acme Corp"})
+    assert undone_changes(base, WithLabels(), base) == [
+        "labels.acme: would set it back to Acme Corp"
+    ]
+    added = WithLabels(labels={"acme": "Acme Corp"})
+    assert undone_changes(WithLabels(), added, WithLabels()) == [
+        "labels.acme: would unset it (now Acme Corp)"
     ]
 
 
