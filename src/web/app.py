@@ -49,9 +49,6 @@ def create_app(
     app.state.ops = ops if ops is not None else OpsProvider(
         discovered=stores.discovered, seen=stores.seen, health=stores.health,
         events=stores.events,
-        log_group=os.environ.get("JOB_AGG_LOG_GROUP", "/aws/lambda/job-aggregator"),
-        region=os.environ.get("AWS_REGION", "us-east-1"),
-        local_mode=True,
     )
     app.state.match_analytics = (
         match_analytics if match_analytics is not None else MatchAnalytics(seen=stores.seen)
@@ -69,7 +66,7 @@ def create_app(
     app.state.kit_facts_path = kit_facts_path
     app.state.page_size = page_size
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
-    from src.web.cloudwatch import format_ago
+    from src.web.pipeline_activity import format_ago
     templates.env.filters["ago"] = format_ago
     app.state.templates = templates
     app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")

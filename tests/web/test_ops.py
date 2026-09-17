@@ -110,7 +110,7 @@ def provider():
     disc.upsert_failed("greenhouse:acme")
     seen = SqliteSeenJobsStore(conn)
     health = SqliteConnectorHealthStore(conn)
-    yield OpsProvider(discovered=disc, seen=seen, health=health, log_group="/g", region="us-east-1")
+    yield OpsProvider(discovered=disc, seen=seen, health=health)
 
 
 def test_provider_health_surfaces_suppressed(provider):
@@ -126,7 +126,7 @@ def test_connector_health_default_has_empty_suppressed():
     assert connector_health([]).suppressed == []
 
 
-def test_provider_health_and_analytics_from_dynamodb(provider):
+def test_provider_health_and_analytics_from_stores(provider):
     h = provider.health()
     assert h.ok == 1 and h.failed == 1
     a = provider.analytics()
@@ -134,21 +134,13 @@ def test_provider_health_and_analytics_from_dynamodb(provider):
 
 
 def test_provider_analytics_includes_suppressed_rows(provider):
-    """OpsProvider.analytics pulls suppressed rows from DynamoDB into the
-    histogram while leaving total notified-only."""
+    """OpsProvider.analytics pulls suppressed rows from the seen-jobs store into
+    the histogram while leaving total notified-only."""
     provider._seen.mark_suppressed("greenhouse:stripe:1", score=2)
     a = provider.analytics()
     assert a.suppressed == 1
     assert a.histogram[2] == 1
     assert a.total == 0   # still no notified rows seeded
-
-
-def test_provider_cycles_fail_soft_when_cloudwatch_errors(provider, monkeypatch):
-    import src.web.ops as ops_mod
-    def boom(**kw):
-        raise RuntimeError("no creds")
-    monkeypatch.setattr(ops_mod, "load_pipeline_activity", boom)
-    assert provider.cycles() is None  # swallowed → unavailable
 
 
 def test_provider_health_fail_soft(provider, monkeypatch):

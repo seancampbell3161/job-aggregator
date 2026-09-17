@@ -351,7 +351,7 @@ async def test_run_once_persists_score_on_claimed_row(store):
 @pytest.mark.asyncio
 async def test_fetch_failure_logs_warning_without_traceback(store, capsys):
     """A connector fetch failure must not dump a full stack trace (each ~3 KB —
-    the source of the CloudWatch bill). It should be a compact WARNING that still
+    costly to log at scale). It should be a compact WARNING that still
     names the exception type for diagnosis."""
     seen, src_state = store
     cfg = _cfg()
@@ -670,7 +670,7 @@ async def test_run_once_gap_fallback_does_not_block_notify(store):
 @pytest.mark.asyncio
 async def test_invocation_done_log_includes_tier(store, capsys):
     """The cycle-summary log must carry its tier so the ops dashboard can group
-    per-tier cycle stats from CloudWatch."""
+    per-tier cycle stats."""
     seen, src_state = store
     cfg = _cfg()
     configure_logging()

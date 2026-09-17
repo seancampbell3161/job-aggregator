@@ -49,7 +49,7 @@ def client():
     disc = SqliteDiscoveredSlugsStore(conn)
     disc.upsert_ok("greenhouse:ramp", last_posting_count=7)
     disc.upsert_failed("greenhouse:acme")
-    ops = OpsProvider(discovered=disc, seen=store, log_group="/g", region="us-east-1")
+    ops = OpsProvider(discovered=disc, seen=store)
     app = create_app(
         repo=TriageRepo(store), score_high=7, score_low=4, ops=ops,
         match_analytics=MatchAnalytics(seen=store),
@@ -407,7 +407,7 @@ def test_pipeline_page_analytics_unavailable_is_soft(client, monkeypatch):
 
 
 def test_pipeline_cycles_renders_with_activity(client, monkeypatch):
-    from src.web.cloudwatch import LastCycle, PipelineActivity, Tally, TierStats
+    from src.web.pipeline_activity import LastCycle, PipelineActivity, Tally, TierStats
     now_ms = int(time.time() * 1000)
     activity = PipelineActivity(
         window_days=7,
@@ -430,14 +430,13 @@ def test_pipeline_cycles_renders_with_activity(client, monkeypatch):
     assert 'id="last-cycle"' in r.text and "hx-swap-oob" in r.text
 
 
-def test_pipeline_cycles_oob_updates_last_success_in_local_mode(client, monkeypatch):
-    from src.web.cloudwatch import LastCycle, PipelineActivity
+def test_pipeline_cycles_oob_updates_last_success(client, monkeypatch):
+    from src.web.pipeline_activity import LastCycle, PipelineActivity
     activity = PipelineActivity(
         window_days=7, tiers=[], failures_by_type=[], failures_by_connector=[],
         failures_total=0, last_cycle=LastCycle(ts_ms=1_000_000, ok=True),
     )
     monkeypatch.setattr(client.app.state.ops, "cycles", lambda: activity)
-    client.app.state.ops._local_mode = True
     now_ms = int(time.time() * 1000)
     monkeypatch.setattr(client.app.state.ops, "last_success", lambda: now_ms - 120_000)
     r = client.get("/pipeline/cycles")
@@ -445,21 +444,8 @@ def test_pipeline_cycles_oob_updates_last_success_in_local_mode(client, monkeypa
     assert "2m ago" in r.text
 
 
-def test_pipeline_cycles_no_last_success_oob_in_aws_mode(client, monkeypatch):
-    from src.web.cloudwatch import LastCycle, PipelineActivity
-    activity = PipelineActivity(
-        window_days=7, tiers=[], failures_by_type=[], failures_by_connector=[],
-        failures_total=0, last_cycle=LastCycle(ts_ms=1_000_000, ok=True),
-    )
-    monkeypatch.setattr(client.app.state.ops, "cycles", lambda: activity)
-    r = client.get("/pipeline/cycles")
-    # the fixture provider is AWS-mode: pipeline.html has no #last-success span
-    # there, so the OOB fragment must not be emitted either
-    assert 'id="last-success"' not in r.text
-
-
 def test_pipeline_cycles_renders_recent_cycles_table(client, monkeypatch):
-    from src.web.cloudwatch import CycleRow, LastCycle, PipelineActivity
+    from src.web.pipeline_activity import CycleRow, LastCycle, PipelineActivity
     now_ms = int(time.time() * 1000)
     activity = PipelineActivity(
         window_days=7, tiers=[], failures_by_type=[], failures_by_connector=[],
@@ -485,14 +471,14 @@ def test_pipeline_cycles_renders_recent_cycles_table(client, monkeypatch):
 
 
 def test_pipeline_cycles_hides_recent_table_when_empty(client, monkeypatch):
-    from src.web.cloudwatch import LastCycle, PipelineActivity
+    from src.web.pipeline_activity import LastCycle, PipelineActivity
     activity = PipelineActivity(
         window_days=7, tiers=[], failures_by_type=[], failures_by_connector=[],
         failures_total=0, last_cycle=LastCycle(ts_ms=1_000_000, ok=True),
     )
     monkeypatch.setattr(client.app.state.ops, "cycles", lambda: activity)
     r = client.get("/pipeline/cycles")
-    assert "recent cycles" not in r.text.lower()   # AWS mode / no telemetry → no section
+    assert "recent cycles" not in r.text.lower()   # no telemetry → no section
 
 
 def test_pipeline_cycles_unavailable_is_soft(client, monkeypatch):
@@ -507,7 +493,7 @@ def test_pipeline_cycles_unavailable_is_soft(client, monkeypatch):
 
 
 def test_pipeline_cycles_renders_per_tier_freshness(client, monkeypatch):
-    from src.web.cloudwatch import LastCycle, PipelineActivity, TierHeartbeat, TierStats
+    from src.web.pipeline_activity import LastCycle, PipelineActivity, TierHeartbeat, TierStats
 
     now_ms = int(time.time() * 1000)
     activity = PipelineActivity(
@@ -537,7 +523,7 @@ def test_pipeline_cycles_renders_per_tier_freshness(client, monkeypatch):
 
 
 def test_pipeline_cycles_failed_last_cycle_shows_warning(client, monkeypatch):
-    from src.web.cloudwatch import LastCycle, PipelineActivity
+    from src.web.pipeline_activity import LastCycle, PipelineActivity
     activity = PipelineActivity(
         window_days=7, tiers=[], failures_by_type=[], failures_by_connector=[],
         failures_total=0, last_cycle=LastCycle(ts_ms=1_000_000, ok=False),

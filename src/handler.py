@@ -427,10 +427,9 @@ async def _run(tier: str, dry_run: bool = False, calibrate: bool = False) -> dic
             )
         except Exception:  # noqa: BLE001 — capture is best-effort; never break the cycle
             log.exception("sightings_drain_failed")
-    # Local cycle telemetry for the /pipeline ops page (SQLite backend only;
-    # DynamoDB reads CloudWatch instead, so stores.events is None there). Skip
-    # dry-run/calibrate cycles — they don't reflect real polling. Never let a
-    # telemetry write break the cycle.
+    # Local cycle telemetry for the /pipeline ops page. Skip dry-run/calibrate
+    # cycles — they don't reflect real polling. Never let a telemetry write
+    # break the cycle.
     if not dry_run and stores.events is not None:
         try:
             stores.events.record_cycle(

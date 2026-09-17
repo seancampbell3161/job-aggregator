@@ -780,9 +780,8 @@ class SqliteConnectorHealthStore:
 
 class SqlitePipelineEventsStore:
     """Local-runtime cycle telemetry. The poller appends one row per completed
-    ats/slow cycle; the /pipeline ops page aggregates the recent window into the
-    same view AWS builds from CloudWatch Logs. DynamoDB deployments read
-    CloudWatch instead, so build_stores wires this to None there.
+    ats/slow cycle; the /pipeline ops page aggregates the recent window into
+    that view.
 
     Rows older than _RETENTION_DAYS are pruned on each write so the table stays
     bounded under the every-few-minutes ats cadence."""

@@ -42,7 +42,7 @@ class RunResult:
     failed_sources: list[str] = field(default_factory=list)
     # Per-failed-connector detail ({"source", "error_type"}), parallel to
     # failed_sources. Feeds the local SQLite cycle-telemetry sink so the ops page
-    # can break failures down by type/connector the way CloudWatch does in AWS.
+    # can break failures down by type/connector.
     fetch_failures: list[dict] = field(default_factory=list)
     # Per-failed LLM call ({"stage", "error_type"}). Parallel to fetch_failures;
     # feeds local cycle telemetry so /pipeline can break LLM degradation down by
@@ -87,7 +87,7 @@ async def _fetch_one(
         # Connector failures (PoolTimeout, HTTP errors, dead slugs) are expected
         # operational noise. Log a compact WARNING naming the exception instead of
         # a full stack trace — each traceback is ~3 KB and, across hundreds of
-        # connectors polled every minute, dominated CloudWatch log-ingestion cost.
+        # connectors polled every minute, adds up fast in the logs.
         log.warning(
             "fetch_failed",
             extra={
