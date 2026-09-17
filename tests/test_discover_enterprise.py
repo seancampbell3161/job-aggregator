@@ -10,6 +10,10 @@ _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import discover_enterprise as cli  # noqa: E402
 
 
+EXPORT_TIP = ("Tip: run `python -m src.settings export DIR` before editing settings files, "
+              "so this change isn't lost.")
+
+
 def _r(status, name="Acme", **kw):
     return FingerprintResult(name=name, domain=f"{name.lower()}.com", status=status, **kw)
 
@@ -74,8 +78,16 @@ def test_merge_saves_matched_entries_into_settings(tmp_path, monkeypatch, capsys
     rc = cli.main(["--seed-file", str(_one_seed_csv(tmp_path)),
                    "--out", str(tmp_path / "r.json"), "--merge"])
     assert rc == 0
-    assert "Merged 1 new entries into settings" in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert "Merged 1 new entries into settings" in captured.out
+    assert EXPORT_TIP in captured.out
     assert [w.tenant for w in service.snapshot().cfg.sources.workday] == ["acme"]
+
+
+def test_dry_run_prints_no_export_tip(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "fingerprint_many", _fake_fingerprint_many)
+    assert cli.main(["--seed-file", str(_one_seed_csv(tmp_path)), "--out", str(tmp_path / "r.json")]) == 0
+    assert EXPORT_TIP not in capsys.readouterr().out
 
 
 def test_merge_before_setup_exits_1_without_sweeping(tmp_path, monkeypatch, capsys):

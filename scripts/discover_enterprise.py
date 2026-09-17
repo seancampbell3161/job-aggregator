@@ -34,7 +34,7 @@ from src.fingerprint import (
     _store_names_fail_soft,
     format_report,
 )
-from src.settings import open_service
+from src.settings import EXPORT_TIP, open_service
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -73,6 +73,7 @@ def main(argv: list[str] | None = None) -> int:
         if added:
             print(f"\nMerged {added} new entries into settings (applies live):\n{summary}")
             print("Each enterprise board adds ~2-5s/cycle — check /pipeline duration after a large batch.")
+            print(EXPORT_TIP)
         else:
             print("\nNothing new to merge (all matched entries already polled).")
     return 0

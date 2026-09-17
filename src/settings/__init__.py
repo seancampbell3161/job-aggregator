@@ -2,6 +2,14 @@
 résumé, tailoring data, apply-kit facts), and secrets. See service.py."""
 from __future__ import annotations
 
+# Printed after a database-only settings change (add-source, the --merge
+# scripts, seed_companies). Import replaces the whole settings document, so a
+# later import from files that predate the change would refuse to run.
+EXPORT_TIP = (
+    "Tip: run `python -m src.settings export DIR` before editing settings files, "
+    "so this change isn't lost."
+)
+
 
 def open_service(path: str | None = None):
     """A ConfigService over its own connection to the app DB

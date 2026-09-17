@@ -22,8 +22,9 @@ import yaml
 from pydantic import BaseModel
 
 from src.config import AppConfig
-from src.settings.errors import NotConfigured
+from src.settings.errors import NotConfigured, StaleWrite
 from src.settings.service import ConfigService
+from src.settings.store import SettingsRow
 
 DOCUMENT_FILES: dict[str, str] = {
     "profile": "profile.md",
@@ -53,8 +54,14 @@ EXPORT_HEADER = (
 )
 
 
+# How many unimported settings versions an import refusal lists by name.
+_MAX_LISTED_CHANGES = 10
+
+
 class ImportFailed(Exception):
-    """The import directory's config file is missing, unreadable, or malformed."""
+    """The import could not run: a file is missing, unreadable, or malformed,
+    or settings changed outside an import since the last one. Nothing was
+    written."""
 
 
 @dataclass
@@ -70,10 +77,18 @@ class ImportReport:
 def import_dir(
     service: ConfigService, directory: Path | str, *,
     config_path: Path | str | None = None, templates_dir: Path | str | None = None,
+    force: bool = False,
 ) -> ImportReport:
     """Validate the config file and every present document, then write them
     as one settings version plus one document per file (source=import), then
-    copy template packs. Nothing is written when anything fails validation."""
+    copy template packs. Nothing is written when anything fails validation.
+
+    Import replaces the whole settings document, but add-source, the --merge
+    scripts, seed_companies, and restore change settings in the database
+    only — so re-importing files that predate those changes would silently
+    drop them. Unless ``force``, an import refuses (ImportFailed, nothing
+    written) when any settings version not saved by an import is newer than
+    the last import."""
     directory = Path(directory)
     config_file = Path(config_path) if config_path is not None else directory / "config.yaml"
     raw = _read_config(config_file)
@@ -87,7 +102,10 @@ def import_dir(
         value = block.pop(key)
         if value:
             path = Path(str(value))
-            doc_paths[kind] = path if path.is_absolute() else directory / path
+            path = path if path.is_absolute() else directory / path
+            doc_paths[kind] = path  # never falls back to the default-named file
+            if not path.is_file():
+                warnings.append(f"{section}.{key}: {value} not found — skipped")
         if not block:
             del raw[section]
     if "secrets" in raw:
@@ -102,12 +120,20 @@ def import_dir(
     files = [config_file.name]
     for kind, path in doc_paths.items():
         if path.is_file():
-            documents[kind] = path.read_text(encoding="utf-8")
+            documents[kind] = _read_text(path)
             files.append(_display(path, directory))
 
-    version_id, doc_ids = service.save_bundle(
-        raw, documents, source="import", note="import: " + ", ".join(files),
-    )
+    base_version_id = None if force else _import_base_version(service)
+    try:
+        version_id, doc_ids = service.save_bundle(
+            raw, documents, source="import", note="import: " + ", ".join(files),
+            base_version_id=base_version_id,
+        )
+    except StaleWrite:
+        raise ImportFailed(
+            "settings were saved by another process while importing — nothing was "
+            "written; run the import again"
+        ) from None
     copied, skipped = _copy_packs(directory / "resume" / "templates", _templates_dir(templates_dir))
     return ImportReport(
         version_id=version_id, documents=doc_ids, files=files, warnings=warnings,
@@ -179,6 +205,59 @@ def _model_in(annotation: object) -> type[BaseModel] | None:
     return None
 
 
+def _import_base_version(service: ConfigService) -> int | None:
+    """The newest settings version id (None before setup): the base version
+    an import writes against, so a save landing mid-import makes it fail
+    rather than be replaced. Raises ImportFailed, listing them, when versions
+    saved some other way are newer than the last import."""
+    rows = service.versions(limit=None)  # newest first
+    changes: list[SettingsRow] = []
+    last_import: SettingsRow | None = None
+    for row in rows:
+        if row.source == "import":
+            last_import = row
+            break
+        changes.append(row)
+    if changes:
+        raise ImportFailed(_unimported_changes_message(changes, last_import))
+    return rows[0].id if rows else None
+
+
+def _unimported_changes_message(changes: list[SettingsRow], last_import: SettingsRow | None) -> str:
+    if last_import is not None:
+        head = (f"settings were saved after your last import (version {last_import.id}); "
+                "importing these files would replace these versions:")
+    else:
+        head = ("settings were saved without an import; importing these files would replace "
+                "these versions:")
+    lines = [head]
+    lines += [f"  {row.id}  {row.source}  {row.note or '(no note)'}"
+              for row in changes[:_MAX_LISTED_CHANGES]]
+    if len(changes) > _MAX_LISTED_CHANGES:
+        lines.append(f"  … and {len(changes) - _MAX_LISTED_CHANGES} more")
+    lines.append(
+        "Nothing was written. Run `python -m src.settings export DIR`, merge those changes "
+        "into your files, then import again — or re-run the import with --force to "
+        "overwrite them."
+    )
+    return "\n".join(lines)
+
+
+def _read_text(path: Path) -> str:
+    """A document file's UTF-8 text; a read or decode failure is an
+    ImportFailed naming the file."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise _unreadable(path, exc) from None
+
+
+def _unreadable(path: Path, exc: OSError | UnicodeDecodeError) -> ImportFailed:
+    if isinstance(exc, UnicodeDecodeError):
+        return ImportFailed(f"{path}: not valid UTF-8 text ({exc.reason} at byte {exc.start})")
+    return ImportFailed(f"{path}: cannot read: {exc.strerror or exc}")
+
+
 def _read_config(path: Path) -> dict:
     try:
         text = path.read_text(encoding="utf-8")
@@ -188,6 +267,8 @@ def _read_config(path: Path) -> dict:
         ) from None
     except IsADirectoryError:
         raise ImportFailed(f"{path} is a directory, not a file") from None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise _unreadable(path, exc) from None
     try:
         raw = yaml.safe_load(text)
     except yaml.YAMLError as exc:

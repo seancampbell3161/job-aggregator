@@ -12,6 +12,13 @@ YAML is the import/export format:
   effect back out with `python -m src.settings export DIR` (non-default values
   only). Every import is a new settings version (`history`, `restore ID`), and
   **changes apply live** in the poller, scheduler, and web UI — no restart.
+  Import replaces the settings document but only adds documents: a file missing
+  from the directory leaves that document as it was.
+- **Changes made outside your files** — `add-source`, `restore`, and the
+  `--merge` / `seed_companies.py` scripts save to the database only. After one,
+  export, bring the changes into your files, then import. Until then an import
+  refuses (listing the settings versions it would replace, writing nothing);
+  `import --force` overwrites them.
 - **Secrets** — the [secrets](#secrets) table at the bottom. Never part of the
   settings document or an export.
 

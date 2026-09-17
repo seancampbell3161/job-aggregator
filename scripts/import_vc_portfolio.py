@@ -30,7 +30,7 @@ from src.fingerprint import (  # noqa: E402
     _store_names_fail_soft,
     format_report,
 )
-from src.settings import open_service  # noqa: E402
+from src.settings import EXPORT_TIP, open_service  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -71,6 +71,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         if added:
             print(f"\nMerged {added} new entries into settings (applies live):\n{summary}")
+            print(EXPORT_TIP)
         else:
             print("\nNothing new to merge (all matched entries already polled).")
     return 0

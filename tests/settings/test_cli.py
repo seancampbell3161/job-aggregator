@@ -152,11 +152,36 @@ def test_restore(capsys):
     assert main(["restore", "999"], service=svc) == 1
 
 
+EXPORT_TIP = ("Tip: run `python -m src.settings export DIR` before editing settings files, "
+              "so this change isn't lost.")
+
+
+def test_import_refuses_after_add_source_until_forced(tmp_path, capsys):
+    (tmp_path / "config.yaml").write_text("schedules: {slow_minutes: 30}\n")
+    svc = make_service()
+    assert main(["import", str(tmp_path)], service=svc) == 0
+    assert main(["add-source", "greenhouse", "stripe"], service=svc) == 0
+    capsys.readouterr()
+    versions = len(svc.versions())
+
+    assert main(["import", str(tmp_path)], service=svc) == 1
+    err = capsys.readouterr().err
+    assert "add-source: added greenhouse:stripe" in err
+    assert "export DIR" in err and "--force" in err
+    assert len(svc.versions()) == versions
+
+    assert main(["import", "--force", str(tmp_path)], service=svc) == 0
+    assert svc.snapshot().cfg.sources.greenhouse == []
+
+
 def test_add_source_is_idempotent(capsys):
     svc = make_service({})
     assert main(["add-source", "greenhouse", "stripe"], service=svc) == 0
+    assert EXPORT_TIP in capsys.readouterr().out
     assert main(["add-source", "greenhouse", "stripe"], service=svc) == 0
-    assert "already" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "already" in out
+    assert EXPORT_TIP not in out  # nothing changed, nothing to lose
     assert svc.snapshot().cfg.sources.greenhouse == ["stripe"]
     assert len(svc.versions()) == 2  # fixture version + one add
 

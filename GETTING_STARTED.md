@@ -82,8 +82,24 @@ cp profile.example.md profile.md
 >
 > Every import is a new settings version: `python -m src.settings history` lists
 > them, `restore ID` rolls back, and `export DIR` writes the current settings
-> back to files. (Tip: `alias settings='docker compose run --rm -v "$PWD:/import:ro" web python -m src.settings'`,
+> back to files. Import replaces the settings document but only adds documents:
+> a file missing from the directory leaves that document as it was. (Tip:
+> `alias settings='docker compose run --rm -v "$PWD:/import:ro" web python -m src.settings'`,
 > then `settings import /import`, `settings status`, …)
+>
+> **After a change made outside your files** — `add-source`, `restore`, or a
+> `--merge` / `seed_companies.py` script ([§2d](#2d-add-or-remove-companies-configyaml--sources)) —
+> the database holds settings your files don't. Before you next edit, export
+> the settings in effect, bring those changes into your files, then import:
+>
+> ```sh
+> docker compose run --rm web python -m src.settings export /data/export   # lands in ./data/export/
+> ```
+>
+> The export holds non-default values only and none of your comments, so copy
+> the changes across rather than the whole file. Until your files catch up, an
+> import refuses to run and lists the settings versions it would replace
+> (nothing is written); add `--force` to overwrite them anyway.
 
 Every settings flag — including the ones this guide doesn't narrate — is
 catalogued with its default in **[docs/CONFIG.md](docs/CONFIG.md)**.
@@ -213,6 +229,12 @@ docker compose run --rm web python -m src.settings add-source greenhouse stripe
 #       region: wd1
 #       site: External
 ```
+
+`add-source` and the `--merge` / `seed_companies.py` scripts below save straight
+to the database, so `config.yaml` falls behind. Export and bring the new
+entries into your file before you next edit and import — see
+[Applying changes](#2-tailor-it-to-your-job-preferences). An import from a stale
+file refuses rather than dropping them; `import --force` overwrites them on purpose.
 
 `scripts/discover_enterprise.py` auto-detects **iCIMS** boards (scraped via
 their static in_iframe listings + each job's schema.org JSON-LD) and merges

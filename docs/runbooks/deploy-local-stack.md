@@ -53,7 +53,19 @@ docker compose run --rm web python -m src.settings status
 ```
 
 Import validates everything before writing; a failure changes nothing. Changes
-apply live — no restart.
+apply live — no restart. Import replaces the settings document but only adds
+documents: a file missing from the directory leaves that document as it was.
+
+`add-source`, `restore`, and the host-side `--merge` / `seed_companies.py` scripts
+change settings in the database only, so your files fall behind. Before the next
+edit, export and bring those changes into your files, then import:
+
+```bash
+docker compose run --rm web python -m src.settings export /data/export   # lands in ./data/export/
+```
+
+Until then an import refuses, listing the settings versions it would replace
+(nothing is written); `import --force` overwrites them on purpose.
 
 ## Phase 2 — Verify core health
 

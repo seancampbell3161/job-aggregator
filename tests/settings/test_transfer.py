@@ -6,6 +6,8 @@ import pytest
 import yaml
 
 from src.settings.errors import NotConfigured, SettingsInvalid
+from src.settings.service import ConfigService
+from src.settings.sources import append_slug_sources
 from src.settings.transfer import ImportFailed, export_dir, import_dir, unknown_keys
 from tests.settings_helpers import make_service
 
@@ -136,6 +138,37 @@ def test_legacy_path_keys_pick_the_file_and_are_dropped(tmp_path):
     assert svc.current_doc()[1] == {"relevance": {"enabled": True}}
 
 
+def test_legacy_path_key_naming_a_missing_file_is_warned_and_skipped(tmp_path):
+    (tmp_path / "config.yaml").write_text(
+        "relevance:\n  enabled: true\n  profile_path: docs/missing.md\n"
+    )
+    (tmp_path / "profile.md").write_text("the default-named file is not a fallback")
+    svc = make_service()
+    report = import_dir(svc, tmp_path, templates_dir=tmp_path / "t")
+    assert report.warnings == ["relevance.profile_path: docs/missing.md not found — skipped"]
+    assert svc.documents().profile is None
+    assert svc.current_doc()[1] == {"relevance": {"enabled": True}}
+
+
+def test_config_that_is_not_utf8_fails_naming_the_file(tmp_path):
+    (tmp_path / "config.yaml").write_bytes(b"schedules: {slow_minutes: 30}\n# caf\xe9\n")
+    svc = make_service()
+    with pytest.raises(ImportFailed, match=r"config\.yaml: not valid UTF-8"):
+        import_dir(svc, tmp_path, templates_dir=tmp_path / "t")
+    assert svc.snapshot() is None
+
+
+def test_document_that_is_not_utf8_fails_naming_the_file_and_writes_nothing(tmp_path):
+    (tmp_path / "config.yaml").write_text("{}\n")
+    (tmp_path / "resume").mkdir()
+    (tmp_path / "resume" / "facts.yaml").write_bytes(b"- group: caf\xe9\n")
+    svc = make_service()
+    with pytest.raises(ImportFailed, match=r"facts\.yaml: not valid UTF-8"):
+        import_dir(svc, tmp_path, templates_dir=tmp_path / "t")
+    assert svc.snapshot() is None
+    assert svc.generation() == 0
+
+
 def test_secrets_in_the_config_file_are_ignored_with_a_warning(tmp_path):
     (tmp_path / "config.yaml").write_text("secrets:\n  ntfy_topic_url: https://ntfy.sh/x\n")
     svc = make_service()
@@ -182,3 +215,105 @@ def test_unknown_keys_walks_models_lists_and_unions():
         "sources.hiringcafe.extra_queries[1].loc",
         "quiet_hours.tz",
     ]
+
+
+# -- re-import guard: settings saved outside an import since the last one -----------
+
+def _config_dir(tmp_path: Path, text: str = "schedules: {slow_minutes: 30}\n") -> Path:
+    d = tmp_path / "in"
+    d.mkdir(exist_ok=True)
+    (d / "config.yaml").write_text(text)
+    return d
+
+
+def test_import_refuses_to_replace_changes_saved_since_the_last_import(tmp_path):
+    svc = make_service()
+    d = _config_dir(tmp_path)
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    append_slug_sources(svc, {"greenhouse": ["stripe"]}, label="add-source")
+
+    def slower(doc):
+        doc["schedules"]["slow_minutes"] = 60
+        return "slow tier every hour"
+
+    svc.update_settings(slower, source="cli")
+    added, tweaked = svc.versions()[1], svc.versions()[0]
+    (d / "profile.md").write_text("# edited")
+    (d / "resume" / "templates" / "mine").mkdir(parents=True)
+    (d / "resume" / "templates" / "mine" / "template.html.j2").write_text("x")
+    generation = svc.generation()
+
+    with pytest.raises(ImportFailed) as exc:
+        import_dir(svc, d, templates_dir=tmp_path / "t")
+
+    msg = str(exc.value)
+    assert f"{tweaked.id}  cli  slow tier every hour" in msg
+    assert f"{added.id}  cli  add-source: added greenhouse:stripe" in msg
+    assert "after your last import" in msg
+    assert "python -m src.settings export DIR" in msg
+    assert "--force" in msg
+    # The refusal wrote nothing: no version, no document, no template pack.
+    assert svc.generation() == generation
+    assert svc.snapshot().cfg.sources.greenhouse == ["stripe"]
+    assert svc.snapshot().cfg.schedules.slow_minutes == 60
+    assert svc.documents().profile is None
+    assert not (tmp_path / "t").exists()
+
+
+def test_import_with_force_replaces_changes_saved_since_the_last_import(tmp_path):
+    svc = make_service()
+    d = _config_dir(tmp_path)
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    append_slug_sources(svc, {"greenhouse": ["stripe"]}, label="add-source")
+    report = import_dir(svc, d, templates_dir=tmp_path / "t", force=True)
+    snap = svc.snapshot()
+    assert snap.version_id == report.version_id
+    assert snap.cfg.sources.greenhouse == []
+    # The forced import is now the last import, so a plain one is allowed again.
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+
+
+def test_import_is_allowed_when_only_imports_came_after_the_last_import(tmp_path):
+    svc = make_service()
+    d = _config_dir(tmp_path)
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    (d / "config.yaml").write_text("schedules: {slow_minutes: 45}\n")
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    assert svc.snapshot().cfg.schedules.slow_minutes == 45
+
+
+def test_import_refuses_when_existing_settings_never_came_from_an_import(tmp_path):
+    svc = make_service({"schedules": {"slow_minutes": 20}})  # saved with source=cli
+    with pytest.raises(ImportFailed, match="test fixture"):
+        import_dir(svc, _config_dir(tmp_path), templates_dir=tmp_path / "t")
+    assert svc.snapshot().cfg.schedules.slow_minutes == 20
+
+
+def test_import_refusal_lists_at_most_ten_versions(tmp_path):
+    svc = make_service()
+    d = _config_dir(tmp_path)
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    for i in range(12):
+        svc.save_settings({"schedules": {"slow_minutes": 20 + i}}, source="cli", note=f"change #{i}")
+    with pytest.raises(ImportFailed) as exc:
+        import_dir(svc, d, templates_dir=tmp_path / "t")
+    listed = [line for line in str(exc.value).splitlines() if "change #" in line]
+    assert [line.rsplit("#", 1)[1] for line in listed] == [str(i) for i in range(11, 1, -1)]
+    assert "and 2 more" in str(exc.value)
+
+
+def test_import_does_not_replace_a_save_that_lands_during_the_import(tmp_path, monkeypatch):
+    svc = make_service()
+    d = _config_dir(tmp_path)
+    import_dir(svc, d, templates_dir=tmp_path / "t")
+    real_save_bundle = svc.save_bundle
+
+    def save_bundle_after_a_concurrent_write(*args, **kwargs):
+        ConfigService(svc._store, env={}).save_settings(
+            {"schedules": {"ats_minutes": 3}}, source="cli", note="concurrent")
+        return real_save_bundle(*args, **kwargs)
+
+    monkeypatch.setattr(svc, "save_bundle", save_bundle_after_a_concurrent_write)
+    with pytest.raises(ImportFailed, match="while importing"):
+        import_dir(svc, d, templates_dir=tmp_path / "t")
+    assert svc.snapshot().cfg.schedules.ats_minutes == 3

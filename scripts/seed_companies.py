@@ -95,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
                   file=sys.stderr)
             return 1
 
-    from src.settings import open_service
+    from src.settings import EXPORT_TIP, open_service
     from src.settings.errors import NotConfigured, StaleWrite
     from src.settings.sources import append_slug_sources
 
@@ -126,6 +126,7 @@ def main(argv: list[str] | None = None) -> int:
     except (NotConfigured, StaleWrite) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
+    print(EXPORT_TIP)
     return 0
 
 

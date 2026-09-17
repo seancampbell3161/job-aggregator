@@ -291,9 +291,11 @@ class ConfigService:
 
     def save_bundle(
         self, doc: dict, documents: Mapping[str, str], *, source: str, note: str | None = None,
+        base_version_id: int | None = None,
     ) -> tuple[int, dict[str, int]]:
         """Validate a settings document and documents together, reporting every
-        error at once, then write them in one transaction (one generation bump)."""
+        error at once, then write them in one transaction (one generation bump).
+        Raises StaleWrite (nothing written) when base_version_id isn't the latest."""
         _check_source(source)
         errors: list[dict] = []
         canonical: dict = {}
@@ -311,7 +313,8 @@ class ConfigService:
         kinds = list(documents)
         settings_id, doc_ids = self._store.insert_bundle(
             source=source,
-            settings=NewSettings(doc=canonical, note=note, schema_version=self._schema_version),
+            settings=NewSettings(doc=canonical, note=note, schema_version=self._schema_version,
+                                 base_version_id=base_version_id),
             documents=[NewDocument(kind=k, body=documents[k]) for k in kinds],
         )
         assert settings_id is not None

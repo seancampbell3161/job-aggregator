@@ -19,7 +19,11 @@ def _fake_results():
                               family="greenhouse", identity={"slug": "figma"}, posting_count=7)]
 
 
-def test_cli_merge_writes_matched_entry(monkeypatch):
+EXPORT_TIP = ("Tip: run `python -m src.settings export DIR` before editing settings files, "
+              "so this change isn't lost.")
+
+
+def test_cli_merge_writes_matched_entry(monkeypatch, capsys):
     service = seed_settings({"sources": {"greenhouse": ["stripe"]}})
 
     async def fake_discover(firm, *, client, manual_companies, limit=None, only=None, csv_path=None):
@@ -30,9 +34,10 @@ def test_cli_merge_writes_matched_entry(monkeypatch):
 
     assert cli.main(["a16z", "--merge"]) == 0
     assert service.snapshot().cfg.sources.greenhouse == ["stripe", "figma"]
+    assert EXPORT_TIP in capsys.readouterr().out
 
 
-def test_cli_dry_run_does_not_write(monkeypatch):
+def test_cli_dry_run_does_not_write(monkeypatch, capsys):
     service = seed_settings({"sources": {"greenhouse": ["stripe"]}})
     before = len(service.versions())
 
@@ -42,6 +47,7 @@ def test_cli_dry_run_does_not_write(monkeypatch):
 
     assert cli.main(["a16z"]) == 0          # no --merge
     assert len(service.versions()) == before
+    assert EXPORT_TIP not in capsys.readouterr().out
 
 
 def test_cli_merge_skips_already_polled(monkeypatch, capsys):
@@ -53,7 +59,9 @@ def test_cli_merge_skips_already_polled(monkeypatch, capsys):
     monkeypatch.setattr(cli, "_store_names_fail_soft", lambda: set())
 
     assert cli.main(["a16z", "--merge"]) == 0
-    assert "Nothing new to merge" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Nothing new to merge" in out
+    assert EXPORT_TIP not in out
 
 
 def test_cli_passes_manual_companies_from_settings(monkeypatch):
