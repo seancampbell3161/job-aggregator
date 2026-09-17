@@ -53,12 +53,43 @@ sense to whoever wrote them. Budget for that edit; it's most of the work.
    steps, breaking changes). git-cliff can't infer these — write them by hand.
    This is the highest-value part of the notes for anyone running the app.
 
-4. **Commit** the version bump + re-locked `uv.lock` + changelog:
-   `git commit -am "chore(release): vX.Y.Z"`.
+4. **Commit on a branch.** `main` is protected: it takes no direct pushes, and
+   merges need CI green. Release commits go through a PR like any other change.
 
-5. **Tag** (annotated): `git tag -a vX.Y.Z -m "vX.Y.Z"`.
+   ```bash
+   git checkout -b release/vX.Y.Z
+   git commit -am "chore(release): vX.Y.Z"
+   git push -u origin release/vX.Y.Z
+   ```
 
-6. **Push** the commit and tag: `git push && git push --tags`.
+5. **Open the PR and merge it once CI is green.** Title it exactly
+   `chore(release): vX.Y.Z` — a squash merge takes the PR title as the commit
+   subject on `main`, so the title is what ends up in the history git-cliff
+   reads next time.
+
+   ```bash
+   gh pr create --title "chore(release): vX.Y.Z" --body "Release vX.Y.Z"
+   gh pr checks --watch
+   gh pr merge --squash --delete-branch
+   ```
+
+6. **Tag the merged commit — not the branch commit.** Squashing creates a *new*
+   commit on `main`; the one you made on the branch is not in `main`'s history.
+   Tagging before the merge would point the release at a commit nobody can
+   reach. So sync first, then tag:
+
+   ```bash
+   git checkout main && git pull
+   git tag -a vX.Y.Z -m "vX.Y.Z"
+   git push origin vX.Y.Z
+   ```
+
+   Verify it landed where you expect — the tag and `origin/main` should be the
+   same commit:
+
+   ```bash
+   git rev-parse vX.Y.Z origin/main     # two identical SHAs
+   ```
 
 7. **Publish a GitHub Release** from the tag so it shows on the repo's Releases
    page, using the `gh` CLI (`brew install gh && gh auth login` once).
@@ -77,6 +108,11 @@ sense to whoever wrote them. Budget for that edit; it's most of the work.
 
 ## Notes
 
+- **PR titles are what the changelog is built from.** Merges are squashes, so
+  the PR title becomes the commit subject on `main` and individual commits on
+  the branch are discarded. A PR titled "fix stuff" produces a changelog bullet
+  saying "fix stuff". Write PR titles as Conventional Commits and the rest of
+  this file keeps working.
 - `cliff.toml` maps commit types to sections — `feat:`→Added, `fix:`→Fixed,
   `docs:`/`refactor:`/`perf:`/`build:`→Changed, anything whose subject reads
   `…: remove`/`…: delete`→Removed — and skips merge commits plus `chore:`,
