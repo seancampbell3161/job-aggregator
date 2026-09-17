@@ -8,37 +8,61 @@ multi-tenancy, and no server operated by the maintainer — so the threat model
 is "what can a hostile job posting, a hostile template, or someone on your
 network do to *your* box," not "what can one user do to another."
 
-## Not a vulnerability: the web UI has no authentication
+## The web UI requires a login
 
-This is a deliberate design decision, documented in the README, and reports
-about it will be closed as such.
+One admin password, hashed with argon2id, protects every page. Whoever opens
+the UI first — at `/welcome`, or in advance via
+`python -m src.settings set-password` — sets it. A successful sign-in issues a
+server-side session in an `HttpOnly`, `SameSite=lax` `jobagg_session` cookie
+that stays valid for 30 days of use and slides forward on every request, so it
+only expires from inactivity. State-changing requests (`POST`/`PUT`/`PATCH`/
+`DELETE`) are separately checked for cross-origin `Origin`/`Host` mismatches,
+regardless of session state. `/tailor` and `/tailor/pdf` — the phone-tappable
+deep links in an alert — skip the session entirely: they carry their own
+HMAC-signed, per-job token instead, since a phone tapping a link from a
+notification has no cookie to send.
 
-The web UI (`/`, `/board`, `/audit`, `/pipeline`, `/analytics`, `/kit`,
-`/tailor`, `/builder`, `/coach`) has **no login, no session, and no access
-control**. It is intended
-to be reachable only from a network you trust. The Docker `web` service binds
-`0.0.0.0` and publishes `8000:8000`, so on a shared or public network it is
-reachable by anyone who can route to the host.
+This is a single admin login, not multi-user access control, and it makes no
+claim about the network it runs on — both are deliberate, documented design
+decisions, and reports about them will be closed as such:
 
-Deploy it behind a private overlay (Tailscale or similar), or restrict it to
-loopback by publishing `127.0.0.1:8000:8000` in `docker-compose.yml`. Do not
-port-forward it to the internet.
+- **No accounts, roles, or per-user isolation.** One password is the whole
+  model; whoever holds it, or a valid session cookie, is the admin. There is
+  nothing to isolate one user's data from another's, because there is only
+  one user.
+- **No TLS.** The Docker `web` service binds `0.0.0.0` and serves plain HTTP
+  on `8000`, so the password (at sign-in) and everything the UI shows cross
+  the network in cleartext. Deploy it behind a private overlay (Tailscale or
+  similar), put an HTTPS reverse proxy in front, or restrict it to loopback by
+  publishing `127.0.0.1:8000:8000` in `docker-compose.yml`. Do not
+  port-forward it to the internet.
 
-**What an attacker gets if you do expose it:** your résumé and every tailored
-variant, your full application history and statuses, your apply-kit answers
-(work authorization, personal links, EEO responses), any Gmail-derived
-rejection/receipt data, and your configured job preferences.
+**What an attacker who obtains the password, or a valid session cookie, gets:**
+your résumé and every tailored variant, your full application history and
+statuses, your apply-kit answers (work authorization, personal links, EEO
+responses), any Gmail-derived rejection/receipt data, and your configured job
+preferences.
 
-It is also **read-write, not just readable**: fourteen `POST` endpoints are
-exposed, so an attacker can add and advance board entries, rescue or confirm
-audit verdicts, change builder settings, and upload, activate or delete résumé
-template packs. `/coach/run` triggers LLM calls, so they can also spend your
-API credits.
+It is also **read-write, not just readable**: they can add and advance board
+entries, rescue or confirm audit verdicts, change builder settings, upload,
+activate or delete résumé template packs, and change the password or sign
+every other device out. `/coach/run` triggers LLM calls, so they can also
+spend your API credits.
 
 ## In scope
 
 Reports that a specific mechanism fails to do what it claims:
 
+- **Bypassing the login gate.** Every page outside `/static/*`, `/login`,
+  `/welcome`, `/logout`, `/tailor`, and `/tailor/pdf` requires a valid session
+  (`src/web/auth.py`). Reaching any other page without one is in scope.
+- **Session forgery or fixation.** Session tokens are
+  `secrets.token_urlsafe(32)`, stored server-side only as their SHA-256 hash
+  (`src/auth/service.py`). Forging a valid `jobagg_session` cookie, fixating a
+  victim's session, or extending one past its 30-day idle window is in scope.
+- **Cross-origin protection bypass.** `POST`/`PUT`/`PATCH`/`DELETE` requests
+  are checked against `Sec-Fetch-Site` and `Origin`/`Host`. Getting a
+  state-changing request accepted from a different origin is in scope.
 - **Prompt injection reaching an LLM.** Job descriptions are attacker-controlled
   and reach a model three ways (relevance scorer, tailor endpoint, `/audit`
   rescue scoring). `src/sanitize.py` defangs known phrasings and
@@ -60,7 +84,9 @@ Reports that a specific mechanism fails to do what it claims:
 
 ## Out of scope
 
-- The missing web-UI authentication (above).
+- The absence of built-in TLS, and the single-admin login having no accounts,
+  roles, or per-user isolation (above) — both are design choices, not
+  vulnerabilities.
 - Consequences of exposing the UI or the `/data` directory to an untrusted
   network.
 - Rate limits, blocks or bans imposed by a job board you configured. The project
