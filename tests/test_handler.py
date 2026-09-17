@@ -52,11 +52,10 @@ import pytest
 async def test_handler_routes_discovery_tier_to_discovery_routine(tmp_path, monkeypatch):
     """tier=discovery invokes run_discovery instead of run_once. board_discovery
     is explicitly disabled: it's tested on its own in
-    test_discovery_tier_runs_board_sweep, and (unlike the dynamodb backend this
-    test used to run on, where stores.boards was always None) the sqlite
-    backend wires a real boards store, so an unset board_discovery_enabled
-    (default True) would make this test sweep real seed-file domains over the
-    network."""
+    test_discovery_tier_runs_board_sweep, and this test only mocks
+    run_discovery/recover_suppressed, not the real (network-bound) board
+    sweep — leaving board_discovery_enabled at its default (True) would make
+    it sweep real seed-file domains over the network."""
     cfg_path = tmp_path / "config.yaml"
     cfg_path.write_text(
         """
