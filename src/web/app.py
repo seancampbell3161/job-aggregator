@@ -7,15 +7,19 @@ from typing import Literal
 from urllib.parse import parse_qs
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 
+from src.settings.service import ConfigService
 from src.state import VALID_STATUSES
 from src.stores import Stores, build_stores
 from src.web.analytics import MatchAnalytics, register_analytics_routes
 from src.web.board import BoardProvider, register_board_routes
 from src.web.coach import CoachProvider, register_coach_routes
+from src.web.context import config_ctx
+from src.web.generation_cache import GenerationCache
 from src.web.ops import OpsProvider, register_ops_routes
 from src.web.repo import TriageRepo
 
@@ -26,24 +30,29 @@ _HERE = Path(__file__).parent
 # value) falls back to the app-configured default, so the slice stays bounded.
 ALLOWED_PAGE_SIZES = (10, 25, 50)
 
+# Paths reachable before setup: the setup page itself, static assets, served
+# tailored PDFs, and the HMAC-token tailor deep link (it answers with its own
+# invalid-link page when nothing is configured).
+SETUP_EXEMPT_PREFIXES = ("/setup", "/static", "/tailored", "/tailor")
+
 
 def create_app(
     repo: TriageRepo | None = None,
     *,
-    score_high: int = 7,
-    score_low: int = 4,
-    stale_after_days: int = 10,
     ops: OpsProvider | None = None,
     match_analytics: MatchAnalytics | None = None,
     board: BoardProvider | None = None,
     coach: CoachProvider | None = None,
     stores: Stores | None = None,
+    service: ConfigService | None = None,
     kit_facts_path: str = "resume/facts.yaml",
     page_size: int = 10,
 ) -> FastAPI:
     app = FastAPI(title="Job Triage")
     stores = stores if stores is not None else build_stores()
     app.state.stores = stores
+    app.state.service = service if service is not None else ConfigService(stores.settings)
+    app.state.cache = GenerationCache()
     app.state.repo = repo if repo is not None else TriageRepo(stores.seen)
     app.state.board = board if board is not None else BoardProvider(app.state.repo)
     app.state.ops = ops if ops is not None else OpsProvider(
@@ -60,9 +69,6 @@ def create_app(
     )
     from src.web.builder import BuilderProvider, register_builder_routes
     app.state.builder = BuilderProvider(store=stores.builder)
-    app.state.score_high = score_high
-    app.state.score_low = score_low
-    app.state.stale_after_days = stale_after_days
     app.state.kit_facts_path = kit_facts_path
     app.state.page_size = page_size
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
@@ -70,6 +76,7 @@ def create_app(
     templates.env.filters["ago"] = format_ago
     app.state.templates = templates
     app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
+    _register_setup_gate(app)
     _register_routes(app)
     register_ops_routes(app)
     register_analytics_routes(app)
@@ -138,13 +145,30 @@ def create_app(
     return app
 
 
+def _register_setup_gate(app: FastAPI) -> None:
+    """Take the request's settings snapshot — one per request, per the
+    snapshot rule — and, until the instance is set up, send everything outside
+    SETUP_EXEMPT_PREFIXES to /setup."""
+
+    @app.middleware("http")
+    async def _snapshot_and_setup_gate(request: Request, call_next):
+        snap = await run_in_threadpool(request.app.state.service.snapshot)
+        request.state.snapshot = snap
+        if snap is None and not request.url.path.startswith(SETUP_EXEMPT_PREFIXES):
+            if request.method in ("GET", "HEAD"):
+                return RedirectResponse("/setup", status_code=303)
+            return PlainTextResponse("This instance is not set up yet — see /setup.", status_code=409)
+        return await call_next(request)
+
+    @app.get("/setup", response_class=HTMLResponse)
+    def setup(request: Request):
+        if request.state.snapshot is not None:
+            return RedirectResponse("/", status_code=303)
+        return request.app.state.templates.TemplateResponse(request, "setup.html", {})
+
+
 def _ctx(request: Request, **extra) -> dict:
-    return {
-        "score_high": request.app.state.score_high,
-        "score_low": request.app.state.score_low,
-        "stale_after_days": request.app.state.stale_after_days,
-        **extra,
-    }
+    return {**config_ctx(request), **extra}
 
 
 def _render_list(

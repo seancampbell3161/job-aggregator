@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Set up job-aggregator</h1>
+<p>This instance has no settings yet. Settings, your profile, résumé data, and
+secrets live in the app database. Load them once from files with the settings
+CLI — changes apply live, no restart.</p>
+
+<h2>Docker Compose</h2>
+<p>From the directory holding your <code>config.yaml</code> (start from
+<code>config.example.yaml</code>) and, optionally, <code>profile.md</code>,
+<code>resume.md</code>, and <code>resume/</code>:</p>
+<pre>docker compose run --rm -v "$PWD:/import:ro" web python -m src.settings import /import</pre>
+<p>Secrets (ntfy topic, Discord webhook, API keys) can stay in <code>.env</code>,
+or be copied into the database:</p>
+<pre>docker compose run --rm web python -m src.settings import-env-secrets
+docker compose run --rm -it web python -m src.settings set-secret ntfy_topic_url</pre>
+
+<h2>Without Docker</h2>
+<pre>python -m src.settings import .</pre>
+
+<p>Check the result with <code>python -m src.settings status</code>, then reload this page.</p>
+{% endblock %}

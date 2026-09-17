@@ -70,14 +70,14 @@ from fastapi.testclient import TestClient
 from src.sqlite_db import connect
 from src.web.app import create_app
 from src.web.repo import TriageRepo
-from tests.sqlite_helpers import sqlite_stores
+from tests.settings_helpers import configured_stores
 
 
 @pytest.fixture
 def kit_client(tmp_path, monkeypatch):
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
     conn = connect(":memory:")
-    stores = sqlite_stores(conn)
+    stores = configured_stores(conn)
     seen = stores.seen
     facts_path = tmp_path / "facts.yaml"
     app = create_app(repo=TriageRepo(seen), stores=stores,

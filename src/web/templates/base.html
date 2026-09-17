@@ -39,6 +39,12 @@
       <a href="/builder">Builder</a>
     </nav>
   </header>
+  {% set snap = request.state.snapshot %}
+  {% if snap and snap.degraded %}
+  <div class="config-banner" role="alert">
+    Settings version {{ snap.degraded.invalid_version_id }} is invalid — running on version {{ snap.version_id }}. Run <code>python -m src.settings status</code> for details.
+  </div>
+  {% endif %}
   <main>{% block content %}{% endblock %}</main>
 </body>
 </html>

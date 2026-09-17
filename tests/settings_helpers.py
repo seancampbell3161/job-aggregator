@@ -47,6 +47,26 @@ def make_service(
     return service
 
 
+# The score thresholds create_app used to default to; web tests assert band
+# classes against them.
+WEB_TEST_SETTINGS = {"relevance": {"score_high": 7, "score_low": 4}}
+
+
+def configured_stores(conn: sqlite3.Connection, doc: dict | None = None, *,
+                      documents: Mapping[str, str] | None = None):
+    """tests.sqlite_helpers.sqlite_stores plus a saved settings version, so the
+    web app treats the instance as set up (otherwise every page redirects to
+    /setup)."""
+    from tests.sqlite_helpers import sqlite_stores
+
+    stores = sqlite_stores(conn)
+    ConfigService(stores.settings, env={}).save_bundle(
+        WEB_TEST_SETTINGS if doc is None else doc, dict(documents or {}),
+        source="cli", note="test fixture",
+    )
+    return stores
+
+
 def seed_settings(
     doc: dict | str | None = None,
     *,

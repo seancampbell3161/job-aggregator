@@ -2,13 +2,14 @@ from fastapi.testclient import TestClient
 
 from src.web.app import create_app
 from tests.conftest import requires_weasyprint
+from tests.settings_helpers import WEB_TEST_SETTINGS, make_service
 
 
 def _app(tmp_path, monkeypatch):
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
     monkeypatch.setenv("JOB_AGG_TEMPLATES_DIR", str(tmp_path / "templates"))
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
-    return create_app()
+    return create_app(service=make_service(WEB_TEST_SETTINGS))
 
 
 def test_builder_page_lists_builtins_and_settings(tmp_path, monkeypatch):

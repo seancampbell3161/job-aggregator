@@ -9,7 +9,7 @@ from src.sqlite_db import connect
 from src.web.app import create_app
 from src.web.board import ACTIVE_COLUMNS, Board, BoardProvider
 from src.web.repo import TriageMatch, TriageRepo
-from tests.sqlite_helpers import sqlite_stores
+from tests.settings_helpers import configured_stores
 
 
 def _m(job_id, status, *, history=None, score=5):
@@ -90,7 +90,7 @@ def board_client(tmp_path, monkeypatch):
     monkeypatch.delenv("JOB_AGG_OPS_NTFY_TOPIC_URL", raising=False)
     monkeypatch.delenv("JOB_AGG_OPS_DISCORD_WEBHOOK_URL", raising=False)
     conn = connect(":memory:")
-    stores = sqlite_stores(conn)
+    stores = configured_stores(conn)
     seen = stores.seen
     # Seed an applied card
     seen.claim_for_notify(

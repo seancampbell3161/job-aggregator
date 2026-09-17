@@ -155,14 +155,14 @@ from fastapi.testclient import TestClient
 
 from src.web.app import create_app
 from src.web.repo import TriageRepo
-from tests.sqlite_helpers import sqlite_stores
+from tests.settings_helpers import configured_stores
 
 
 @pytest.fixture
 def coach_client(tmp_path, monkeypatch):
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
     conn = connect(":memory:")
-    stores = sqlite_stores(conn)
+    stores = configured_stores(conn)
     seen = stores.seen
     rejected = stores.rejected
     coach_store = stores.coach
@@ -237,7 +237,7 @@ def test_low_sample_banner(coach_client):
 def test_unavailable_store_renders_explainer(tmp_path, monkeypatch):
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
     conn = connect(":memory:")
-    stores = sqlite_stores(conn)
+    stores = configured_stores(conn)
     seen = stores.seen
     from src.web.coach import CoachProvider
     app = create_app(repo=TriageRepo(seen), stores=stores, coach=CoachProvider(store=None))
@@ -251,7 +251,7 @@ def test_unavailable_store_renders_explainer(tmp_path, monkeypatch):
 def test_engineless_provider_explains_not_configured(tmp_path, monkeypatch):
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "t2"))
     conn = connect(":memory:")
-    stores = sqlite_stores(conn)
+    stores = configured_stores(conn)
     seen = stores.seen
     coach_store = stores.coach
     from src.web.coach import CoachProvider

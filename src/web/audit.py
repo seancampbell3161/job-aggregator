@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.state import posting_from_item
+from src.web.context import config_ctx
 
 log = logging.getLogger(__name__)
 
@@ -151,8 +152,7 @@ def register_audit_routes(app: FastAPI) -> None:
         return request.app.state.templates.TemplateResponse(
             request, "audit.html",
             {
-                "score_high": request.app.state.score_high,
-                "score_low": request.app.state.score_low,
+                **config_ctx(request),
                 "available": prov.available,
                 "tally": prov.tally(days=days),
                 "rows": prov.rows(days=days, gate=gate, q=q, show_judged=judged),

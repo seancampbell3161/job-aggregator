@@ -8,7 +8,7 @@ from src.models import NormalizedPosting
 from src.sqlite_db import connect
 from src.web.app import create_app
 from src.web.repo import TriageRepo
-from tests.sqlite_helpers import sqlite_stores
+from tests.settings_helpers import configured_stores
 
 
 def _posting(job_id, title, company="Acme"):
@@ -27,7 +27,7 @@ def audit_client(tmp_path, monkeypatch):
     monkeypatch.delenv("JOB_AGG_OPS_NTFY_TOPIC_URL", raising=False)
     monkeypatch.delenv("JOB_AGG_OPS_DISCORD_WEBHOOK_URL", raising=False)
     conn = connect(":memory:")
-    stores = sqlite_stores(conn)
+    stores = configured_stores(conn)
     seen = stores.seen
     rejected = stores.rejected
     rejected.record(_posting("greenhouse:acme:1", "Office Manager"), rejected_by="role")
