@@ -1,0 +1,18 @@
+{% extends "auth_base.html" %}
+{% block title %}Create your password{% endblock %}
+{% block content %}
+<form class="auth-form panel" method="post" action="/welcome">
+  <h1>Create your password</h1>
+  <p class="muted">This password protects the job-aggregator web UI. Until it's
+  set, whoever opens this page first chooses it — so set it now.</p>
+  {% if error %}<p class="auth-error" role="alert">{{ error }}</p>{% endif %}
+  <input type="text" name="username" value="admin" autocomplete="username" hidden>
+  <label>Password (at least {{ min_length }} characters)
+    <input type="password" name="password" autocomplete="new-password"
+           minlength="{{ min_length }}" required autofocus></label>
+  <label>Confirm password
+    <input type="password" name="confirm" autocomplete="new-password"
+           minlength="{{ min_length }}" required></label>
+  <button type="submit">Create password</button>
+</form>
+{% endblock %}

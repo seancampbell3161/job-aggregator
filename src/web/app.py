@@ -13,10 +13,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
+from src.auth.service import AuthService
+from src.auth.throttle import LoginThrottle
 from src.settings.service import ConfigService
 from src.state import VALID_STATUSES
 from src.stores import Stores, build_stores
 from src.web.analytics import MatchAnalytics, register_analytics_routes
+from src.web.auth import register_auth_routes
 from src.web.board import BoardProvider, register_board_routes
 from src.web.coach import CoachProvider, register_coach_routes
 from src.web.context import config_ctx
@@ -34,10 +37,11 @@ _HERE = Path(__file__).parent
 # value) falls back to the app-configured default, so the slice stays bounded.
 ALLOWED_PAGE_SIZES = (10, 25, 50)
 
-# Paths reachable before setup: the setup page itself, static assets, and the
+# Paths reachable before setup: the setup page itself, static assets, the
 # HMAC-token tailor deep link and PDF download (they answer with their own
-# invalid-link page when nothing is configured).
-SETUP_EXEMPT_PREFIXES = ("/setup", "/static", "/tailor")
+# invalid-link page when nothing is configured), and the login pages — the
+# password comes before settings.
+SETUP_EXEMPT_PREFIXES = ("/setup", "/static", "/tailor", "/login", "/welcome", "/logout", "/account")
 
 
 @asynccontextmanager
@@ -60,12 +64,15 @@ def create_app(
     coach: CoachProvider | None = None,
     stores: Stores | None = None,
     service: ConfigService | None = None,
+    auth: AuthService | None = None,
     page_size: int = 10,
 ) -> FastAPI:
     app = FastAPI(title="Job Triage", lifespan=_lifespan)
     stores = stores if stores is not None else build_stores()
     app.state.stores = stores
     app.state.service = service if service is not None else ConfigService(stores.settings)
+    app.state.auth = auth if auth is not None else AuthService(stores.auth)
+    app.state.login_throttle = LoginThrottle()
     app.state.cache = GenerationCache()
     app.state.repo = repo if repo is not None else TriageRepo(stores.seen)
     app.state.board = board if board is not None else BoardProvider(app.state.repo)
@@ -124,6 +131,7 @@ def create_app(
     _register_setup_gate(app)
     register_cross_origin_guard(app)
     _register_routes(app)
+    register_auth_routes(app)
     register_ops_routes(app)
     register_analytics_routes(app)
     register_board_routes(app)
