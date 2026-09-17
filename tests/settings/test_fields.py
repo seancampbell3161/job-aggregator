@@ -29,11 +29,23 @@ def test_list_of_literal_becomes_multi_choice():
     f = field_map()["filters.seniority_allow"]
     assert f.kind == KIND_MULTI_CHOICE
     assert f.choices == ("junior", "mid", "senior", "staff")
-    assert f.default == ["mid", "senior"]
+    assert f.default == ("mid", "senior")
 
 
 def test_list_of_str_becomes_chips():
     assert field_map()["sources.greenhouse"].kind == KIND_CHIPS
+
+
+def test_list_defaults_are_immutable_tuples():
+    """Sequence defaults must be tuples to prevent shared mutable state in cache."""
+    m = field_map()
+    # multi_choice fields
+    assert isinstance(m["filters.seniority_allow"].default, tuple)
+    # chips fields
+    assert isinstance(m["sources.greenhouse"].default, tuple)
+    # verify the specific values are preserved
+    assert m["filters.seniority_allow"].default == ("mid", "senior")
+    assert m["sources.greenhouse"].default == ()
 
 
 def test_list_of_model_is_read_only():

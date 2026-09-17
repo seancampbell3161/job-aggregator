@@ -95,7 +95,10 @@ def _default(field: Any) -> Any:
     if field.default is not PydanticUndefined:
         return field.default
     if field.default_factory is not None:
-        return field.default_factory()
+        value = field.default_factory()
+        if isinstance(value, list):
+            return tuple(value)
+        return value
     return None
 
 
