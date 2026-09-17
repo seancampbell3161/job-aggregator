@@ -47,7 +47,7 @@ _GAP_INSTRUCTIONS = (
     "You compare a job posting against a candidate's résumé and identify skill gaps.\n"
     "List ONLY the hard technical skills the posting REQUIRES that the résumé does not\n"
     "evidence. Hard skills are concrete technologies, languages, frameworks, tools, or\n"
-    "platforms (e.g. Kubernetes, Kafka, Terraform, Go) — never soft skills, seniority,\n"
+    "platforms (e.g. Kubernetes, Kafka, Redis, Go) — never soft skills, seniority,\n"
     "or years of experience. Use canonical names: 'Kubernetes' not 'k8s', 'Go' not\n"
     "'Golang', 'PostgreSQL' not 'postgres'. If the résumé already covers everything the\n"
     "posting requires, return an empty list. Return at most {max} skills."

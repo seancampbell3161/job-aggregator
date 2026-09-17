@@ -1,8 +1,5 @@
-"""Long-running scheduler daemon for the local (Docker Compose) runtime.
-
-Mirrors the four EventBridge rules — it calls the same handler._run(tier)
-entrypoint the Lambda uses, on cadences read from config.schedules. Run as
-`python -m src.scheduler`. The Lambda path is unaffected.
+"""Long-running scheduler daemon: runs handler._run(tier) on cadences read
+from config.schedules. Run as `python -m src.scheduler`.
 
 A fifth job (`prune`) runs daily at 04:00 UTC and calls
 SqliteSeenJobsStore.prune_expired() to remove TTL-expired rows."""

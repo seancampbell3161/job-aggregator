@@ -36,9 +36,9 @@ def _ttl() -> int:
 
 
 class SqliteSeenJobsStore:
-    """SQLite twin of state.SeenJobsStore. Stores the full DynamoDB-shaped item
-    dict as JSON in `data`, plus mirror columns for the fields used in queries,
-    so read methods share state.match_view for view shaping.
+    """SQLite twin of state.SeenJobsStore. Stores the full item dict as JSON
+    in `data`, plus mirror columns for the fields used in queries, so read
+    methods share state.match_view for view shaping.
     Expired rows (ttl < now) are hidden on read and removed by prune_expired."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:

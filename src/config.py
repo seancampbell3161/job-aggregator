@@ -1,9 +1,4 @@
-"""Load + validate config.yaml and SSM secrets.
-
-Secrets are fetched from environment variables in local mode and from SSM
-SecureString parameters in Lambda. Lambda's runtime is responsible for
-populating env vars from SSM via Terraform; see infra/lambda.tf.
-"""
+"""Load + validate config.yaml and the JOB_AGG_* env secrets."""
 
 from __future__ import annotations
 
@@ -435,7 +430,7 @@ class Secrets(BaseModel):
     anthropic_api_key: str = ""  # empty string allowed when relevance is disabled
     google_api_key: str = ""     # empty string allowed when not using provider=gemini
     ollama_api_key: str = ""     # empty string allowed when not using provider=ollama
-    tailor_endpoint_url: str = ""    # hosted tailor endpoint Function URL (empty -> no deep-link)
+    tailor_endpoint_url: str = ""    # tailor deep-link base URL (empty -> no deep-link)
     tailor_signing_secret: str = ""  # HMAC secret for the deep-link token
     ops_ntfy_topic_url: str = ""      # separate ntfy topic for ops alerts (empty -> ops alerts off)
     ops_discord_webhook_url: str = "" # separate Discord webhook for ops alerts
@@ -484,8 +479,7 @@ class AppConfig(BaseModel):
 
 
 def _load_secrets() -> Secrets:
-    """Read secrets from env vars. In Lambda these are populated by Terraform
-    from SSM SecureString parameters at deploy time."""
+    """Read secrets from JOB_AGG_* env vars."""
     return Secrets(
         ntfy_topic_url=os.environ["JOB_AGG_NTFY_TOPIC_URL"],
         discord_webhook_url=os.environ["JOB_AGG_DISCORD_WEBHOOK_URL"],

@@ -486,7 +486,7 @@ async def _run(tier: str, dry_run: bool = False, calibrate: bool = False) -> dic
 def _cli() -> int:
     parser = argparse.ArgumentParser(prog="job-aggregator")
     parser.add_argument("--tier", choices=sorted(_VALID_TIERS), required=False)
-    parser.add_argument("--dry-run", action="store_true", help="skip notify + DDB writes")
+    parser.add_argument("--dry-run", action="store_true", help="skip notify + state writes")
     parser.add_argument("--once", action="store_true", help="run a single full cycle (real send)")
     parser.add_argument(
         "--calibrate",

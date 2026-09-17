@@ -117,10 +117,9 @@ def test_recent_gap_lists_includes_window_and_excludes_old(store):
         store.claim_for_notify("g:new:2")  # clean match: notified, no gaps
 
     since = datetime(2026, 6, 10, tzinfo=timezone.utc)
-    # SQLite's _live_rows enforces the ttl column synchronously on every read
-    # (unlike DynamoDB's native TTL, which only reaps in the real background and
-    # is never simulated by moto), so the read must stay inside the frozen
-    # window too — otherwise real wall-clock time elapsed since the frozen
+    # SQLite's _live_rows enforces the ttl column synchronously on every read,
+    # hiding TTL-expired rows immediately — so the read must stay inside the
+    # frozen clock too, otherwise real wall-clock time elapsed since the frozen
     # writes could put the 60-day ttl in the past and hide both rows.
     with freeze_time("2026-06-20T00:00:00+00:00"):
         lists = store.recent_gap_lists(since)

@@ -5,9 +5,10 @@ outbound heartbeat instead (handler._ping_heartbeat) — no local watchdog can
 report its own host dying.
 
 Inert unless an ops sink env var is set AND the local events/alert-state
-stores are wired — checked at registration time, so ineligible apps (AWS
-mode, the test suite, etc.) never register the on_event handlers at all,
-avoiding both the loop and the on_event DeprecationWarning noise."""
+stores are wired — checked at registration time, so ineligible apps (the
+test suite, apps that don't wire the events/alert-state stores, etc.) never
+register the on_event handlers at all, avoiding both the loop and the
+on_event DeprecationWarning noise."""
 from __future__ import annotations
 
 import asyncio
@@ -121,8 +122,8 @@ async def check_once(
 def register_watchdog(app: FastAPI) -> None:
     """Register the on_event handlers only if the watchdog is eligible to run
     — otherwise skip registration entirely so the @app.on_event
-    DeprecationWarning never fires for ineligible apps (AWS mode, the test
-    suite, etc.)."""
+    DeprecationWarning never fires for ineligible apps (the test suite, apps
+    with no ops sink configured, etc.)."""
     ntfy = os.environ.get("JOB_AGG_OPS_NTFY_TOPIC_URL", "")
     discord = os.environ.get("JOB_AGG_OPS_DISCORD_WEBHOOK_URL", "")
     stores = getattr(app.state, "stores", None)

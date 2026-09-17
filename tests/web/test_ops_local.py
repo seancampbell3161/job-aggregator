@@ -15,7 +15,7 @@ class _Stub:
     def suppressed_names(self): return set()
 
 
-def test_ops_provider_has_no_cloudwatch_mode():
+def test_ops_provider_has_no_remote_log_params():
     import inspect
     from src.web.ops import OpsProvider
     params = inspect.signature(OpsProvider).parameters

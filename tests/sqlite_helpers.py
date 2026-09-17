@@ -21,7 +21,7 @@ from src.stores import Stores
 
 def raw_seen_item(store: SqliteSeenJobsStore, job_id: str) -> dict:
     """The full stored item dict for one seen_jobs row (TTL-expired rows
-    included) — the SQLite equivalent of a raw DynamoDB get_item."""
+    included) — a raw fetch, bypassing the store's normal read helpers."""
     row = store._conn.execute(
         "SELECT data FROM seen_jobs WHERE job_id = ?", (job_id,)
     ).fetchone()

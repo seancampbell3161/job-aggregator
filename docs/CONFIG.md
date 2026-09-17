@@ -1,20 +1,16 @@
 # Configuration Reference
 
 Every configuration flag in the `AppConfig` tree — `config.yaml` plus the env
-secrets — one row per flag. (Runtime-only env vars such as `JOB_AGG_BACKEND`,
-`JOB_AGG_OLLAMA_HOST`, or the web host/port are not config flags and are
-covered in GETTING_STARTED where their features are set up.) Configuration
-comes from two places:
+secrets — one row per flag. (Runtime-only env vars such as `JOB_AGG_OLLAMA_HOST`
+or the web host/port are not config flags and are covered in GETTING_STARTED
+where their features are set up.) Configuration comes from two places:
 
 - **`config.yaml`** — everything below except secrets — untracked and personal;
-  seed it from `config.example.yaml`. Locally the file is
+  seed it from `config.example.yaml`. The file is
   bind-mounted into the containers: edit, then
-  `docker compose restart poller web` (no `--build` needed). On AWS it is
-  baked into the Lambda zip at package time (`./scripts/package.sh` +
-  `terraform apply`).
+  `docker compose restart poller web` (no `--build` needed).
 - **Environment secrets** — the [secrets](#secrets) table at the bottom:
-  `JOB_AGG_*` env vars locally (`.env` for Docker Compose), SSM SecureString
-  parameters `/job-aggregator/<name>` on AWS.
+  `JOB_AGG_*` env vars in `.env` (for Docker Compose).
 
 Sections omitted from config.yaml run entirely on the defaults listed here.
 Setup narrative lives in [GETTING_STARTED.md](../GETTING_STARTED.md); this
@@ -114,8 +110,7 @@ sources:
 
 ## schedules
 
-Poll cadence per tier. Intervals are read by both the local APScheduler
-daemon and the AWS EventBridge rules.
+Poll cadence per tier. Intervals are read by the scheduler daemon.
 
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
@@ -177,7 +172,7 @@ Optional résumé-gap flags on matched postings, plus a weekly skills digest
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
 | `gap_analysis.enabled` | `false` | Master switch. |
-| `gap_analysis.resume_path` | `resume.md` | Gitignored markdown résumé (baked into the Lambda zip on AWS). |
+| `gap_analysis.resume_path` | `resume.md` | Gitignored markdown résumé. |
 | `gap_analysis.provider` | `null` | LLM provider; `null` falls back to the `relevance` values. |
 | `gap_analysis.model` | `null` | Model; `null` falls back to `relevance.model`. |
 | `gap_analysis.timeout_seconds` | `20` | Per-posting analysis timeout. |
@@ -187,8 +182,7 @@ Optional résumé-gap flags on matched postings, plus a weekly skills digest
 ## tailoring
 
 The tailored-résumé engine behind `/tailor` deep links and the local CLI.
-Setup: GETTING_STARTED "Mobile tap alert → tailored résumé loop" and
-[runbooks/deploy-tailor-endpoint.md](runbooks/deploy-tailor-endpoint.md).
+Setup: GETTING_STARTED "Mobile tap alert → tailored résumé loop".
 
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
@@ -225,8 +219,7 @@ GETTING_STARTED "Rejection audit & ops alerts".
 
 The `/coach` page: on-demand LLM recommendations for improving application
 response rates, grounded in the funnel, rejection-audit, config, and résumé
-data. One click = one LLM call; runs persist on the local SQLite runtime only
-(the page reports unavailable on DynamoDB).
+data. One click = one LLM call; runs persist on the local SQLite runtime.
 
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
@@ -285,10 +278,9 @@ How the poller identifies itself to every site it fetches.
 
 ## secrets
 
-Never in config.yaml. Locally: `JOB_AGG_*` env vars (Docker Compose reads
+Never in config.yaml. `JOB_AGG_*` env vars (Docker Compose reads
 `.env` — note Compose snapshots it at container creation; `--force-recreate`
-after edits). On AWS: SSM SecureString parameters `/job-aggregator/<name>`,
-injected as the same env vars by Terraform at deploy time.
+after edits).
 
 | Flag | Env var | What it does |
 |---|---|---|

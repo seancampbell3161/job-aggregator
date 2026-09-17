@@ -122,7 +122,7 @@ def test_snapshot_gap_frequency_counts_applied_or_beyond_only():
         _match("j2", status="rejected", gaps=["Kubernetes"],
                history=[{"status": "applied", "at": "2026-07-02T00:00:00+00:00"},
                         {"status": "rejected", "at": "2026-07-03T00:00:00+00:00"}]),
-        _match("j3", status="interested", gaps=["Terraform"]),  # never applied — excluded
+        _match("j3", status="interested", gaps=["Redis"]),  # never applied — excluded
     ]
     snap = build_snapshot(matches=matches, now=_NOW)
     assert snap.aggregates["gap_frequency_applied"] == {"Kubernetes": 2, "Kafka": 1}

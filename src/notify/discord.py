@@ -25,7 +25,7 @@ _FIELD_VALUE_MAX = 1024
 
 # Cap how long we'll sleep before retrying a 429. Discord webhook rate-limits
 # typically come back as retry_after=1..3s; a buggy server returning a huge
-# value shouldn't be allowed to consume the Lambda budget.
+# value shouldn't be allowed to stall the notify cycle.
 _RETRY_AFTER_CAP_SECONDS = 10.0
 _RETRY_AFTER_DEFAULT_SECONDS = 2.0
 
@@ -112,7 +112,7 @@ class DiscordSink:
 
         # On 429, honor Discord's retry_after and try once more. Webhook rate
         # limits are 30/60s/channel; a busy notify cycle (e.g. many ATS hits in
-        # one Lambda invocation) trips this and previously dropped the post
+        # one cycle) trips this and previously dropped the post
         # silently while ntfy succeeded. See orchestrator: any-sink-success
         # keeps the claim, so the failed sink never retries on its own.
         if resp.status_code == 429:

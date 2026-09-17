@@ -134,7 +134,7 @@ def test_build_relevance_scorer_returns_none_when_api_key_missing():
 
 def test_build_relevance_scorer_returns_none_when_profile_missing(tmp_path):
     """relevance enabled + key set + profile path missing → soft-fail to None,
-    don't crash the whole Lambda invocation."""
+    don't crash the whole pipeline run."""
     from src.handler import _build_relevance_scorer
 
     nonexistent = tmp_path / "absent.md"

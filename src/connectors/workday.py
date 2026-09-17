@@ -41,8 +41,8 @@ _PAGE_SIZE = 20      # Workday 400s on limit >= 50; its UI default is 20
 # (e.g. 2) the only roles that survive are on the first page or two. 5 pages
 # (~100 newest roles/board) covers that window while keeping the per-cycle fetch
 # cheap — big boards (CVS 16k, Lowe's 12k) otherwise paginated to ~1000 each and
-# pushed the ats cycle to ~103s against the 120s Lambda timeout. Raise this only
-# alongside relaxing max_age_days AND moving Workday off the 2-min ats tier.
+# pushed the ats cycle past 100s. Raise this only alongside relaxing
+# max_age_days AND moving Workday to a slower tier.
 _MAX_PAGES = 5       # safety + cost cap → <= 100 roles/board/cycle
 def _headers() -> dict[str, str]:
     # Verified 2026-09-08 from a residential IP: salesforce/paypal tenants

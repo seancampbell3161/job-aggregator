@@ -36,7 +36,7 @@ TTL_DAYS = 30
 SAMPLE_JD = (
     "Senior Frontend Engineer at Acme Robotics. React + TypeScript SPA, design system, "
     "real-time WebSocket dashboards, REST/GraphQL APIs, performance + Core Web Vitals, "
-    "Jest/Playwright CI. 5+ yrs React/TS. Bonus: Next.js, Node, AWS, dataviz."
+    "Jest/Playwright CI. 5+ yrs React/TS. Bonus: Next.js, Node, Docker, dataviz."
 )
 
 
