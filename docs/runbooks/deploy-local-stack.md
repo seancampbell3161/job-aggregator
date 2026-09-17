@@ -67,6 +67,11 @@ docker compose run --rm web python -m src.settings export /data/export   # lands
 Until then an import refuses, listing the settings versions it would replace
 (nothing is written); `import --force` overwrites them on purpose.
 
+The host-side scripts (`uv run python scripts/discover_enterprise.py --merge`,
+`import_vc_portfolio.py … --merge`, `seed_companies.py`) write `./data/job_aggregator.db`
+directly, and SQLite locks don't reach across the Docker Desktop bind mount — run
+`docker compose stop poller web` first and `docker compose start poller web` after.
+
 ## Phase 2 — Verify core health
 
 ```bash

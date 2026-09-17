@@ -34,7 +34,7 @@ from src.fingerprint import (
     _store_names_fail_soft,
     format_report,
 )
-from src.settings import EXPORT_TIP, open_service
+from src.settings import EXPORT_TIP, HOST_WRITE_WARNING, open_service
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -50,6 +50,8 @@ def main(argv: list[str] | None = None) -> int:
     if service is not None and service.snapshot() is None:
         print("not set up — import settings first: python -m src.settings import DIR", file=sys.stderr)
         return 1
+    if service is not None:
+        print(HOST_WRITE_WARNING, file=sys.stderr)
 
     seeds = load_seeds(args.seed_file)
     if args.only:

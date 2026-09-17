@@ -239,9 +239,22 @@ file refuses rather than dropping them; `import --force` overwrites them on purp
 `scripts/discover_enterprise.py` auto-detects **iCIMS** boards (scraped via
 their static in_iframe listings + each job's schema.org JSON-LD) and merges
 them into `sources.jsonld_boards` — review the dry-run report, then `--merge`
-— matched boards are saved into your settings and apply live. (The discovery
-scripts run on the host — `uv run python scripts/…` — against
-`./data/job_aggregator.db`, the same database the containers use.)
+— matched boards are saved into your settings and apply live.
+
+The discovery scripts and `scripts/seed_companies.py` run on the host —
+`uv run python scripts/…` — against `./data/job_aggregator.db`, the same
+database the containers use. SQLite's file locks don't reach across Docker
+Desktop's bind mount between the host and the containers (verified on macOS),
+so a host-side write while the poller or web container writes can corrupt the
+database. Stop the containers around every `--merge` or `seed_companies.py`
+run:
+
+```bash
+docker compose stop poller web
+uv run python scripts/discover_enterprise.py --merge
+docker compose start poller web
+```
+
 **SuccessFactors and TalentBrew** boards use the same connector but live on
 branded careers domains that aren't machine-derivable, so add them by hand
 under `sources.jsonld_boards`:
@@ -292,8 +305,8 @@ own — and, hands-off, fingerprints the enterprise seed list and starts polling
 whatever it can classify (see
 [Automated board discovery](#automated-board-discovery-optional)). To bulk-add a
 VC's portfolio (a16z is wired up):
-`uv run python scripts/import_vc_portfolio.py a16z --merge` — or skip the CLI
-and let the daily tier handle it: see
+`uv run python scripts/import_vc_portfolio.py a16z --merge` (with the containers
+stopped, as above) — or skip the CLI and let the daily tier handle it: see
 [VC portfolio auto-discovery](#vc-portfolio-auto-discovery-optional).
 
 Each name-based candidate (yc-oss or `manual_companies`) runs a **conversion

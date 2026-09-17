@@ -95,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
                   file=sys.stderr)
             return 1
 
-    from src.settings import EXPORT_TIP, open_service
+    from src.settings import EXPORT_TIP, HOST_WRITE_WARNING, open_service
     from src.settings.errors import NotConfigured, StaleWrite
     from src.settings.sources import append_slug_sources
 
@@ -121,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Added {total} ({detail}); skipped {skipped_total} already present")
     if args.dry_run or total == 0:
         return 0
+    print(HOST_WRITE_WARNING, file=sys.stderr)
     try:
         append_slug_sources(service, {ats: CURATED[ats] for ats in ats_keys}, label="seed_companies")
     except (NotConfigured, StaleWrite) as exc:

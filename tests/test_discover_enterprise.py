@@ -12,6 +12,8 @@ import discover_enterprise as cli  # noqa: E402
 
 EXPORT_TIP = ("Tip: run `python -m src.settings export DIR` before editing settings files, "
               "so this change isn't lost.")
+HOST_WRITE_WARNING = ("Writing to the settings database from the host: stop the poller and web "
+                      "containers first (docker compose stop poller web).")
 
 
 def _r(status, name="Acme", **kw):
@@ -81,13 +83,16 @@ def test_merge_saves_matched_entries_into_settings(tmp_path, monkeypatch, capsys
     captured = capsys.readouterr()
     assert "Merged 1 new entries into settings" in captured.out
     assert EXPORT_TIP in captured.out
+    assert HOST_WRITE_WARNING in captured.err
     assert [w.tenant for w in service.snapshot().cfg.sources.workday] == ["acme"]
 
 
-def test_dry_run_prints_no_export_tip(tmp_path, monkeypatch, capsys):
+def test_dry_run_prints_no_host_write_warning(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli, "fingerprint_many", _fake_fingerprint_many)
     assert cli.main(["--seed-file", str(_one_seed_csv(tmp_path)), "--out", str(tmp_path / "r.json")]) == 0
-    assert EXPORT_TIP not in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert HOST_WRITE_WARNING not in captured.err
+    assert EXPORT_TIP not in captured.out
 
 
 def test_merge_before_setup_exits_1_without_sweeping(tmp_path, monkeypatch, capsys):

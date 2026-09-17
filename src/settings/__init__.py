@@ -10,6 +10,15 @@ EXPORT_TIP = (
     "so this change isn't lost."
 )
 
+# Printed to stderr by the host-side scripts before they write settings.
+# SQLite locks don't cross the Docker Desktop bind mount between the host and
+# the containers (verified on macOS), so a host write while the poller or web
+# container writes can corrupt the database.
+HOST_WRITE_WARNING = (
+    "Writing to the settings database from the host: stop the poller and web "
+    "containers first (docker compose stop poller web)."
+)
+
 
 def open_service(path: str | None = None):
     """A ConfigService over its own connection to the app DB

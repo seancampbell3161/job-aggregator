@@ -21,6 +21,8 @@ def _fake_results():
 
 EXPORT_TIP = ("Tip: run `python -m src.settings export DIR` before editing settings files, "
               "so this change isn't lost.")
+HOST_WRITE_WARNING = ("Writing to the settings database from the host: stop the poller and web "
+                      "containers first (docker compose stop poller web).")
 
 
 def test_cli_merge_writes_matched_entry(monkeypatch, capsys):
@@ -34,7 +36,9 @@ def test_cli_merge_writes_matched_entry(monkeypatch, capsys):
 
     assert cli.main(["a16z", "--merge"]) == 0
     assert service.snapshot().cfg.sources.greenhouse == ["stripe", "figma"]
-    assert EXPORT_TIP in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert EXPORT_TIP in captured.out
+    assert HOST_WRITE_WARNING in captured.err
 
 
 def test_cli_dry_run_does_not_write(monkeypatch, capsys):
@@ -47,7 +51,9 @@ def test_cli_dry_run_does_not_write(monkeypatch, capsys):
 
     assert cli.main(["a16z"]) == 0          # no --merge
     assert len(service.versions()) == before
-    assert EXPORT_TIP not in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert HOST_WRITE_WARNING not in captured.err
+    assert EXPORT_TIP not in captured.out
 
 
 def test_cli_merge_skips_already_polled(monkeypatch, capsys):

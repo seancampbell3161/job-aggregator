@@ -30,7 +30,7 @@ from src.fingerprint import (  # noqa: E402
     _store_names_fail_soft,
     format_report,
 )
-from src.settings import EXPORT_TIP, open_service  # noqa: E402
+from src.settings import EXPORT_TIP, HOST_WRITE_WARNING, open_service  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -48,6 +48,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.merge and snap is None:
         print("not set up — import settings first: python -m src.settings import DIR", file=sys.stderr)
         return 1
+    if args.merge:
+        print(HOST_WRITE_WARNING, file=sys.stderr)
     manual = set(snap.cfg.discovery.manual_companies) if snap is not None else set()
 
     async def _run() -> list:
