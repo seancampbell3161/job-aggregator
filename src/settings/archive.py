@@ -50,6 +50,7 @@ import errno
 import io
 import shutil
 import stat
+import struct
 import tempfile
 import zipfile
 import zlib
@@ -66,7 +67,17 @@ MAX_NAME_LENGTH = 255                # per PATH COMPONENT, bytes (NAME_MAX on mo
 # Failures that mean the archive's own data is bad -- a corrupt CRC, a
 # compress_size that overruns into the next entry, or another format/feature
 # problem only surfacing once a member is actually opened and read.
-_ARCHIVE_FORMAT_ERRORS = (zipfile.BadZipFile, zlib.error, NotImplementedError, RuntimeError, ValueError)
+# EOFError is ZipExtFile._read2 hitting real end-of-stream while a member's
+# own (possibly tampered) compress_size still claims more is left to read --
+# reachable from the write pass's out.write(src.read()) without ever
+# tripping the BadZipFile "Overlapped entries" guard first (see
+# tests/settings/test_archive.py's fixture for exactly how). struct.error is
+# zipfile's own central-directory/extra-field unpacking rejecting a field
+# that doesn't fit its expected size.
+_ARCHIVE_FORMAT_ERRORS = (
+    zipfile.BadZipFile, zlib.error, NotImplementedError, RuntimeError, ValueError,
+    EOFError, struct.error,
+)
 
 # OSError errnos that mean the SERVER'S environment failed, not the upload:
 # disk full, permission denied, read-only filesystem, and the like. These
@@ -125,7 +136,12 @@ def extract_upload(data: bytes, dest: Path | str) -> None:
     dest = Path(dest)
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
-    except zipfile.BadZipFile as exc:
+    except (zipfile.BadZipFile, ValueError, EOFError, struct.error) as exc:
+        # ValueError also catches UnicodeDecodeError (one of its subclasses):
+        # a central-directory filename flagged UTF-8 (flag bit 0x800) but
+        # holding bytes that aren't valid UTF-8 -- decoded eagerly by
+        # ZipFile.__init__ itself (_RealGetContents), before any of the
+        # per-member checks below ever run.
         raise ArchiveRejected(f"not a zip file: {exc}") from None
     except NotImplementedError as exc:
         # E.g. a "version needed to extract" beyond what zipfile supports --
@@ -233,9 +249,9 @@ def _remove_empty_dirs(dirs: list[Path]) -> None:
 
 def _cleanup(created_root: Path | None, touched: list[Path], created_dirs: list[Path]) -> None:
     """Undo exactly what this call added. If this call created ``dest`` (or
-    any of dest's own parent directories, via mkdir(parents=True)),
-    ``created_root`` is the topmost new directory and removing it removes
-    everything under it in one shot. Otherwise, remove only the files this
+    any of dest's own parent directories, via _ensure_dir's manual mkdir-one-
+    level-at-a-time walk), ``created_root`` is the topmost new directory and
+    removing it removes everything under it in one shot. Otherwise, remove only the files this
     call itself wrote and the directories it created to hold them --
     deepest first, so a directory is only removed once everything this call
     put inside it is gone -- leaving anything that already existed, file or

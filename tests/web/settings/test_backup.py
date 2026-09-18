@@ -1,5 +1,6 @@
 """Backup: download everything, upload it back."""
 import io
+import struct
 import zipfile
 
 from src.web.app import create_app
@@ -54,6 +55,47 @@ def test_a_hostile_archive_is_refused_and_changes_nothing(tmp_path, monkeypatch)
         files={"archive": ("bad.zip", buf.getvalue(), "application/zip")})
     assert r.status_code == 400
     assert "escape.yaml" in r.text
+    assert app.state.service.snapshot().cfg.filters.titles == ["keep me"]
+
+
+def test_a_malformed_central_directory_is_refused_not_a_500(tmp_path, monkeypatch):
+    """Whole-branch review, Important 2: a central-directory filename
+    flagged UTF-8 (general-purpose bit 0x800) but holding bytes that are
+    not valid UTF-8 used to escape zipfile.ZipFile(...) as an unhandled
+    UnicodeDecodeError -- before extract_upload's own per-member checks
+    ever ran -- reaching this endpoint as a bare 500 instead of the same
+    clean 400 every other malformed archive gets. Built deterministically
+    by patching two bytes in a valid archive (see
+    tests/settings/test_archive.py's identically-built unit test for the
+    same fixture), not by fuzzing here."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("config.yaml", b"filters: {}\n")
+        z.writestr("bad.txt", b"x")
+    blob = buf.getvalue()
+
+    sig = b"PK\x01\x02"
+    idx = 0
+    name_bytes = b"bad.txt"
+    while True:
+        idx = blob.index(sig, idx)
+        (name_len,) = struct.unpack("<H", blob[idx + 28:idx + 30])
+        if blob[idx + 46: idx + 46 + name_len] == name_bytes:
+            break
+        idx += 1
+    invalid_name = bytes([0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA, 0xF9])
+    pos = idx + 46
+    blob = blob[:pos] + invalid_name + blob[pos + name_len:]
+    flags_pos = idx + 8
+    old_flags = struct.unpack("<H", blob[flags_pos:flags_pos + 2])[0]
+    blob = blob[:flags_pos] + struct.pack("<H", old_flags | 0x800) + blob[flags_pos + 2:]
+
+    app = _app(tmp_path, monkeypatch, make_service({"filters": {"titles": ["keep me"]}}))
+    r = signed_in_client(app).post(
+        "/settings/backup/import",
+        files={"archive": ("bad.zip", blob, "application/zip")})
+    assert r.status_code == 400
+    # Nothing left behind: the settings this instance already had are untouched.
     assert app.state.service.snapshot().cfg.filters.titles == ["keep me"]
 
 

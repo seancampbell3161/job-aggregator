@@ -499,6 +499,78 @@ def test_a_legitimately_deep_export_path_over_255_chars_total_is_not_rejected(tm
     assert (tmp_path / "out" / name).read_bytes() == b"x"
 
 
+def test_a_utf8_flagged_but_invalid_filename_is_refused_not_a_500(tmp_path):
+    """Whole-branch review, Important 2: a central-directory filename
+    flagged UTF-8 (general-purpose bit 0x800) but holding bytes that are
+    not valid UTF-8 makes zipfile.ZipFile(...) itself raise
+    UnicodeDecodeError -- before extract_upload's own per-member checks
+    ever run, and before the prior except clause (BadZipFile /
+    NotImplementedError only) could catch it. UnicodeDecodeError is a
+    ValueError subclass, so this is caught by the same clause as a plain
+    corrupt zip; matching on the shared "not a zip file" message proves
+    that clause is what actually fired, not some other fallback."""
+    blob = _zip({"config.yaml": b"filters: {}\n", "bad.txt": b"x"})
+    sig = b"PK\x01\x02"
+    idx = 0
+    name_bytes = b"bad.txt"
+    while True:
+        idx = blob.index(sig, idx)
+        (name_len,) = struct.unpack("<H", blob[idx + 28:idx + 30])
+        if blob[idx + 46: idx + 46 + name_len] == name_bytes:
+            break
+        idx += 1
+    # Same length as "bad.txt" (7 bytes) so no other offset shifts; every
+    # byte here is a lone continuation/invalid-start byte, so utf-8
+    # decoding fails on the very first one.
+    invalid_name = bytes([0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA, 0xF9])
+    assert len(invalid_name) == len(name_bytes)
+    pos = idx + 46
+    blob = blob[:pos] + invalid_name + blob[pos + name_len:]
+    # Set the UTF-8 filename flag (bit 0x800, at offset +8 from the record
+    # signature) -- without it, zipfile decodes via cp437, which accepts
+    # any byte value and would not raise at all.
+    flags_pos = idx + 8
+    old_flags = struct.unpack("<H", blob[flags_pos:flags_pos + 2])[0]
+    blob = blob[:flags_pos] + struct.pack("<H", old_flags | 0x800) + blob[flags_pos + 2:]
+    with pytest.raises(ArchiveRejected, match="not a zip file"):
+        extract_upload(blob, tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_inflated_compress_size_running_past_the_file_is_refused_not_a_500(tmp_path):
+    """Whole-branch review, Important 2: EOFError escapes the write pass
+    (out.write(src.read())) when a member's declared compress_size claims
+    more data than the archive actually holds, PAST the point where
+    zipfile's own "Overlapped entries" (possible zip bomb) guard would
+    normally catch an inflated size first. That guard compares against
+    _end_offset, which for a non-last member is simply the NEXT member's
+    own declared header_offset -- so inflating a LATER member's
+    header_offset (zzz_fake.txt here) defeats the guard for bad.txt without
+    needing to touch bad.txt's own header at all. bad.txt is STORED
+    (zipfile's own default compression for _zip() above), so nothing about
+    this depends on deflate-stream framing: _read2 just keeps pulling real
+    bytes -- bad.txt's own short payload, then zzz_fake.txt's real bytes,
+    then the real central directory and EOCD -- until the underlying
+    BytesIO truly runs out, which is exactly what raises EOFError.
+
+    config.yaml comes first and is genuinely written to disk before bad.txt
+    fails, so this also proves the fix's _cleanup removes an EARLIER,
+    already-written member -- not just that nothing from the bad member
+    itself survives (the module docstring's "nothing new left behind"
+    promise, for a write-pass failure specifically)."""
+    blob = _zip({
+        "config.yaml": b"filters: {}\n",
+        "bad.txt": b"short real data",
+        "zzz_fake.txt": b"whatever",
+    })
+    blob = _patch_central_dir(blob, "zzz_fake.txt", 42, 50_000_000, 4)   # header_offset
+    blob = _patch_central_dir(blob, "bad.txt", 20, 10_000_000, 4)        # compress_size
+    blob = _patch_central_dir(blob, "bad.txt", 24, 10_000_000, 4)        # file_size
+    with pytest.raises(ArchiveRejected, match="bad.txt"):
+        extract_upload(blob, tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
 def test_an_unsupported_zip_version_is_refused(tmp_path):
     """"Version needed to extract" beyond what zipfile supports raises
     NotImplementedError from ZipFile.__init__ itself (_RealGetContents),
