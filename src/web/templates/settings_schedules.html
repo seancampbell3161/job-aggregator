@@ -1,0 +1,11 @@
+{% extends "settings_base.html" %}
+{% import "_settings_macros.html" as w %}
+{% block section %}
+<form method="post" action="/settings/schedules">
+  {% for spec in fields %}
+    {{ w.field(spec, shown(submitted, cfg, spec), errors) }}
+  {% endfor %}
+  <p class="field-help">Cron fields are five-field crontab in UTC.</p>
+  <button type="submit" class="btn primary">Save schedules</button>
+</form>
+{% endblock %}
