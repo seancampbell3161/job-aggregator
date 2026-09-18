@@ -499,10 +499,7 @@ documents, and any template packs you've uploaded — as one `.zip`. It never
 includes secrets (API keys, webhook URLs, the tailoring signing secret); after
 restoring onto a new box, set those again by hand or with `import-env-secrets`.
 The same page, and **`/setup`** on a fresh install with no settings yet, accept
-that file back to restore. A restore is a database-only change: it writes a
-new settings version, and the next `python -m src.settings import` from your
-files will refuse until you `export` first (same rule as any other
-out-of-band change — see [docs/CONFIG.md](docs/CONFIG.md)).
+that file back to restore.
 
 Made a change you want to undo? **`/settings/history`** lists every saved
 settings version with a diff against what's currently live, and restores any
