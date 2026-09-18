@@ -24,7 +24,24 @@ authenticated arbitrary-file-read. That is why the import below passes
 trust_paths=False — see import_dir's own docstring for exactly what that
 does. The CLI's `settings import` command still passes the default
 (trust_paths=True): there, the path is the user's own shell, and refusing to
-read a file they can already read directly would protect nothing."""
+read a file they can already read directly would protect nothing.
+
+One exposure is still real, and worth recording rather than re-deriving:
+_read_bounded below stops OUR handler from ever holding more than
+MAX_UPLOAD_BYTES as one bytes object, but Starlette's own multipart parser
+(FormParser/MultiPartParser in starlette/formparsers.py, checked against the
+installed 1.3.1) enforces max_part_size only on non-file form fields --
+on_part_data never checks it for a part that has a filename -- so by the
+time our handler runs, an authenticated client can already have made the
+process spool an arbitrarily large upload to a temp file on disk (not
+memory: SpooledTemporaryFile rolls to disk past 1 MB, and it's unlinked at
+request end via FastAPI's own UploadFile/body cleanup). This is reachable
+only by a signed-in user -- the login gate runs as middleware ahead of
+routing and never parses the body -- so it is a disk-exhaustion nuisance
+from someone who already has an account, not an unauthenticated one. Closing
+it fully would mean bypassing FastAPI's automatic multipart parsing and
+reading the raw ASGI stream by hand, which is disproportionate for a
+single-operator settings page."""
 from __future__ import annotations
 
 import tempfile
@@ -59,17 +76,21 @@ async def _read_bounded(upload: UploadFile, limit: int) -> tuple[bytes, bool]:
     passes ``limit`` — never holding more than roughly ``limit`` bytes and
     never calling .read() with no size, which would buffer the whole body
     (however large) before anything gets a chance to check it. Returns
-    (data, oversized); ``data`` is empty when oversized is True."""
-    chunks: list[bytes] = []
+    (data, oversized); ``data`` is empty when oversized is True.
+
+    Accumulates into a single bytearray (extended in place) rather than a
+    list of chunks joined at the end, so a legal upload at the limit never
+    transiently holds a second, equally large copy of itself in memory."""
+    buf = bytearray()
     total = 0
     while True:
         chunk = await upload.read(_CHUNK_SIZE)
         if not chunk:
-            return b"".join(chunks), False
+            return bytes(buf), False
         total += len(chunk)
         if total > limit:
             return b"", True
-        chunks.append(chunk)
+        buf.extend(chunk)
 
 
 def _truthy(value: str) -> bool:
@@ -128,8 +149,12 @@ def register_backup_routes(app: FastAPI) -> None:
         except ArchiveRejected as exc:
             return _render(request, status_code=400, form_errors=[str(exc)])
         except ImportGuardRefused as exc:
+            # transfer._undone_changes_message ends at the "saved in:" rows
+            # (Ruling R13) — the closing instruction is this surface's own,
+            # not the CLI's "run export DIR / pass --force" (neither exists
+            # on this page).
             return _render(request, status_code=409, form_errors=[
-                f"{exc}\n\ntick overwrite and upload again.",
+                f"{exc}\n\nNothing was written. Tick overwrite and upload again.",
             ])
         except ImportFailed as exc:
             return _render(request, status_code=400, form_errors=[str(exc)])

@@ -260,11 +260,15 @@ def _confined(path: Path, directory: Path) -> bool:
     import_dir's trust_paths=False path to decide whether a LEGACY_PATH_KEYS
     value is safe to honour. Symlinks are resolved on both sides so a
     relative path that merely LOOKS confined but escapes via a symlink still
-    counts as not confined; any OSError resolving it (e.g. a component that
-    is not a directory) is treated the same way — not confined."""
+    counts as not confined. Anything ``resolve()`` raises over -- an OSError
+    (e.g. a path component that is not a directory) or a ValueError (an
+    embedded NUL byte, which PyYAML happily hands back from a quoted scalar
+    like ``"a\\0b"`` and which ``Path.resolve()`` -- unlike ``.is_file()``,
+    which just returns False -- raises on) -- is treated the same way: not
+    confined, never left to propagate past this function."""
     try:
         return path.resolve().is_relative_to(directory.resolve())
-    except OSError:
+    except (OSError, ValueError):
         return False
 
 
@@ -283,6 +287,13 @@ def _undone_by(service: ConfigService, raw: dict, last_import: SettingsRow | Non
 def _undone_changes_message(
     undone: list[str], changes: list[SettingsRow], last_import: SettingsRow | None,
 ) -> str:
+    """The content every surface shares verbatim: the head, one line per
+    undone setting, and the "saved in:" rows. It deliberately stops there
+    (Ruling R13) rather than also picking a surface-specific instruction --
+    "run `python -m src.settings export DIR` ... or pass --force" is
+    meaningless on the web backup page, which has neither a DIR argument nor
+    a --force flag. Each caller of ImportGuardRefused (CLI's _print_error,
+    the web backup endpoint) appends its own closing instruction instead."""
     if last_import is not None:
         head = (f"these files would undo settings saved after your last import "
                 f"(version {last_import.id}):")
@@ -293,11 +304,6 @@ def _undone_changes_message(
               for row in changes[:_MAX_LISTED_CHANGES]]
     if len(changes) > _MAX_LISTED_CHANGES:
         lines.append(f"  … and {len(changes) - _MAX_LISTED_CHANGES} more")
-    lines.append(
-        "Nothing was written. Run `python -m src.settings export DIR`, bring those changes "
-        "into your files, then import again — or re-run the import with --force to "
-        "overwrite them."
-    )
     return "\n".join(lines)
 
 
@@ -320,8 +326,12 @@ def _read_config(path: Path) -> dict:
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
+        # path.name, not path itself: on the web backup endpoint this is a
+        # tempfile.TemporaryDirectory() path that no longer exists by the
+        # time anyone reads the error, and even on the CLI the full absolute
+        # path adds nothing "config.yaml: not found" doesn't already say.
         raise ImportFailed(
-            f"{path}: not found — a config file is required (start from config.example.yaml)"
+            f"{path.name}: not found — a config file is required (start from config.example.yaml)"
         ) from None
     except IsADirectoryError:
         raise ImportFailed(f"{path} is a directory, not a file") from None

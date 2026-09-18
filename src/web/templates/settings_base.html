@@ -13,7 +13,7 @@
     <h2>{{ section.title }}</h2>
     {% if section.blurb %}<p class="muted">{{ section.blurb }}</p>{% endif %}
     {% if saved %}<p class="ok">Saved — running live, no restart needed.</p>{% endif %}
-    {% for msg in form_errors %}<p class="bad">{{ msg }}</p>{% endfor %}
+    {% for msg in form_errors %}<p class="bad{% if section.slug == 'backup' %} pre-line{% endif %}">{{ msg }}</p>{% endfor %}
     {% block section %}{% endblock %}
   </div>
 </div>

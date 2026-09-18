@@ -8,7 +8,9 @@ import yaml
 from src.settings.errors import NotConfigured, SettingsInvalid
 from src.settings.service import ConfigService
 from src.settings.sources import append_slug_sources
-from src.settings.transfer import ImportFailed, export_dir, import_dir, unknown_keys
+from src.settings.transfer import (
+    ImportFailed, ImportGuardRefused, export_dir, import_dir, unknown_keys,
+)
 from tests.settings_helpers import make_service
 
 REPO = Path(__file__).resolve().parents[2]
@@ -214,6 +216,23 @@ def test_untrusted_import_still_honours_a_confined_relative_legacy_path(tmp_path
     assert svc.documents().profile == "custom profile"
 
 
+def test_untrusted_import_ignores_a_legacy_path_containing_a_nul_byte(tmp_path):
+    """PyYAML happily decodes a double-quoted scalar's \\0 escape into a
+    string with an embedded NUL byte. Path.resolve() raises ValueError for
+    that (unlike .is_file(), which just returns False) -- _confined must
+    treat that the same as "not confined" rather than let the ValueError
+    escape import_dir uncaught, which would turn an ignorable, warned-about
+    upload into an unhandled 500 on the web endpoint."""
+    (tmp_path / "config.yaml").write_text(
+        'relevance:\n  enabled: true\n  profile_path: "a\\0b"\n'
+    )
+    svc = make_service()
+    report = import_dir(svc, tmp_path, templates_dir=tmp_path / "t", trust_paths=False)
+    assert "points outside the archive — ignored" in report.warnings[0]
+    assert svc.documents().profile is None
+    assert svc.current_doc()[1] == {"relevance": {"enabled": True}}
+
+
 def test_config_that_is_not_utf8_fails_naming_the_file(tmp_path):
     (tmp_path / "config.yaml").write_bytes(b"schedules: {slow_minutes: 30}\n# caf\xe9\n")
     svc = make_service()
@@ -307,15 +326,19 @@ def test_import_refuses_to_replace_changes_saved_since_the_last_import(tmp_path)
     (d / "resume" / "templates" / "mine" / "template.html.j2").write_text("x")
     generation = svc.generation()
 
-    with pytest.raises(ImportFailed) as exc:
+    with pytest.raises(ImportGuardRefused) as exc:
         import_dir(svc, d, templates_dir=tmp_path / "t")
 
     msg = str(exc.value)
     assert f"{tweaked.id}  cli  slow tier every hour" in msg
     assert f"{added.id}  cli  add-source: added greenhouse:stripe" in msg
     assert "after your last import" in msg
-    assert "python -m src.settings export DIR" in msg
-    assert "--force" in msg
+    # R13: the shared message stops at the "saved in:" rows -- no
+    # surface-specific instruction. "export DIR"/"--force" is the CLI's own
+    # closing line (test_cli.py), appended by _print_error, not baked in
+    # here where it would be wrong advice for e.g. the web backup page.
+    assert "python -m src.settings export DIR" not in msg
+    assert "--force" not in msg
     # The refusal wrote nothing: no version, no document, no template pack.
     assert svc.generation() == generation
     assert svc.snapshot().cfg.sources.greenhouse == ["stripe"]
@@ -518,15 +541,23 @@ def test_a_stale_file_cannot_bring_back_default_list_entries_removed_since_the_i
     assert svc.snapshot().cfg.filters.blocked_employment_types == []
 
 
-def test_import_refusal_explains_how_to_bring_the_changes_into_the_files(tmp_path):
+def test_import_refusal_message_ends_at_the_saved_in_rows(tmp_path):
+    """R13: ImportGuardRefused's own message is shared, verbatim, content
+    only -- head, undone-settings lines, "saved in:" rows -- with no
+    surface-specific instruction baked in (that would be wrong advice on a
+    surface that isn't the CLI, e.g. the web backup page, which has neither
+    a DIR argument nor a --force flag). Each surface appends its own: the
+    CLI's in cli.py's _print_error (test_cli.py covers what CLI users see
+    end to end), the web backup page's in web/settings/backup.py."""
     svc = make_service()
     d = _config_dir(tmp_path)
     import_dir(svc, d, templates_dir=tmp_path / "t")
     append_slug_sources(svc, {"greenhouse": ["stripe"]}, label="add-source")
-    with pytest.raises(ImportFailed) as exc:
+    added = svc.versions()[0]
+    with pytest.raises(ImportGuardRefused) as exc:
         import_dir(svc, d, templates_dir=tmp_path / "t")
-    assert str(exc.value).splitlines()[-1] == (
-        "Nothing was written. Run `python -m src.settings export DIR`, bring those changes "
-        "into your files, then import again — or re-run the import with --force to "
-        "overwrite them."
-    )
+    msg = str(exc.value)
+    assert msg.splitlines()[-1] == f"  {added.id}  cli  add-source: added greenhouse:stripe"
+    assert "Nothing was written" not in msg
+    assert "export DIR" not in msg
+    assert "--force" not in msg

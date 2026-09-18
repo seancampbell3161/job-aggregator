@@ -129,7 +129,34 @@ def test_an_absolute_legacy_path_key_is_ignored_not_read(tmp_path, monkeypatch):
         "/settings/backup/import",
         files={"archive": ("backup.zip", buf.getvalue(), "application/zip")})
     assert r.status_code == 200
-    assert app.state.service.documents().profile != "TOP-SECRET-SERVER-FILE-CONTENTS"
+    # Not just "not the secret" -- the path must be ignored outright, not
+    # silently read into some OTHER value.
+    assert app.state.service.documents().profile is None
     assert "TOP-SECRET-SERVER-FILE-CONTENTS" not in r.text
+    # The other half of R11: the ignored key is a visible warning, not a
+    # silent, unexplained no-op.
+    assert "points outside the archive — ignored" in r.text
     # The setting itself still applies -- only the dangerous path is ignored.
     assert app.state.service.snapshot().cfg.filters.titles == ["staff engineer"]
+
+
+def test_a_legacy_path_with_a_nul_byte_never_500s(tmp_path, monkeypatch):
+    """IMPORTANT (fix round 1): PyYAML decodes a double-quoted \\0 escape
+    into a string with an embedded NUL byte. Path.resolve() -- unlike
+    .is_file() -- raises ValueError for that, and _confined used to catch
+    only OSError, so this exact upload used to 500 instead of hitting any of
+    backup_import's four except clauses. It must come back as a normal
+    response (a warning, not a crash) -- never 500."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr(
+            "config.yaml",
+            'filters:\n  titles: [staff engineer]\n'
+            'relevance:\n  enabled: true\n  profile_path: "a\\0b"\n',
+        )
+    app = _app(tmp_path, monkeypatch)
+    r = signed_in_client(app).post(
+        "/settings/backup/import",
+        files={"archive": ("backup.zip", buf.getvalue(), "application/zip")})
+    assert r.status_code in (200, 400)
+    assert app.state.service.documents().profile is None

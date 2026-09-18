@@ -18,7 +18,7 @@ from src.settings import EXPORT_TIP
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.service import OLLAMA_HOST_ENV, SECRET_NAMES, ConfigService, secret_env_var
 from src.settings.sources import append_slug_sources
-from src.settings.transfer import ImportFailed, export_dir, import_dir
+from src.settings.transfer import ImportFailed, ImportGuardRefused, export_dir, import_dir
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -220,6 +220,20 @@ def _print_error(exc: Exception) -> None:
         print("invalid settings — nothing was written:", file=sys.stderr)
         for error in exc.errors:
             print(f"  {error['loc'] or '(document)'}: {error['msg']}", file=sys.stderr)
+    elif isinstance(exc, ImportGuardRefused):
+        # transfer._undone_changes_message keeps only the content every
+        # surface shares (Ruling R13); the CLI's own closing instruction --
+        # unchanged from before that split, so CLI users see the same
+        # words -- is appended here rather than baked into the shared
+        # message, where it would be wrong advice on e.g. the web backup
+        # page (no DIR argument, no --force flag there).
+        print(f"error: {exc}", file=sys.stderr)
+        print(
+            "Nothing was written. Run `python -m src.settings export DIR`, bring those "
+            "changes into your files, then import again — or re-run the import with "
+            "--force to overwrite them.",
+            file=sys.stderr,
+        )
     else:
         print(f"error: {exc}", file=sys.stderr)
 

@@ -74,6 +74,11 @@ header { display: flex; align-items: baseline; gap: 16px; }
 .stat { border: 1px solid var(--border); border-radius: 8px; padding: 7px 11px; background: var(--surface); }
 .stat .v { font-size: 16px; font-weight: 700; }
 .ok { color: #10b981; } .warn { color: #f59e0b; } .bad { color: #ef4444; }
+/* Preserves embedded newlines (e.g. the backup page's multi-line import-guard
+   refusal — a header line, indented setting lines, "saved in:", indented
+   version rows) instead of collapsing them into one run-on line, without
+   changing how a plain one-line message (most .bad/.ok/.warn uses) renders. */
+.pre-line { white-space: pre-line; }
 .panel { border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; margin-bottom: 16px; background: var(--surface); }
 .panel h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; opacity: .7; margin: 0 0 12px; }
 .panel p { margin: 8px 0; }
