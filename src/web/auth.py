@@ -21,7 +21,7 @@ SESSION_COOKIE = "jobagg_session"
 # Reachable without a session. Exact paths, so a future /tailor/... route is
 # gated unless added here on purpose. /logout is public so signing out with an
 # expired session still clears the cookie.
-PUBLIC_PATHS = frozenset({"/login", "/welcome", "/logout", "/tailor", "/tailor/pdf"})
+PUBLIC_PATHS = frozenset({"/login", "/welcome", "/logout", "/tailor", "/tailor/pdf", "/healthz"})
 PUBLIC_PREFIXES = ("/static/",)
 
 

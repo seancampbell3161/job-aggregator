@@ -43,6 +43,11 @@ ALLOWED_PAGE_SIZES = (10, 25, 50)
 # password comes before settings.
 SETUP_EXEMPT_PREFIXES = ("/setup", "/static", "/tailor", "/login", "/welcome", "/logout", "/account")
 
+# Liveness for the container healthcheck and the image smoke tests. Exact
+# match, not a prefix: it is the one path that must answer 200 in every state,
+# so nothing may be mounted beneath it.
+HEALTH_PATH = "/healthz"
+
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
@@ -190,6 +195,10 @@ def _register_setup_gate(app: FastAPI) -> None:
 
     @app.middleware("http")
     async def _snapshot_and_setup_gate(request: Request, call_next):
+        if request.scope["path"] == HEALTH_PATH:
+            # Liveness: answer without reading settings, so the probe still
+            # works when the settings store is what is broken.
+            return await call_next(request)
         snap = await run_in_threadpool(request.app.state.service.snapshot)
         request.state.snapshot = snap
         if snap is None and not _setup_exempt(request.scope["path"]):
@@ -264,6 +273,10 @@ def _register_setup_gate(app: FastAPI) -> None:
         if not outcome.ok:
             return _setup_page(request, status_code=outcome.status_code, errors=outcome.errors)
         return RedirectResponse("/settings/overview", status_code=303)
+
+    @app.get(HEALTH_PATH, response_class=PlainTextResponse)
+    def healthz() -> str:
+        return "ok"
 
 
 def _ctx(request: Request, **extra) -> dict:
