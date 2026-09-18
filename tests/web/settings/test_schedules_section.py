@@ -41,7 +41,20 @@ def test_a_bad_crontab_renders_inline_on_its_own_field(tmp_path, monkeypatch):
     r = signed_in_client(app).post("/settings/schedules",
                                    data={**FORM, "board.digest_cron": "not a cron"})
     assert r.status_code == 200
-    assert "board.digest_cron" in r.text
+    # Bound the assertion to board.digest_cron's own field div, not just "the
+    # error text is on the page somewhere": a plain substring check on
+    # "board.digest_cron" can never fail, because that name= attribute is on
+    # the page whether the error renders inline or in the form-level banner
+    # (settings_base.html renders form_errors outside every field div).
+    # Requiring has-error/field-error inside this specific div is what
+    # actually distinguishes the two.
+    idx = r.text.index('name="board.digest_cron"')
+    div_start = r.text.rindex('<div class="field', 0, idx)
+    div_end = r.text.index("</div>", idx)
+    field_html = r.text[div_start:div_end]
+    assert "has-error" in field_html
+    assert "field-error" in field_html
+    assert "invalid crontab" in field_html
     assert app.state.service.snapshot().cfg.board.digest_cron == "0 15 * * *"
 
 
