@@ -305,6 +305,12 @@ def register_settings_routes(app: FastAPI) -> None:
     @app.post("/settings/{slug}", response_class=HTMLResponse)
     async def section_save(request: Request, slug: str):
         section = section_by_slug(slug)
-        if section is None or not section.paths:
+        # A section with neither claimed paths nor claimed secrets has
+        # nothing save_section could write (profile/documents *do* have
+        # dedicated literal routes above, matched first, for their own
+        # non-patch save shape; overview/advanced have no editable form at
+        # all yet) — everything else, including a secrets-only section like
+        # integrations, saves through the same generic path.
+        if section is None or not (section.paths or section.secrets):
             raise HTTPException(status_code=404)
         return await save_section(request, section)

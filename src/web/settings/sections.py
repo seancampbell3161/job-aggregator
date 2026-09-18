@@ -72,6 +72,19 @@ SECTIONS: tuple[Section, ...] = (
         ),
     ),
     Section(
+        slug="integrations", title="Integrations", template="settings_integrations.html",
+        blurb=(
+            "Credentials for optional data sources (Adzuna, Gmail ingestion) "
+            "and the tailoring deep-link endpoint. None of these turn "
+            "anything on by themselves — each feature also has its own "
+            "enable flag elsewhere."
+        ),
+        secrets=(
+            "adzuna_app_id", "adzuna_app_key", "gmail_address",
+            "gmail_app_password", "tailor_endpoint_url",
+        ),
+    ),
+    Section(
         slug="schedules", title="Schedules", template="settings_schedules.html",
         blurb="How often each tier runs. Cron fields are UTC, five-field crontab.",
         paths=(
@@ -98,10 +111,7 @@ CLAIMED_PATHS: frozenset[str] = frozenset(p for s in SECTIONS for p in s.paths)
 # boot by ConfigService.ensure_signing_secret() and editing it would silently
 # invalidate every deep link already sent to the user's phone, so it stays
 # CLI-only by design. The rest are claimed by the integrations section.
-UNCLAIMED_SECRETS: frozenset[str] = frozenset({
-    "adzuna_app_id", "adzuna_app_key", "gmail_address", "gmail_app_password",
-    "tailor_endpoint_url", "tailor_signing_secret",
-})
+UNCLAIMED_SECRETS: frozenset[str] = frozenset({"tailor_signing_secret"})
 
 _BY_SLUG = {s.slug: s for s in SECTIONS}
 
