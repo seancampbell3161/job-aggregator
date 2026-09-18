@@ -150,6 +150,70 @@ def test_legacy_path_key_naming_a_missing_file_is_warned_and_skipped(tmp_path):
     assert svc.current_doc()[1] == {"relevance": {"enabled": True}}
 
 
+# -- trust_paths=False (R11): an untrusted caller must not honour a legacy path
+# key that reaches outside the extracted archive ----------------------------
+
+def test_trust_paths_defaults_true_so_cli_behaviour_is_unchanged(tmp_path):
+    """trust_paths is not passed by the CLI (cli.py's _cmd_import) or by any
+    other existing caller -- the default must keep reading an absolute legacy
+    path exactly as before."""
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "me.md").write_text("custom profile")
+    (tmp_path / "config.yaml").write_text(
+        "relevance:\n  enabled: true\n  profile_path: docs/me.md\n"
+    )
+    svc = make_service()
+    report = import_dir(svc, tmp_path, templates_dir=tmp_path / "t")
+    assert report.warnings == []
+    assert svc.documents().profile == "custom profile"
+
+
+def test_untrusted_import_ignores_an_absolute_legacy_path(tmp_path):
+    outside = tmp_path.parent / "outside-secret.md"
+    outside.write_text("SECRET FILE CONTENTS")
+    (tmp_path / "config.yaml").write_text(
+        f"relevance:\n  enabled: true\n  profile_path: {outside}\n"
+    )
+    svc = make_service()
+    report = import_dir(svc, tmp_path, templates_dir=tmp_path / "t", trust_paths=False)
+    assert report.warnings == [
+        f"relevance.profile_path: {outside} points outside the archive — ignored"
+    ]
+    assert svc.documents().profile is None
+    assert svc.current_doc()[1] == {"relevance": {"enabled": True}}
+
+
+def test_untrusted_import_ignores_a_relative_legacy_path_that_escapes_via_dotdot(tmp_path):
+    d = tmp_path / "archive"
+    d.mkdir()
+    outside = tmp_path / "outside-secret.md"
+    outside.write_text("SECRET FILE CONTENTS")
+    (d / "config.yaml").write_text(
+        "relevance:\n  enabled: true\n  profile_path: ../outside-secret.md\n"
+    )
+    svc = make_service()
+    report = import_dir(svc, d, templates_dir=tmp_path / "t", trust_paths=False)
+    assert report.warnings == [
+        "relevance.profile_path: ../outside-secret.md points outside the archive — ignored"
+    ]
+    assert svc.documents().profile is None
+
+
+def test_untrusted_import_still_honours_a_confined_relative_legacy_path(tmp_path):
+    """The fix must not break the ordinary, safe case: a relative path that
+    stays inside the extracted tree is just a file in the user's own
+    archive, and importing it is exactly what a restore is for."""
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "me.md").write_text("custom profile")
+    (tmp_path / "config.yaml").write_text(
+        "relevance:\n  enabled: true\n  profile_path: docs/me.md\n"
+    )
+    svc = make_service()
+    report = import_dir(svc, tmp_path, templates_dir=tmp_path / "t", trust_paths=False)
+    assert report.warnings == []
+    assert svc.documents().profile == "custom profile"
+
+
 def test_config_that_is_not_utf8_fails_naming_the_file(tmp_path):
     (tmp_path / "config.yaml").write_bytes(b"schedules: {slow_minutes: 30}\n# caf\xe9\n")
     svc = make_service()
