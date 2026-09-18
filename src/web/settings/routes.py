@@ -2,7 +2,8 @@
 
 Route order matters: /settings/advanced is declared before /settings/{slug},
 because Starlette matches in registration order and the parameterised route
-would otherwise swallow it."""
+would otherwise swallow it. register_row_routes(app) is called first, ahead
+of every route this module declares, for the same reason (Ruling R1)."""
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Request
@@ -12,13 +13,16 @@ from src.config import Secrets
 from src.settings.documents import DOCUMENT_KINDS
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import (
-    KIND_BOOL, KIND_CHIPS, KIND_MULTI_CHOICE, NON_FORM_KINDS, optional_groups, value_at,
+    KIND_BOOL, KIND_CHIPS, KIND_MULTI_CHOICE, KIND_ROWS, NON_FORM_KINDS, optional_groups,
+    value_at,
 )
 from src.settings.help import field_help, group_intro
+from src.settings.rows import list_rows
 from src.settings.service import canonical_doc, secret_env_var
 from src.web.settings.forms import apply_patch, decode, decode_secrets, errors_by_path
 from src.web.settings.probes import ProbeResult, probe_discord, probe_llm, probe_ntfy
 from src.web.settings.readiness import check
+from src.web.settings.rows import register_row_routes
 from src.web.settings.sections import (
     Section, SECTIONS, advanced_group, advanced_groups, group_section, section_by_slug,
     section_fields,
@@ -110,8 +114,12 @@ def shown(ctx_submitted, cfg, spec):
     a failed save, otherwise the stored value."""
     # A read-only or rows field is never submitted by a section form, so
     # echoing the form would render it as empty after a failed save. Always
-    # read those from the config.
+    # read those from the config — a rows field as addressable Row objects
+    # (digest + item-relative values), so the field macro's `rows` branch can
+    # link each entry's Edit/Remove routes without recomputing digests itself.
     if ctx_submitted is None or spec.kind in NON_FORM_KINDS:
+        if spec.kind == KIND_ROWS:
+            return list_rows(cfg, spec.path)
         return value_at(cfg, spec.path)
     values = ctx_submitted.get(spec.path, [])
     if spec.kind in (KIND_CHIPS, KIND_MULTI_CHOICE):
@@ -196,6 +204,8 @@ async def save_section(request: Request, section: Section, **extra) -> HTMLRespo
 
 
 def register_settings_routes(app: FastAPI) -> None:
+    register_row_routes(app)
+
     env = app.state.templates.env
     env.globals["field_help"] = field_help
     env.globals["group_intro"] = group_intro

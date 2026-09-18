@@ -47,10 +47,9 @@
   {% if spec.kind == 'bool' %}
     <label class="check"><input type="checkbox" name="{{ spec.path }}"
       {% if value %}checked{% endif %}> {{ spec.label }}</label>
-  {% elif spec.kind == 'read_only' %}
+  {% elif spec.kind == 'rows' %}
     <span class="field-label">{{ spec.label }}</span>
-    <p class="muted">{{ value|length }} configured — managed with
-      <code>python -m src.settings add-source</code> until the Companies page lands.</p>
+    {% include "_rows.html" %}
   {% else %}
     <label class="field-label" for="f-{{ spec.path }}">{{ spec.label }}</label>
     {% if spec.kind == 'choice' %}

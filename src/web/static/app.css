@@ -292,6 +292,11 @@ header { display: flex; align-items: baseline; gap: 16px; }
 .chips { display: flex; flex-wrap: wrap; gap: .35rem; }
 .chips input { width: 12rem; }
 .btn.small { padding: .1rem .5rem; font-size: .8rem; }
+.rows-list { display: flex; flex-direction: column; gap: .4rem; margin: 0 0 .5rem; }
+.row-entry { display: flex; align-items: center; gap: .6rem; padding: .35rem .5rem;
+  border: 1px solid var(--border); border-radius: 6px; }
+.row-summary { flex: 1; font-size: .9rem; }
+.row-entry .inline-form { margin: 0; display: inline; }
 .readiness { list-style: none; padding: 0; }
 .readiness .warn { display: flex; align-items: center; justify-content: space-between;
   gap: 1rem; padding: .6rem .8rem; margin-bottom: .4rem;

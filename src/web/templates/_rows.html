@@ -1,0 +1,21 @@
+{# The generic listing for one rows-kind field: current entries plus a link
+   to add one. Rendered from the `field` macro's `rows` branch, which
+   {% include %}s this with `spec` and `value` (a list[Row], src/settings/rows.py)
+   already bound in its own scope. The Companies page (Task 7) renders its
+   own table instead of this one. #}
+<div class="rows-list" data-path="{{ spec.path }}">
+  {% for row in value %}
+  <div class="row-entry">
+    <span class="row-summary">
+      {% for name, v in row.values.items() %}{{ name }}: {{ v if v is not none else '—' }}{% if not loop.last %} &middot; {% endif %}{% endfor %}
+    </span>
+    <a class="btn small" href="/settings/rows/{{ spec.path }}/{{ row.digest }}/edit">Edit</a>
+    <form method="post" action="/settings/rows/{{ spec.path }}/{{ row.digest }}/remove" class="inline-form">
+      <button type="submit" class="btn small" onclick="return confirm('Remove this entry?')">Remove</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="muted">None configured.</p>
+  {% endfor %}
+</div>
+<a class="btn small" href="/settings/rows/{{ spec.path }}/new">+ add one</a>
