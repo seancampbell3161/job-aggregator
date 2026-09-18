@@ -5,9 +5,15 @@
    renders the "status unavailable" banner in that case; this partial just
    has to not blow up looking it up).
 
-   Edit/Remove are plain <a> links to the generic row routes, never a <form>
-   here — this page has no outer <form> of its own, and Remove is a
-   destructive action that belongs on its own confirm page (Ruling R8). #}
+   Edit/Remove are plain <a> links, never a <form> here — this page has no
+   outer <form> of its own, and Remove is a destructive action that belongs
+   on its own confirm page (Ruling R8). Edit goes to the generic row route;
+   Remove goes to the Companies page's own confirm
+   (/settings/companies/remove/{digest}, src/web/settings/companies.py),
+   which carries a discovery warning and a block action the generic confirm
+   has no business knowing about — its own form still posts to the SAME
+   generic /settings/rows/.../remove route underneath, so there remains
+   exactly one code path that removes a board. #}
 {% if not groups %}
 <p class="muted">No company boards yet. Paste a careers page above to add one.</p>
 {% else %}
@@ -32,7 +38,7 @@
       </td>
       <td>
         <a class="btn small" href="/settings/rows/{{ entry.path }}/{{ entry.digest }}/edit">Edit</a>
-        <a class="btn small" href="/settings/rows/{{ entry.path }}/{{ entry.digest }}/remove">Remove</a>
+        <a class="btn small" href="/settings/companies/remove/{{ entry.digest }}">Remove</a>
       </td>
     </tr>
     {% endfor %}

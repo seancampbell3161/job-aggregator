@@ -1,0 +1,44 @@
+{% extends "settings_base.html" %}
+{% block section %}
+{# The Companies page's own remove-confirm PAGE (src/web/settings/companies.py
+   ::companies_remove_confirm) — a standalone page, not an htmx partial, for
+   the same nested-form reason row_remove.html is (Ruling R8): _company_rows.html
+   has no outer <form>, and a Remove control still can't be an inline one.
+
+   Per Ruling R8, this exists ALONGSIDE the generic confirm at
+   /settings/rows/{path}/{digest}/remove rather than replacing it: this page
+   adds the one thing that generic page has no business knowing (whether
+   discovery independently polls this exact board and would happily
+   rediscover it), but the Remove button below still posts to the SAME
+   generic route — there is exactly one code path that removes a board. #}
+<p><a href="/settings/companies">&larr; Back to Companies</a></p>
+<h3>Remove &mdash; {{ entry.key }}</h3>
+<p>Remove <strong>{{ entry.label }}</strong> ({{ entry.summary }})? This stops
+   job-aggregator polling this board directly.</p>
+
+{% if discovered %}
+<div class="warn-box">
+  <p class="bad">
+    Discovery has also found this board on its own and is tracking it
+    independently. Removing it here does not stop discovery — it can
+    resurface the same board as a suggestion on
+    <a href="/pipeline">the discovery pipeline</a> the next time it polls.
+  </p>
+  <p>
+    To actually stop postings from this company, block it by name below.
+    Blocking matches on a posting's <em>company name</em>, not this board's
+    address, so the name discovery observed is filled in but editable —
+    check it before submitting.
+  </p>
+  <form method="post" action="/settings/companies/block">
+    <input type="text" name="company" value="{{ block_name }}">
+    <button type="submit" class="btn small">Block this company</button>
+  </form>
+</div>
+{% endif %}
+
+<form method="post" action="/settings/rows/{{ entry.path }}/{{ entry.digest }}/remove">
+  <button type="submit" class="btn primary">Remove</button>
+  <a class="btn small" href="/settings/companies">Cancel</a>
+</form>
+{% endblock %}

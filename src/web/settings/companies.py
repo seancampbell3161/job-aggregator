@@ -24,7 +24,7 @@ import logging
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 from src.fingerprint import (
     FingerprintResult, connector_name, gather_already_polled, normalize_target, probe_target,
@@ -33,10 +33,11 @@ from src.settings.boards import BOARD_FAMILIES, BoardEntry, board_entries, board
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import item_model
 from src.settings.rows import add_row_patch
+from src.state import DiscoveredSlug
 from src.web.settings.forms import apply_patch
 from src.web.settings.health import board_status
 from src.web.settings.routes import _render
-from src.web.settings.sections import section_by_slug
+from src.web.settings.sections import SECTIONS, section_by_slug
 
 log = logging.getLogger(__name__)
 
@@ -134,6 +135,39 @@ def _row_values(family: str, identity: dict, name: str) -> dict:
     return values
 
 
+def _entry_by_digest(cfg, digest: str) -> BoardEntry:
+    entry = next((e for e in board_entries(cfg) if e.digest == digest), None)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="no such board")
+    return entry
+
+
+def _discovered_ok_row(stores, key: str) -> DiscoveredSlug | None:
+    """The discovery row for this board, if discovery has independently
+    validated it — fail-soft like board_status (src/web/settings/health.py):
+    a locked telemetry table must not break the confirm page, only its
+    warning. A "candidate"/"failed"/"no_match" row means discovery has not
+    actually re-found this board yet, so it earns no warning either."""
+    try:
+        row = stores.discovered.get(key)
+    except Exception as exc:  # noqa: BLE001 — telemetry never breaks a settings page
+        log.warning("discovery_lookup_unavailable", extra={"error": str(exc)})
+        return None
+    return row if row is not None and row.validation_status == "ok" else None
+
+
+def _block_name(entry: BoardEntry, row: DiscoveredSlug) -> str:
+    """The name to prefill into the block-this-company field: the entry's own
+    company (only the families whose element model has one — Workday,
+    Avature, ...), else what discovery observed on the posting, else the
+    board's on-screen label. A slug family (Greenhouse, Lever, ...) has no
+    "company" field at all — its entry.values is just {"value": "<slug>"} —
+    so it falls through to the discovered row's company_name when discovery
+    has seen one, and otherwise to entry.label, which for a slug family IS
+    the slug itself (board_label's bare-string branch)."""
+    return entry.values.get("company") or row.company_name or entry.label
+
+
 def register_companies_routes(app: FastAPI) -> None:
     @app.get("/settings/companies", response_class=HTMLResponse)
     def companies_page(request: Request):
@@ -218,3 +252,60 @@ def register_companies_routes(app: FastAPI) -> None:
 
         request.state.snapshot = request.app.state.service.snapshot()
         return RedirectResponse("/settings/companies?added=1", status_code=303)
+
+    @app.get("/settings/companies/remove/{digest}", response_class=HTMLResponse)
+    def companies_remove_confirm(request: Request, digest: str):
+        """A companies-specific confirm page: same removal as the generic
+        /settings/rows/{path}/{digest}/remove (Ruling R8 — this page's own
+        form posts THERE, it does not add a second way to remove a board),
+        but with the one thing that route has no business knowing: whether
+        discovery independently polls this same board and would happily
+        rediscover it the moment it is gone. Writes nothing — even a re-run
+        of the discovery lookup on every render is read-only."""
+        entry = _entry_by_digest(request.state.snapshot.cfg, digest)
+        row = _discovered_ok_row(request.app.state.stores, entry.key)
+        return request.app.state.templates.TemplateResponse(
+            request, "_company_remove.html",
+            {
+                "sections": SECTIONS,
+                "section": section_by_slug("companies"),
+                "saved": False,
+                "form_errors": [],
+                "entry": entry,
+                "discovered": row,
+                "block_name": _block_name(entry, row) if row is not None else None,
+            },
+        )
+
+    @app.post("/settings/companies/block")
+    async def companies_block(request: Request):
+        """Append to filters.blocked_companies — token-matched against a
+        posting's company name at score time (src/filters.py::filter_company),
+        NOT against a board's slug or key. That mismatch is exactly why the
+        confirm page prefills this rather than deriving and submitting it
+        invisibly: the name that actually stops future postings can differ
+        from the board's address, so the human blocking it gets a chance to
+        fix it first."""
+        form = await request.form()
+        company = str(form.get("company", "")).strip()
+        if not company:
+            return PlainTextResponse("a company name is required", status_code=400)
+
+        def mutate(doc: dict) -> str | None:
+            blocked = doc.setdefault("filters", {}).setdefault("blocked_companies", [])
+            if company in blocked:
+                return None
+            blocked.append(company)
+            return f"ui: blocked {company}"
+
+        try:
+            request.app.state.service.update_settings(mutate, source="ui")
+        except StaleWrite:
+            # Every other write path in this module (companies_add) and in
+            # rows.py's _apply reports this instead of letting it 500 — a
+            # concurrent settings save is routine, not exceptional.
+            raise HTTPException(
+                status_code=409,
+                detail="Someone else saved while this was open. Reload and try again.",
+            )
+        return RedirectResponse("/settings/companies?blocked=1", status_code=303)
