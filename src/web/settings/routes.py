@@ -25,15 +25,26 @@ from src.web.settings.sections import Section, SECTIONS, section_by_slug, sectio
 EDITABLE_KINDS: tuple[str, ...] = tuple(k for k in DOCUMENT_KINDS if k != "profile")
 
 
+# Secrets masked as type="password" — a name ending in one of these never
+# renders its stored value either way, so masking only affects what the user
+# can see while typing or pasting a new one. That's worth it for an API key,
+# but not for a pasted URL or identifier (ntfy topic, Discord webhook,
+# tailor_endpoint_url, ...): those can't be proofread before submit if
+# masked, and several of their pages (integrations) have no Test button, so a
+# typo fails silently until the feature breaks.
+_MASKED_SECRET_SUFFIXES = ("_key", "_password", "_secret")
+
+
 def secret_rows(service, names) -> list[dict]:
-    """{name, source, env_var, label} for each of a section's secrets — the
-    template never sees the value, only where it currently comes from."""
+    """{name, source, env_var, label, masked} for each of a section's secrets
+    — the template never sees the value, only where it currently comes from."""
     return [
         {
             "name": name,
             "source": service.secret_source(name),
             "env_var": secret_env_var(name),
             "label": name.replace("_", " "),
+            "masked": name.endswith(_MASKED_SECRET_SUFFIXES),
         }
         for name in names
     ]

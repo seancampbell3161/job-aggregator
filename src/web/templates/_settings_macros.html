@@ -25,7 +25,8 @@
     <p class="field-help">The environment variable wins. Remove it from
       <code>.env</code> and recreate the container to manage this here.</p>
   {% else %}
-    <input id="s-{{ s.name }}" type="password" name="secret.{{ s.name }}"
+    <input id="s-{{ s.name }}" type="{{ 'password' if s.masked else 'text' }}"
+           name="secret.{{ s.name }}"
            autocomplete="new-password"
            placeholder="{{ 'stored — type to replace' if s.source == 'stored' else 'not set' }}">
     {% if s.source == 'stored' %}
