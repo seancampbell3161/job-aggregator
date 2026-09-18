@@ -7,7 +7,12 @@ of every route this module declares, per Ruling R1 — today's /settings/rows/..
 routes are all 3+ segments, so they cannot actually collide with the
 single-segment /settings/{slug} catch-all (verified by moving the call and
 rerunning the suite: nothing broke), but Tasks 11 and 13 add single-segment
-paths under this same registration, where the collision is real."""
+paths under this same registration, where the collision is real.
+
+register_companies_routes(app) is also called early, right after
+register_row_routes, for that exact reason: /settings/companies IS a single
+path segment, so unlike the row routes it would genuinely be swallowed by
+/settings/{slug} if that catch-all were declared first."""
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Request
@@ -209,6 +214,14 @@ async def save_section(request: Request, section: Section, **extra) -> HTMLRespo
 
 def register_settings_routes(app: FastAPI) -> None:
     register_row_routes(app)
+
+    # Lazy import: src.web.settings.companies imports `_render` and
+    # `section_by_slug` back out of this module, so importing it at this
+    # module's own top level would be circular. By the time this function
+    # runs, routes.py has already finished loading, so the import below just
+    # resolves against the already-initialized module.
+    from src.web.settings.companies import register_companies_routes
+    register_companies_routes(app)
 
     env = app.state.templates.env
     env.globals["field_help"] = field_help
