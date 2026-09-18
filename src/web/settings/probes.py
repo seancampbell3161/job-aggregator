@@ -111,7 +111,14 @@ async def probe_discord(url: str) -> ProbeResult:
 
 async def probe_llm(cfg: AppConfig, profile: str | None) -> ProbeResult:
     """Score one synthetic posting with the configured provider."""
-    scorer = _build_scorer(cfg, profile)
+    try:
+        scorer = _build_scorer(cfg, profile)
+    except Exception as exc:  # noqa: BLE001 — a probe reports, it never 500s the page.
+        # _build_scorer eagerly constructs a provider client (e.g. the Ollama SDK
+        # parses ollama_host into an httpx.Client at __init__), and those fields
+        # are free-form user-entered config with no format validation upstream —
+        # a malformed host/URL raises here, before any scoring is attempted.
+        return ProbeResult(False, f"{type(exc).__name__}: {exc}")
     if scorer is None:
         return ProbeResult(False, (
             "Scoring is not configured — it needs to be enabled, with an API "
@@ -119,7 +126,11 @@ async def probe_llm(cfg: AppConfig, profile: str | None) -> ProbeResult:
         ))
     try:
         score = await scorer.score(SAMPLE_POSTING)
-    except Exception as exc:  # noqa: BLE001 — surface the provider's message verbatim
+    except Exception as exc:  # noqa: BLE001 — surface the provider's message verbatim.
+        # All three real scorer implementations fail open and never raise out of
+        # score() (see src/relevance.py's module docstring) — this branch is
+        # defence-in-depth for a test double or a future implementation that
+        # violates that contract, not something the shipped scorers exercise.
         return ProbeResult(False, f"{type(exc).__name__}: {exc}")
     # The real scorer implementations fail open (see src/relevance.py): a
     # provider error never raises out of score(), it comes back as a sentinel

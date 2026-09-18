@@ -120,3 +120,20 @@ async def test_llm_probe_reports_a_fail_open_score_as_a_failure(monkeypatch):
     r = await probe_llm(cfg, "# profile")
     assert not r.ok
     assert "HTTPStatusError" in r.detail
+
+
+@pytest.mark.asyncio
+async def test_llm_probe_reports_a_malformed_provider_config_instead_of_raising():
+    # _build_scorer (src.handler._build_relevance_scorer) eagerly constructs a
+    # provider client — for Ollama that means the SDK parses ollama_host into
+    # an httpx.Client at __init__ time, before any scoring happens. ollama_host
+    # is free-form user-entered config (the Task 9 LLM settings page lets you
+    # type into it and press Test), so a bad bracket/port is ordinary user
+    # error, not a hypothetical. This must come back as a ProbeResult, never
+    # raise into the request.
+    cfg = AppConfig.model_validate({
+        "relevance": {"enabled": True, "provider": "ollama", "ollama_host": "http://[::1"},
+    })
+    r = await probe_llm(cfg, "# profile")
+    assert not r.ok
+    assert "invalid" in r.detail.lower()
