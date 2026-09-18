@@ -9,23 +9,34 @@ JOB_AGG_TEMPLATES_DIR. So extract_upload REJECTS rather than sanitizes -- a
 surprising member means a bad archive, and silently "fixing" it would write
 something the user did not send.
 
-Every member is checked -- path, symlink/device, per-member compression
-ratio -- and the archive's declared member count and total uncompressed size
-are checked, all before a single byte is written. Those checks read the
-ZIP's own header fields (ZipInfo.file_size / compress_size). That is not
-merely a fast pre-check: zipfile.ZipExtFile itself treats a member's declared
-file_size as a hard ceiling on how many decompressed bytes .read() will ever
-return for it (see _read1's `data = data[:self._left]`), and compress_size
-likewise bounds how many compressed bytes are consumed -- so a member can
-never actually produce more output than its own header claims, and a
-header-based cap is a complete guard against a maliciously undersized
-compressed payload expanding past it, not just a best-effort one."""
+Every member is checked -- name shape, path, symlink/device, encryption,
+compression method, per-member compression ratio -- and the archive's
+declared member count and total uncompressed size are checked, all before a
+single byte is written. Those size checks read the ZIP's own header fields
+(ZipInfo.file_size / compress_size). That is not merely a fast pre-check:
+zipfile.ZipExtFile itself treats a member's declared file_size as a hard
+ceiling on how many decompressed bytes .read() will ever return for it (see
+_read1's `data = data[:self._left]`), and compress_size likewise bounds how
+many compressed bytes are consumed -- so a member can never actually produce
+more output than its own header claims, and a header-based cap is a complete
+guard against a maliciously undersized compressed payload expanding past it,
+not just a best-effort one.
+
+Not everything zipfile can throw is predictable from the header, though: a
+corrupt CRC-32, or a compress_size that overruns into the next entry's data
+("Overlapped entries"), only surface when a member is actually opened and
+read. The write pass is wrapped so any such failure -- or an OS-level one,
+like a name too long for the filesystem -- is also an ArchiveRejected with
+nothing left behind, not an unhandled exception with a partial tree on
+disk."""
 from __future__ import annotations
 
 import io
+import shutil
 import stat
 import tempfile
 import zipfile
+import zlib
 from pathlib import Path
 
 from src.settings.service import ConfigService
@@ -34,6 +45,13 @@ from src.settings.transfer import export_dir
 MAX_MEMBERS = 500
 MAX_TOTAL_BYTES = 64 * 1024 * 1024   # uncompressed, across the whole archive
 MAX_RATIO = 200                      # per member, uncompressed / compressed
+MAX_NAME_LENGTH = 255                # a single member name; guards ENAMETOOLONG
+
+# Errors zipfile (or the filesystem) can raise only once a member is actually
+# opened and read -- a corrupt CRC, a compress_size that overruns into the
+# next entry, an unsupported feature the header check below didn't already
+# name, or an OS-level failure such as a path too long for the filesystem.
+_EXTRACTION_ERRORS = (OSError, zipfile.BadZipFile, zlib.error, NotImplementedError, RuntimeError, ValueError)
 
 
 class ArchiveRejected(Exception):
@@ -59,7 +77,11 @@ def extract_upload(data: bytes, dest: Path | str) -> None:
     Raises ArchiveRejected, having written nothing, for anything that is not
     a plain tree of regular files within the declared caps. Every member is
     validated in one pass before a second pass writes anything, so a
-    rejection never leaves a partial extraction behind."""
+    rejection from that first pass never leaves a partial extraction behind
+    -- and the second pass is itself wrapped so a failure zipfile only
+    raises while actually reading a member (see module docstring) cleans up
+    after itself the same way, instead of leaking a partial tree plus a
+    non-ArchiveRejected exception."""
     dest = Path(dest)
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
@@ -73,40 +95,77 @@ def extract_upload(data: bytes, dest: Path | str) -> None:
                 f"too many files in the archive ({len(infos)}, limit {MAX_MEMBERS})")
 
         total = 0
+        has_file = False
         for info in infos:
             _check_member(info)
             total += info.file_size
             if total > MAX_TOTAL_BYTES:
                 raise ArchiveRejected(
-                    f"archive expands to more than {MAX_TOTAL_BYTES // (1024 * 1024)} MB")
+                    f"archive expands to at least {total // (1024 * 1024)} MB, "
+                    f"more than the {MAX_TOTAL_BYTES // (1024 * 1024)} MB limit")
+            has_file = has_file or not info.is_dir()
+        if not has_file:
+            raise ArchiveRejected("archive has no files to restore")
 
         # Every member has been checked before anything is written.
+        created_dest = not dest.exists()
         dest.mkdir(parents=True, exist_ok=True)
         root = dest.resolve()
-        for info in infos:
-            if info.is_dir():
-                continue
-            target = (root / info.filename).resolve()
-            if not target.is_relative_to(root):     # belt and braces after _check_member
-                raise ArchiveRejected(f"{info.filename}: escapes the destination")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with archive.open(info) as src, open(target, "wb") as out:
-                out.write(src.read())
+        touched: list[Path] = []
+        try:
+            for info in infos:
+                if info.is_dir():
+                    continue
+                target = (root / info.filename).resolve()
+                if not target.is_relative_to(root):   # belt and braces after _check_member
+                    raise ArchiveRejected(f"{info.filename}: escapes the destination")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                # Recorded before opening/writing: open(target, "wb") alone
+                # creates a 0-byte file, and a failure can come from reading
+                # the member (e.g. a bad CRC-32, raised by src.read() as an
+                # argument to out.write()) before a single byte lands -- that
+                # half-written file must still be cleaned up on failure.
+                touched.append(target)
+                with archive.open(info) as src, open(target, "wb") as out:
+                    out.write(src.read())
+        except ArchiveRejected:
+            _cleanup(dest, created_dest, touched)
+            raise
+        except _EXTRACTION_ERRORS as exc:
+            _cleanup(dest, created_dest, touched)
+            raise ArchiveRejected(f"{info.filename}: could not be extracted ({exc})") from exc
+
+
+def _cleanup(dest: Path, created_dest: bool, touched: list[Path]) -> None:
+    """Undo a partial extraction. If this call created ``dest``, everything
+    under it is ours to remove; otherwise remove only the files this call
+    itself touched, leaving whatever ``dest`` already held untouched."""
+    if created_dest:
+        shutil.rmtree(dest, ignore_errors=True)
+    else:
+        for path in touched:
+            path.unlink(missing_ok=True)
 
 
 def _check_member(info: zipfile.ZipInfo) -> None:
     name = info.filename
+    if len(name) > MAX_NAME_LENGTH:
+        raise ArchiveRejected(
+            f"{name[:80]}...: member name is {len(name)} characters, "
+            f"longer than the {MAX_NAME_LENGTH}-character limit")
+    if "\x00" in name:
+        raise ArchiveRejected(f"{name!r}: a NUL byte is not allowed in a member name")
+    if "\\" in name:
+        raise ArchiveRejected(f"{name}: a backslash is not allowed in a member name")
     if name.startswith("/") or (len(name) > 1 and name[1] == ":"):
         raise ArchiveRejected(f"{name}: absolute paths are not allowed")
     parts = Path(name).parts
     if not parts:
         # "", ".", "./" and the like: Path(...).parts is empty, so it does
-        # not contain ".." and would sail past the traversal check below --
-        # but it is not a usable member name either. Left unchecked,
-        # ZipInfo.is_dir() raises IndexError on "" (it indexes
-        # filename[-1]), and a member named "." resolves to the destination
-        # directory itself, so writing it raises IsADirectoryError: both are
-        # unhandled crashes, not a clean rejection.
+        # not contain ".." and would sail past the traversal check below.
+        # Left unchecked, such a name resolves to the destination directory
+        # itself (root / "" == root), so open(target, "wb") raises
+        # IsADirectoryError -- an unhandled crash, not a clean rejection.
         raise ArchiveRejected(f"{name!r}: not a usable member name")
     if ".." in parts:
         raise ArchiveRejected(f"{name}: '..' is not allowed")
@@ -120,5 +179,13 @@ def _check_member(info: zipfile.ZipInfo) -> None:
     file_type = stat.S_IFMT(info.external_attr >> 16)
     if file_type and file_type not in (stat.S_IFREG, stat.S_IFDIR):
         raise ArchiveRejected(f"{name}: not a regular file (symlink or device)")
-    if info.compress_size and info.file_size / info.compress_size > MAX_RATIO:
-        raise ArchiveRejected(f"{name}: compression ratio looks like a zip bomb")
+    if info.flag_bits & 0x1:
+        raise ArchiveRejected(f"{name}: encrypted members are not allowed")
+    if info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+        raise ArchiveRejected(f"{name}: unsupported compression method ({info.compress_type})")
+    if info.compress_size:
+        ratio = info.file_size / info.compress_size
+        if ratio > MAX_RATIO:
+            raise ArchiveRejected(
+                f"{name}: compression ratio {ratio:.0f}x exceeds the {MAX_RATIO}x "
+                "limit -- looks like a zip bomb")

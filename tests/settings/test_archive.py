@@ -1,12 +1,14 @@
 """The archive layer: a settings backup as one file, and a hostile one refused."""
 import io
+import struct
 import zipfile
 from pathlib import Path
 
 import pytest
 
 from src.settings.archive import (
-    MAX_MEMBERS, MAX_RATIO, MAX_TOTAL_BYTES, ArchiveRejected, export_zip, extract_upload,
+    MAX_MEMBERS, MAX_NAME_LENGTH, MAX_RATIO, MAX_TOTAL_BYTES,
+    ArchiveRejected, _check_member, export_zip, extract_upload,
 )
 from src.settings.transfer import import_dir
 from tests.settings_helpers import make_service
@@ -18,6 +20,26 @@ def _zip(members: dict[str, bytes]) -> bytes:
         for name, body in members.items():
             z.writestr(name, body)
     return buf.getvalue()
+
+
+def _patch_central_dir(blob: bytes, filename: str, field_offset: int, new_value: int, size: int) -> bytes:
+    """Overwrite a little-endian integer field in the central-directory
+    record for ``filename``, to build archives whose header lies about a
+    field zipfile itself does not validate until it actually opens the
+    member (CRC-32, compress_size) -- something no ordinary writestr() call
+    can produce, since zipfile computes those honestly. Field offsets are
+    from the PK\\x01\\x02 signature: CRC-32 at 16, compress_size at 20 (both
+    4 bytes), per the ZIP central-directory-record layout."""
+    name_bytes = filename.encode()
+    sig = b"PK\x01\x02"
+    idx = 0
+    while True:
+        idx = blob.index(sig, idx)
+        (name_len,) = struct.unpack("<H", blob[idx + 28:idx + 30])
+        if blob[idx + 46: idx + 46 + name_len] == name_bytes:
+            pos = idx + field_offset
+            return blob[:pos] + new_value.to_bytes(size, "little") + blob[pos + size:]
+        idx += 1
 
 
 def test_export_contains_the_config_and_the_documents(tmp_path):
@@ -76,6 +98,17 @@ def test_a_windows_style_absolute_member_is_refused(tmp_path):
     assert not (tmp_path / "out").exists()
 
 
+def test_a_backslash_in_a_member_name_is_refused(tmp_path):
+    # On POSIX this is contained (backslash isn't a separator, so it can
+    # only ever produce one literal, oddly-named file under root) but it is
+    # still rejected: on Windows a name like this would only be caught by
+    # the belt-and-braces check in the write pass, after dest.mkdir() and
+    # after any earlier legitimate members were already written.
+    with pytest.raises(ArchiveRejected, match=r"backslash"):
+        extract_upload(_zip({"..\\..\\escape.yaml": b"x"}), tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
 def test_a_symlink_member_is_refused(tmp_path):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
@@ -90,10 +123,11 @@ def test_a_symlink_member_is_refused(tmp_path):
 def test_an_empty_member_name_is_refused(tmp_path):
     # A degenerate name ("", ".", "./") has an empty Path(...).parts tuple,
     # which does not contain "..", so the traversal check alone lets it
-    # through. Left unchecked, ZipInfo.is_dir() raises IndexError on "" (it
-    # indexes filename[-1]) and a member named "." resolves to the
-    # destination directory itself, so open(target, "wb") raises
-    # IsADirectoryError -- both are unhandled crashes, not a clean rejection.
+    # through. Left unchecked, such a name resolves to the destination
+    # directory itself (root / "" == root), and open(target, "wb") raises
+    # IsADirectoryError -- an unhandled crash, not a clean rejection.
+    # (Verified directly: with the "not parts" guard removed, this archive
+    # makes extract_upload raise a bare IsADirectoryError, not ArchiveRejected.)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr(zipfile.ZipInfo(""), b"x")
@@ -115,26 +149,17 @@ def test_too_many_members_is_refused(tmp_path):
     assert not (tmp_path / "out").exists()
 
 
-def test_a_zip_bomb_is_refused_before_it_is_written(tmp_path):
-    # A real 200 MB zip bomb is unpleasant to build in a test, so this lowers
-    # the cap instead. What matters is that this trips on the archive's own
-    # header (ZipInfo.file_size), a few bytes of metadata, BEFORE any member
-    # is opened or written -- not that we noticed a big file appear on disk.
-    with pytest.raises(ArchiveRejected):
-        extract_upload(_zip({"big.txt": b"0" * (200 * 1024 * 1024)}), tmp_path / "out")
-    assert not (tmp_path / "out" / "big.txt").exists()
-    assert not (tmp_path / "out").exists()
-
-
 def test_the_total_bytes_cap_is_read_from_the_header_not_the_output(tmp_path, monkeypatch):
-    """Same property as the zip-bomb test, proven cheaply: a tiny, fast-to-
-    build archive whose declared size trips a monkeypatched-down cap. If the
-    check were done by measuring bytes actually written, this archive (a
-    few real bytes) would sail through; it is rejected only because the
-    cap is read from the member's declared file_size in the zip header."""
+    """Proves the cap is enforced from the archive's own header, cheaply: a
+    tiny, fast-to-build archive whose declared size trips a monkeypatched-
+    down cap. If the check were done by measuring bytes actually written,
+    this archive (a few real bytes) would sail through; it is rejected only
+    because the cap is read from the member's declared file_size in the zip
+    header, before extraction. The message also names the observed total so
+    a legitimate archive that trips the real cap is diagnosable."""
     monkeypatch.setattr("src.settings.archive.MAX_TOTAL_BYTES", 10)
     blob = _zip({"small.txt": b"x" * 11})
-    with pytest.raises(ArchiveRejected, match="more than"):
+    with pytest.raises(ArchiveRejected, match=r"at least 0 MB.*more than the 0 MB limit"):
         extract_upload(blob, tmp_path / "out")
     assert not (tmp_path / "out").exists()
 
@@ -143,7 +168,7 @@ def test_a_high_ratio_member_is_refused_even_under_the_total_cap(tmp_path):
     """Isolates MAX_RATIO from MAX_TOTAL_BYTES: a highly compressible member
     whose declared uncompressed size is comfortably under the total-bytes
     cap, but whose ratio alone exceeds MAX_RATIO. A total-bytes-only check
-    would let this through."""
+    would let this through. The message also names the observed ratio."""
     payload = b"0" * (2 * 1024 * 1024)  # 2 MB of zeroes; well under MAX_TOTAL_BYTES
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
@@ -151,16 +176,137 @@ def test_a_high_ratio_member_is_refused_even_under_the_total_cap(tmp_path):
     blob = buf.getvalue()
     with zipfile.ZipFile(io.BytesIO(blob)) as z:
         info = z.getinfo("comp.txt")
-        assert info.file_size / info.compress_size > MAX_RATIO, "fixture must exceed MAX_RATIO"
+        observed_ratio = info.file_size / info.compress_size
+        assert observed_ratio > MAX_RATIO, "fixture must exceed MAX_RATIO"
         assert info.file_size <= MAX_TOTAL_BYTES
-    with pytest.raises(ArchiveRejected, match="ratio"):
+    with pytest.raises(ArchiveRejected, match=rf"ratio {int(observed_ratio)}x exceeds the {MAX_RATIO}x"):
         extract_upload(blob, tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_encrypted_member_is_refused_and_nothing_is_written(tmp_path):
+    """zipfile does not preserve a manually-set encryption flag through its
+    own writer (it gets reset), so this patches the central-directory flag
+    bits directly -- the same technique a real hostile archive would use.
+    A benign member comes first, to prove a rejection on the second member
+    unwinds the first one too, not just leaves it un-added."""
+    blob = _zip({"config.yaml": b"filters: {}\n", "secret.txt": b"x"})
+    with zipfile.ZipFile(io.BytesIO(blob)) as z:
+        flags = z.getinfo("secret.txt").flag_bits
+    blob = _patch_central_dir(blob, "secret.txt", 8, flags | 0x1, 2)
+    with zipfile.ZipFile(io.BytesIO(blob)) as z:
+        assert z.getinfo("secret.txt").flag_bits & 0x1, "fixture must be flagged encrypted"
+    # The specific phrasing matters here, not just "ArchiveRejected": zipfile
+    # itself would also raise on this (RuntimeError, "... is encrypted,
+    # password required ..."), which the write-loop's except clause below
+    # also converts to ArchiveRejected -- and that fallback message also
+    # contains the word "encrypted". Matching the fuller phrase proves THIS
+    # check (the pass-one one, which rejects before anything is written) is
+    # what actually fired, not just that some layer eventually did.
+    with pytest.raises(ArchiveRejected, match="encrypted members are not allowed"):
+        extract_upload(blob, tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_unsupported_compression_method_is_refused_and_nothing_is_written(tmp_path):
+    """Compression method 99 is WinZip AES; zipfile's own write path refuses
+    to write it directly (NotImplementedError at write time), so this
+    patches the central directory after writing normally -- again, the same
+    thing a hostile archive built by another tool could do on its own."""
+    blob = _zip({"config.yaml": b"filters: {}\n", "aes.bin": b"x"})
+    blob = _patch_central_dir(blob, "aes.bin", 10, 99, 2)
+    with zipfile.ZipFile(io.BytesIO(blob)) as z:
+        assert z.getinfo("aes.bin").compress_type == 99, "fixture must record method 99"
+    # As above: zipfile's own fallback (NotImplementedError, "That
+    # compression method is not supported"), caught by the write-loop's
+    # except clause, would also read as "compression method" -- matching the
+    # method number, which only the pass-one message includes, proves this
+    # check (not the fallback) is what fired.
+    with pytest.raises(ArchiveRejected, match=r"unsupported compression method \(99\)"):
+        extract_upload(blob, tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_bad_crc_member_is_refused_and_nothing_is_written(tmp_path):
+    """A corrupt CRC-32 is invisible to header-only checks (MAX_RATIO and
+    MAX_TOTAL_BYTES don't touch CRC) -- zipfile only raises BadZipFile once
+    the member is actually opened and read to EOF. Proves the write-loop's
+    except clause converts that into a clean ArchiveRejected with cleanup,
+    not a leaked zipfile.BadZipFile and a 0-byte file left behind."""
+    blob = _zip({"config.yaml": b"filters: {}\n", "bad.txt": b"hello world"})
+    blob = _patch_central_dir(blob, "bad.txt", 16, 0xDEADBEEF, 4)
+    with pytest.raises(ArchiveRejected, match="bad.txt"):
+        extract_upload(blob, tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_overrunning_compress_size_is_refused_and_nothing_is_written(tmp_path):
+    """A compress_size big enough to run into the next entry's data is also
+    invisible to header-only size/ratio checks (it would make the ratio
+    look SMALLER, not bigger) -- zipfile only raises "Overlapped entries"
+    once the member is actually opened. Note the order: the hostile member
+    is written FIRST here (not second), so the invariant under test is that
+    the earlier hostile write still gets fully unwound even though the
+    later, benign member was never reached."""
+    blob = _zip({"bad.txt": b"hello world", "config.yaml": b"filters: {}\n"})
+    blob = _patch_central_dir(blob, "bad.txt", 20, len(blob), 4)
+    with pytest.raises(ArchiveRejected, match="bad.txt"):
+        extract_upload(blob, tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_overlong_member_name_is_refused_and_nothing_is_written(tmp_path):
+    blob = _zip({"config.yaml": b"filters: {}\n", "f" * 5000 + ".txt": b"x"})
+    with pytest.raises(ArchiveRejected, match=str(MAX_NAME_LENGTH)):
+        extract_upload(blob, tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_nul_byte_in_a_member_name_is_rejected_by_check_member():
+    """CPython's zipfile can never actually hand extract_upload a filename
+    containing a NUL: ZipInfo.__init__ unconditionally truncates at the
+    first NUL byte (zipfile._sanitize_filename, "Null bytes in file names
+    are used as tricks by viruses in archives"), and
+    ZipFile._RealGetContents constructs every parsed central-directory
+    entry via `ZipInfo(filename)` -- so this is applied to EVERY archive
+    zipfile parses, however it was built, before any of our code runs.
+    Confirmed empirically: neither zipfile.ZipInfo("a\\x00b") nor writing
+    with a post-construction `info.filename = "a\\x00b"` (bypassing
+    __init__) survives a round trip -- both come back as "a" from
+    zipfile.ZipFile(...).infolist(). So there is no archive bytes-level
+    input that reaches _check_member with a NUL still in info.filename;
+    this check is unreachable through extract_upload's public API and is
+    kept only as a defensive backstop (per review), tested directly against
+    _check_member with a ZipInfo whose .filename is force-set post
+    construction, since that is the only way to exercise this line at all."""
+    info = zipfile.ZipInfo("placeholder.txt")
+    info.filename = "bad\x00name.txt"    # bypasses __init__'s sanitizer directly
+    with pytest.raises(ArchiveRejected, match="NUL"):
+        _check_member(info)
+
+
+def test_an_archive_with_no_files_is_refused(tmp_path):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("resume/templates/mine/", b"")
+    with pytest.raises(ArchiveRejected, match="no files"):
+        extract_upload(buf.getvalue(), tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_truly_empty_archive_is_refused(tmp_path):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w"):
+        pass
+    with pytest.raises(ArchiveRejected, match="no files"):
+        extract_upload(buf.getvalue(), tmp_path / "out")
     assert not (tmp_path / "out").exists()
 
 
 def test_a_file_that_is_not_a_zip_is_refused(tmp_path):
     with pytest.raises(ArchiveRejected, match="not a .?zip"):
         extract_upload(b"this is a text file", tmp_path / "out")
+    assert not (tmp_path / "out").exists()
 
 
 def test_a_rejection_names_the_member(tmp_path):
@@ -174,3 +320,23 @@ def test_a_valid_archive_extracts_the_expected_files(tmp_path):
     extract_upload(blob, tmp_path / "out")
     assert (tmp_path / "out" / "config.yaml").read_bytes() == b"filters: {}\n"
     assert (tmp_path / "out" / "resume" / "templates" / "mine" / "template.html.j2").read_bytes() == b"x"
+
+
+def test_extracting_into_an_existing_directory_only_removes_what_this_call_wrote(tmp_path):
+    """When dest already existed before the call (so extract_upload did not
+    create it), a failure must not delete content that was already there --
+    only the files this call itself wrote. Uses a write-loop failure (bad
+    CRC), not a pass-one rejection, because pass one never writes anything
+    at all -- this specifically exercises the cleanup path in the except
+    clause around the write loop, with a benign member that really does get
+    written to the pre-existing directory before the bad one fails."""
+    dest = tmp_path / "out"
+    dest.mkdir()
+    (dest / "keep.txt").write_text("pre-existing")
+    blob = _zip({"config.yaml": b"filters: {}\n", "bad.txt": b"hello world"})
+    blob = _patch_central_dir(blob, "bad.txt", 16, 0xDEADBEEF, 4)
+    with pytest.raises(ArchiveRejected):
+        extract_upload(blob, dest)
+    assert (dest / "keep.txt").read_text() == "pre-existing"
+    assert not (dest / "config.yaml").exists()
+    assert not (dest / "bad.txt").exists()
