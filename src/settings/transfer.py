@@ -65,6 +65,14 @@ class ImportFailed(Exception):
     or another process saved settings mid-import. Nothing was written."""
 
 
+class ImportGuardRefused(ImportFailed):
+    """The specific ImportFailed raised by the undo guard (_import_base_version):
+    the files would undo settings saved outside an import since the last one.
+    A caller that needs to tell "please pass --force / tick overwrite" apart
+    from every other import failure (missing file, bad YAML, a concurrent
+    write) catches this before the broader ImportFailed."""
+
+
 @dataclass
 class ImportReport:
     version_id: int
@@ -78,7 +86,7 @@ class ImportReport:
 def import_dir(
     service: ConfigService, directory: Path | str, *,
     config_path: Path | str | None = None, templates_dir: Path | str | None = None,
-    force: bool = False,
+    force: bool = False, trust_paths: bool = True,
 ) -> ImportReport:
     """Validate the config file and every present document, then write them
     as one settings version plus one document per file (source=import), then
@@ -87,10 +95,23 @@ def import_dir(
     Import replaces the whole settings document, but add-source, the --merge
     scripts, seed_companies, and restore change settings in the database
     only — so re-importing files that predate those changes would silently
-    drop them. Unless ``force``, an import refuses (ImportFailed, nothing
-    written) when the files would undo a setting saved outside an import since
-    the last one (see import_guard.undone_changes); files that already carry
-    those changes, or set a new value on purpose, import normally."""
+    drop them. Unless ``force``, an import refuses (ImportGuardRefused,
+    nothing written) when the files would undo a setting saved outside an
+    import since the last one (see import_guard.undone_changes); files that
+    already carry those changes, or set a new value on purpose, import
+    normally.
+
+    ``trust_paths`` (default True, the CLI's behaviour — a user importing
+    their own files on their own shell crosses no privilege boundary) governs
+    LEGACY_PATH_KEYS: a pre-settings-DB config could point ``profile_path``
+    (etc.) at an arbitrary file, which the CLI happily reads. A caller that
+    reaches this from an untrusted upload -- e.g. the web backup-restore
+    endpoint -- must pass ``trust_paths=False``: an absolute path, or a
+    relative one that resolves outside ``directory``, is then ignored (a
+    warning names the key; nothing about it is fatal) rather than read,
+    because export_dir never writes those keys, so a file carrying one is
+    either an ancient hand-made config or an attempt to read a file the
+    uploader does not own by making import_dir do it on their behalf."""
     directory = Path(directory)
     config_file = Path(config_path) if config_path is not None else directory / "config.yaml"
     raw = _read_config(config_file)
@@ -103,11 +124,17 @@ def import_dir(
             continue
         value = block.pop(key)
         if value:
-            path = Path(str(value))
-            path = path if path.is_absolute() else directory / path
-            doc_paths[kind] = path  # never falls back to the default-named file
-            if not path.is_file():
-                warnings.append(f"{section}.{key}: {value} not found — skipped")
+            raw_path = Path(str(value))
+            is_absolute = raw_path.is_absolute()
+            path = raw_path if is_absolute else directory / raw_path
+            if not trust_paths and (is_absolute or not _confined(path, directory)):
+                warnings.append(
+                    f"{section}.{key}: {value} points outside the archive — ignored"
+                )
+            else:
+                doc_paths[kind] = path  # never falls back to the default-named file
+                if not path.is_file():
+                    warnings.append(f"{section}.{key}: {value} not found — skipped")
         if not block:
             del raw[section]
     if "secrets" in raw:
@@ -210,8 +237,9 @@ def _model_in(annotation: object) -> type[BaseModel] | None:
 def _import_base_version(service: ConfigService, raw: dict) -> int | None:
     """The newest settings version id (None before setup): the base version
     an import writes against, so a save landing mid-import makes it fail
-    rather than be replaced. Raises ImportFailed when versions saved some
-    other way since the last import changed settings that ``raw`` would undo."""
+    rather than be replaced. Raises ImportGuardRefused when versions saved
+    some other way since the last import changed settings that ``raw`` would
+    undo."""
     rows = service.versions(limit=None)  # newest first
     changes: list[SettingsRow] = []
     last_import: SettingsRow | None = None
@@ -223,8 +251,25 @@ def _import_base_version(service: ConfigService, raw: dict) -> int | None:
     if changes:
         undone = _undone_by(service, raw, last_import)
         if undone:
-            raise ImportFailed(_undone_changes_message(undone, changes, last_import))
+            raise ImportGuardRefused(_undone_changes_message(undone, changes, last_import))
     return rows[0].id if rows else None
+
+
+def _confined(path: Path, directory: Path) -> bool:
+    """Whether ``path`` resolves to somewhere inside ``directory`` — used by
+    import_dir's trust_paths=False path to decide whether a LEGACY_PATH_KEYS
+    value is safe to honour. Symlinks are resolved on both sides so a
+    relative path that merely LOOKS confined but escapes via a symlink still
+    counts as not confined. Anything ``resolve()`` raises over -- an OSError
+    (e.g. a path component that is not a directory) or a ValueError (an
+    embedded NUL byte, which PyYAML happily hands back from a quoted scalar
+    like ``"a\\0b"`` and which ``Path.resolve()`` -- unlike ``.is_file()``,
+    which just returns False -- raises on) -- is treated the same way: not
+    confined, never left to propagate past this function."""
+    try:
+        return path.resolve().is_relative_to(directory.resolve())
+    except (OSError, ValueError):
+        return False
 
 
 def _undone_by(service: ConfigService, raw: dict, last_import: SettingsRow | None) -> list[str]:
@@ -242,6 +287,13 @@ def _undone_by(service: ConfigService, raw: dict, last_import: SettingsRow | Non
 def _undone_changes_message(
     undone: list[str], changes: list[SettingsRow], last_import: SettingsRow | None,
 ) -> str:
+    """The content every surface shares verbatim: the head, one line per
+    undone setting, and the "saved in:" rows. It deliberately stops there
+    (Ruling R13) rather than also picking a surface-specific instruction --
+    "run `python -m src.settings export DIR` ... or pass --force" is
+    meaningless on the web backup page, which has neither a DIR argument nor
+    a --force flag. Each caller of ImportGuardRefused (CLI's _print_error,
+    the web backup endpoint) appends its own closing instruction instead."""
     if last_import is not None:
         head = (f"these files would undo settings saved after your last import "
                 f"(version {last_import.id}):")
@@ -252,11 +304,6 @@ def _undone_changes_message(
               for row in changes[:_MAX_LISTED_CHANGES]]
     if len(changes) > _MAX_LISTED_CHANGES:
         lines.append(f"  … and {len(changes) - _MAX_LISTED_CHANGES} more")
-    lines.append(
-        "Nothing was written. Run `python -m src.settings export DIR`, bring those changes "
-        "into your files, then import again — or re-run the import with --force to "
-        "overwrite them."
-    )
     return "\n".join(lines)
 
 
@@ -279,8 +326,12 @@ def _read_config(path: Path) -> dict:
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
+        # path.name, not path itself: on the web backup endpoint this is a
+        # tempfile.TemporaryDirectory() path that no longer exists by the
+        # time anyone reads the error, and even on the CLI the full absolute
+        # path adds nothing "config.yaml: not found" doesn't already say.
         raise ImportFailed(
-            f"{path}: not found — a config file is required (start from config.example.yaml)"
+            f"{path.name}: not found — a config file is required (start from config.example.yaml)"
         ) from None
     except IsADirectoryError:
         raise ImportFailed(f"{path} is a directory, not a file") from None

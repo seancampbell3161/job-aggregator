@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 import httpx
 from bs4 import BeautifulSoup
 
-from src.config import SLUG_SOURCE_FAMILIES, AppConfig
+from src.config import AppConfig
 from src.models import ConnectorState
 from src.user_agent import headers as ua_headers
 
@@ -498,6 +498,80 @@ async def fingerprint_many(
         return list(await asyncio.gather(*(_one(s) for s in seeds)))
 
 
+def normalize_target(value: str) -> tuple[str, str]:
+    """Classify what the user pasted.
+
+    A URL that names a path is kept whole — it may already be an ATS identity.
+    Anything that is just a host becomes a bare domain for the locate step,
+    which is what `Seed` expects. Raises ValueError for an empty value, a
+    scheme we will not fetch, or something that names no host at all."""
+    raw = value.strip()
+    if not raw:
+        raise ValueError("enter a careers page URL or a company domain")
+    candidate = raw if "//" in raw else f"https://{raw}"
+    parsed = urlparse(candidate)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("only http and https addresses can be checked")
+    host = (parsed.netloc or "").lower().removeprefix("www.")
+    if not host or "." not in host:
+        raise ValueError(f"{raw!r} is not a web address or a domain")
+    path = parsed.path.strip("/")
+    if path:
+        return "url", raw if "//" in raw else candidate
+    return "domain", host
+
+
+async def probe_target(
+    client: httpx.AsyncClient, value: str, *, name: str | None = None,
+) -> FingerprintResult:
+    """Fingerprint one pasted careers URL or company domain.
+
+    Never raises for a network problem: like fingerprint_company, a failure
+    comes back as status="error" with a note, so the UI always has something
+    to render. ValueError from normalize_target DOES propagate — that is a
+    user input error the form reports inline, not a probe outcome."""
+    kind, cleaned = normalize_target(value)
+    if kind == "domain":
+        return await fingerprint_company(client, Seed(name=name or cleaned, domain=cleaned))
+
+    domain = (urlparse(cleaned).netloc or "").lower().removeprefix("www.")
+    for parse in (parse_ats_url, parse_jsonld_url, parse_eightfold_url, parse_taleo_url):
+        parsed = parse(cleaned)
+        if not parsed:
+            continue
+        family, identity = parsed
+        label = name or identity.get("slug") or identity.get("tenant") or domain
+        try:
+            count = await verify_identity(client, family, identity)
+        except Exception as exc:  # noqa: BLE001 — a probe never crashes the page
+            log.warning("probe_failed", extra={"target": cleaned, "error": str(exc)})
+            return FingerprintResult(
+                name=label, domain=domain, status="error", family=family,
+                identity=identity, evidence_url=cleaned,
+                note=f"{type(exc).__name__}: {exc}",
+            )
+        if count > 0:
+            return FingerprintResult(
+                name=label, domain=domain, status="matched", family=family,
+                identity=identity, posting_count=count, evidence_url=cleaned,
+            )
+        return FingerprintResult(
+            name=label, domain=domain, status="not_found", family=family,
+            identity=identity, evidence_url=cleaned,
+            note="fingerprinted but board verified empty",
+        )
+
+    unsupported = detect_unsupported(cleaned)
+    if unsupported:
+        return FingerprintResult(
+            name=name or domain, domain=domain, status="unsupported",
+            family=unsupported, evidence_url=cleaned,
+        )
+    # A URL with a path that names no ATS: fall back to locating from its host,
+    # which is what someone pasting a company's own careers page expects.
+    return await fingerprint_company(client, Seed(name=name or domain, domain=domain))
+
+
 def connector_name(result: FingerprintResult) -> str:
     ident = result.identity or {}
     if result.family in ("workday", "oraclecloud"):
@@ -534,15 +608,14 @@ def config_entry(result: FingerprintResult) -> tuple[str, str | dict]:
 
 
 def gather_already_polled(cfg: AppConfig) -> set[str]:
-    """Connector names for every source in a settings config."""
-    sources = cfg.sources
-    names = {f"{family}:{slug}" for family in SLUG_SOURCE_FAMILIES for slug in getattr(sources, family)}
-    names |= {f"workday:{e.tenant}:{e.site}" for e in sources.workday}
-    names |= {f"oraclecloud:{e.tenant}:{e.site}" for e in sources.oraclecloud}
-    names |= {f"{e.family}:{e.slug}" for e in sources.jsonld_boards}
-    names |= {f"eightfold:{e.slug}" for e in sources.eightfold}
-    names |= {f"taleo:{e.tenant}:{e.section}" for e in sources.taleo}
-    return names
+    """Connector names for every source in a settings config.
+
+    Delegates to src.settings.boards for the one naming rule shared with
+    build_connectors, connector_health and discovered_slugs — this used to
+    build 14 of the 16 families' names inline and missed phenom/avature."""
+    from src.settings.boards import board_entries
+
+    return {entry.key for entry in board_entries(cfg)}
 
 
 def merge_results_into_settings(

@@ -1,0 +1,67 @@
+{# The probe-result partial for the Companies page's add box
+   (src/web/settings/companies.py::companies_probe / _probe_partial).
+
+   `error` is a form-input problem (normalize_target rejected the pasted
+   value) — reported inline, nothing was probed. `result` is a
+   FingerprintResult; `already` is only ever true alongside a family AND an
+   identity (companies_probe's own guard), so it is safe to trust here.
+   `board_family`, `board_key_display`, `identity_json` and `manual_path` are
+   all precomputed in Python — this template never calls connector_name()
+   itself, so a family-without-identity result (status="unsupported") can
+   never trip the KeyError connector_name() raises for one.
+
+   The first branch below is gated on `board_family`, NOT status alone: a
+   family-less "not_found" (fingerprint_company's chain located nothing at
+   all — no family, no identity, no note — the most common outcome for an
+   arbitrary company domain not on a supported ATS) used to match here on
+   status alone and render a nonsense card ("Acme · None" / "None" / a Add
+   button posting family="None", which /settings/companies/add then 400s
+   on). That shape gets its own card below instead.
+
+   result.domain is NEVER rendered here: for a directly-pasted ATS board URL
+   it holds the ATS vendor's host, not the company's own domain (see
+   fingerprint.py's probe_target) — result.name is the label to show. #}
+{% if error %}
+<p class="bad">{{ error }}</p>
+{% elif result %}
+  {% if board_family and result.status in ("matched", "not_found") %}
+  <p>
+    <strong>{{ result.name }}</strong> &middot; {{ result.family }}
+    {%- if board_key_display %} <span class="muted">({{ board_key_display }})</span>{% endif %}
+  </p>
+  {% if result.status == "matched" %}
+  <p>{{ result.posting_count }} posting{{ '' if result.posting_count == 1 else 's' }} found.</p>
+  {% else %}
+  <p class="muted">{{ result.note }}</p>
+  {% endif %}
+  {% if result.evidence_url %}
+  <p><a href="{{ result.evidence_url }}" target="_blank" rel="noopener noreferrer">{{ result.evidence_url }}</a></p>
+  {% endif %}
+  {% if already %}
+  <p class="muted">Already configured — this board is already being polled.</p>
+  {% else %}
+  <form method="post" action="/settings/companies/add">
+    <input type="hidden" name="family" value="{{ board_family }}">
+    <input type="hidden" name="name" value="{{ result.name }}">
+    <input type="hidden" name="identity" value="{{ identity_json }}">
+    <button type="submit" class="btn small">Add this board</button>
+  </form>
+  {% endif %}
+  {% elif result.status == "unsupported" %}
+  <p><strong>{{ result.name }}</strong> looks like a <strong>{{ result.family }}</strong> board, which can't be added automatically yet.</p>
+  {% if result.note %}<p class="muted">{{ result.note }}</p>{% endif %}
+  {% if result.evidence_url %}
+  <p><a href="{{ result.evidence_url }}" target="_blank" rel="noopener noreferrer">{{ result.evidence_url }}</a></p>
+  {% endif %}
+  <p><a href="/settings/rows/{{ manual_path }}/new">Add it manually</a></p>
+  {% elif result.status == "not_found" %}
+  {# family-less not_found: the chain ran but identified nothing at all —
+     not the same as the "unsupported" card above, which DOES know a
+     family, just not one this app can poll automatically yet. #}
+  <p class="bad">Couldn't identify a supported job board at that address.</p>
+  {% if manual_path %}<p><a href="/settings/rows/{{ manual_path }}/new">Add it manually</a></p>{% endif %}
+  {% else %}
+  <p class="bad">Couldn't check that target{% if result.note %}: {{ result.note }}{% endif %}</p>
+  {% if manual_path %}<p><a href="/settings/rows/{{ manual_path }}/new">Add it manually</a></p>{% endif %}
+  {% endif %}
+{% endif %}

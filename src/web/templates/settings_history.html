@@ -1,0 +1,36 @@
+{% extends "settings_base.html" %}
+{% block section %}
+<p class="muted">Restoring a version applies live, no restart — but it only
+  changes the database. Your exported settings files won't reflect it, so
+  the next <code>settings import</code> will refuse until you
+  <code>settings export</code> again (or pass <code>--force</code>).</p>
+
+{% if rows is not none %}
+{% if not rows %}
+<p class="muted">No settings versions yet.</p>
+{% else %}
+<table class="history-table">
+  <tr><th>Version</th><th>Created (UTC)</th><th>Source</th><th>Note</th><th></th></tr>
+  {% for r in rows %}
+  <tr data-version="{{ r.id }}">
+    <td>{{ r.id }}</td>
+    <td>{{ r.created_at[:16] }}</td>
+    <td>{{ r.source }}</td>
+    <td>{{ r.note or '' }}{% if r.id == in_effect %} <span class="ok">(in effect)</span>{% endif %}</td>
+    <td>
+      <a class="btn small" href="/settings/history/{{ r.id }}"
+         hx-get="/settings/history/{{ r.id }}" hx-select="#history-diff"
+         hx-target="#history-diff-{{ r.id }}" hx-swap="innerHTML">what changed?</a>
+    </td>
+  </tr>
+  <tr class="history-diff-row"><td colspan="5"><div id="history-diff-{{ r.id }}"></div></td></tr>
+  {% endfor %}
+</table>
+{% if not showing_all %}
+<p><a href="/settings/history?all=true">show all versions</a></p>
+{% endif %}
+{% endif %}
+{% else %}
+{% include "_history_diff.html" %}
+{% endif %}
+{% endblock %}

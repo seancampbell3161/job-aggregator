@@ -5,7 +5,7 @@ import pytest
 from src.settings.errors import SettingsInvalid
 from src.settings.fields import (
     KIND_BOOL, KIND_CHIPS, KIND_CHOICE, KIND_INT, KIND_MULTI_CHOICE,
-    KIND_READ_ONLY, KIND_TEXT, FieldSpec,
+    KIND_READ_ONLY, KIND_ROWS, KIND_TEXT, FieldSpec,
 )
 from src.web.settings.forms import GROUP_TOGGLE_SUFFIX, apply_patch, decode, errors_by_path
 
@@ -98,10 +98,15 @@ def test_present_but_blank_chips_field_still_clears_to_empty():
 def test_read_only_and_non_editable_fields_are_skipped():
     fields = [
         f("s.workday", KIND_READ_ONLY, default=[]),
+        f("s.rows", KIND_ROWS, default=[]),
         f("secrets.x", KIND_TEXT, default="", editable=False),
         f("a.s", KIND_TEXT, default=""),
     ]
-    assert decode(fields, {"a.s": ["v"]}) == {"a.s": "v"}
+    # s.workday and s.rows are each in the submitted form too, so what skips
+    # them is the kind check, not "never submitted at all".
+    assert decode(fields, {
+        "a.s": ["v"], "s.workday": ["x"], "s.rows": ["x"], "secrets.x": ["y"],
+    }) == {"a.s": "v"}
 
 
 def test_disabled_optional_group_patches_the_group_away():

@@ -1,0 +1,48 @@
+{# Every configured board, grouped by family in BOARD_FAMILIES order. `groups`
+   is a list of (family, [BoardEntry]) pairs — see src/web/settings/companies.py.
+   `status` is a dict[str, BoardStatus] keyed by BoardEntry.key, or None when
+   the health/discovered stores could not be read (settings_companies.html
+   renders the "status unavailable" banner in that case; this partial just
+   has to not blow up looking it up).
+
+   Edit/Remove are plain <a> links, never a <form> here — this page has no
+   outer <form> of its own, and Remove is a destructive action that belongs
+   on its own confirm page (Ruling R8). Edit goes to the generic row route;
+   Remove goes to the Companies page's own confirm
+   (/settings/companies/remove/{digest}, src/web/settings/companies.py),
+   which carries a discovery warning and a block action the generic confirm
+   has no business knowing about — its own form still posts to the SAME
+   generic /settings/rows/.../remove route underneath, so there remains
+   exactly one code path that removes a board. #}
+{% if not groups %}
+<p class="muted">No company boards yet. Paste a careers page above to add one.</p>
+{% else %}
+<div id="company-rows">
+  {% for family, entries in groups %}
+  <h3>{{ family }}</h3>
+  <table>
+    <tr><th>Board</th><th>Detail</th><th>Status</th><th></th></tr>
+    {% for entry in entries %}
+    {% set s = status[entry.key] if status is not none else none %}
+    <tr data-search="{{ (entry.label ~ ' ' ~ entry.summary ~ ' ' ~ entry.key ~ ' ' ~ family) | lower }}">
+      <td>{{ entry.label }}</td>
+      <td class="muted">{{ entry.summary }}<br><span class="company-key">{{ entry.key }}</span></td>
+      <td>
+        {% if s is none %}
+        <span class="muted">&mdash;</span>
+        {% else %}
+        <span class="{{ 'ok' if s.state == 'healthy' else 'warn' if s.state == 'paused' else 'bad' }}"
+              title="{{ s.detail }}">{{ s.state }}</span>
+        {% if s.postings is not none %}<span class="muted"> &middot; {{ s.postings }} postings</span>{% endif %}
+        {% endif %}
+      </td>
+      <td>
+        <a class="btn small" href="/settings/rows/{{ entry.path }}/{{ entry.digest }}/edit">Edit</a>
+        <a class="btn small" href="/settings/companies/remove/{{ entry.digest }}">Remove</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endfor %}
+</div>
+{% endif %}

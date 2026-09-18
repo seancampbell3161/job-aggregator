@@ -2,7 +2,24 @@
 
 Route order matters: /settings/advanced is declared before /settings/{slug},
 because Starlette matches in registration order and the parameterised route
-would otherwise swallow it."""
+would otherwise swallow it. register_row_routes(app) is called first, ahead
+of every route this module declares, per Ruling R1 — today's /settings/rows/...
+routes are all 3+ segments, so they cannot actually collide with the
+single-segment /settings/{slug} catch-all (verified by moving the call and
+rerunning the suite: nothing broke), but Tasks 11 and 13 add single-segment
+paths under this same registration, where the collision is real.
+
+register_companies_routes(app), register_history_routes(app), and
+register_backup_routes(app) are also called early, right after
+register_row_routes, for that exact reason: /settings/companies,
+/settings/history, and /settings/backup are each a single path segment, so
+unlike the row routes they would genuinely be swallowed by /settings/{slug}
+if that catch-all were declared first.
+
+page_ctx/render_section/secret_rows live in shell.py (Ruling R10) — this
+module still uses them constantly, but so does every leaf settings route
+module, and none of them (including this one, now) reaches into another for
+its own private helpers."""
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Request
@@ -12,30 +29,27 @@ from src.config import Secrets
 from src.settings.documents import DOCUMENT_KINDS
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import (
-    KIND_BOOL, KIND_CHIPS, KIND_MULTI_CHOICE, KIND_READ_ONLY, optional_groups, value_at,
+    KIND_BOOL, KIND_CHIPS, KIND_MULTI_CHOICE, KIND_ROWS, NON_FORM_KINDS, optional_groups,
+    value_at,
 )
 from src.settings.help import field_help, group_intro
-from src.settings.service import canonical_doc, secret_env_var
+from src.settings.rows import list_rows
+from src.settings.service import canonical_doc
+from src.web.settings.backup import register_backup_routes
+from src.web.settings.companies import register_companies_routes
 from src.web.settings.forms import apply_patch, decode, decode_secrets, errors_by_path
+from src.web.settings.history import register_history_routes
 from src.web.settings.probes import ProbeResult, probe_discord, probe_llm, probe_ntfy
 from src.web.settings.readiness import check
+from src.web.settings.rows import register_row_routes
 from src.web.settings.sections import (
-    Section, SECTIONS, advanced_group, advanced_groups, group_section, section_by_slug,
-    section_fields,
+    Section, advanced_group, advanced_groups, group_section, section_by_slug, section_fields,
 )
+from src.web.settings.shell import page_ctx as _base_page_ctx, render_section
 
 # profile has its own page; the rest share the generic editor.
 EDITABLE_KINDS: tuple[str, ...] = tuple(k for k in DOCUMENT_KINDS if k != "profile")
 
-
-# Secrets masked as type="password" — a name ending in one of these never
-# renders its stored value either way, so masking only affects what the user
-# can see while typing or pasting a new one. That's worth it for an API key,
-# but not for a pasted URL or identifier (ntfy topic, Discord webhook,
-# tailor_endpoint_url, ...): those can't be proofread before submit if
-# masked, and several of their pages (integrations) have no Test button, so a
-# typo fails silently until the feature breaks.
-_MASKED_SECRET_SUFFIXES = ("_key", "_password", "_secret")
 
 # The {probe} URL slug -> (secret it tests, probe to run). Each value is a
 # lambda, not the bare function, so every call looks `probe_ntfy` /
@@ -53,64 +67,42 @@ _SINK_PROBES = {
 }
 
 
-def secret_rows(service, names) -> list[dict]:
-    """{name, source, env_var, label, masked} for each of a section's secrets
-    — the template never sees the value, only where it currently comes from."""
-    return [
-        {
-            "name": name,
-            "source": service.secret_source(name),
-            "env_var": secret_env_var(name),
-            "label": name.replace("_", " "),
-            "masked": name.endswith(_MASKED_SECRET_SUFFIXES),
-        }
-        for name in names
-    ]
-
-
 def _probe_partial(request: Request, result: ProbeResult) -> HTMLResponse:
     return request.app.state.templates.TemplateResponse(
         request, "_probe_result.html", {"result": result}
     )
 
 
+def _probe_targets() -> dict[str, str]:
+    """Secret name -> the {probe} slug it tests, derived fresh from
+    _SINK_PROBES on every call (never cached) so a test that monkeypatches
+    _SINK_PROBES after the app is built still sees the button appear."""
+    return {secret: slug for slug, (secret, _fn) in _SINK_PROBES.items()}
+
+
 def page_ctx(request: Request, section, **extra) -> dict:
-    """The context every section template expects. Values render from the
-    validated AppConfig on the request snapshot, never from the stored doc —
-    the doc is sparse (canonical_doc drops defaults), the config is complete."""
-    ctx = {
-        "sections": SECTIONS,
-        "section": section,
-        "cfg": request.state.snapshot.cfg,
-        "fields": section_fields(section) if section.paths else (),
-        "secrets": secret_rows(request.app.state.service, section.secrets),
-        "errors": {},
-        "form_errors": [],
-        "saved": False,
-        "submitted": None,
-        # Secret name -> the {probe} slug it tests, for secret_field's
-        # per-secret Test button — derived from _SINK_PROBES above so this
-        # can't drift out of sync with it. A secret with no entry here (most
-        # of them, including every secret integrations and llm own) simply
-        # renders no button.
-        "probe_targets": {secret: slug for slug, (secret, _fn) in _SINK_PROBES.items()},
-    }
-    ctx.update(extra)
-    return ctx
+    """shell.page_ctx with this module's own probe-target mapping filled in —
+    every call in this module goes through here (or _render below) rather
+    than shell.page_ctx directly, so no call site can forget it and silently
+    lose its section's Test buttons."""
+    return _base_page_ctx(request, section, probe_targets=_probe_targets(), **extra)
 
 
 def _render(request: Request, section, **extra) -> HTMLResponse:
-    return request.app.state.templates.TemplateResponse(
-        request, section.template, page_ctx(request, section, **extra)
-    )
+    return render_section(request, section, probe_targets=_probe_targets(), **extra)
 
 
 def shown(ctx_submitted, cfg, spec):
     """What an input should display: what the user typed if this render follows
     a failed save, otherwise the stored value."""
-    # A read-only field is never submitted, so echoing the form would render it
-    # as empty after a failed save. Always read those from the config.
-    if ctx_submitted is None or spec.kind == KIND_READ_ONLY:
+    # A read-only or rows field is never submitted by a section form, so
+    # echoing the form would render it as empty after a failed save. Always
+    # read those from the config — a rows field as addressable Row objects
+    # (digest + item-relative values), so the field macro's `rows` branch can
+    # link each entry's Edit/Remove routes without recomputing digests itself.
+    if ctx_submitted is None or spec.kind in NON_FORM_KINDS:
+        if spec.kind == KIND_ROWS:
+            return list_rows(cfg, spec.path)
         return value_at(cfg, spec.path)
     values = ctx_submitted.get(spec.path, [])
     if spec.kind in (KIND_CHIPS, KIND_MULTI_CHOICE):
@@ -195,6 +187,11 @@ async def save_section(request: Request, section: Section, **extra) -> HTMLRespo
 
 
 def register_settings_routes(app: FastAPI) -> None:
+    register_row_routes(app)
+    register_companies_routes(app)
+    register_history_routes(app)
+    register_backup_routes(app)
+
     env = app.state.templates.env
     env.globals["field_help"] = field_help
     env.globals["group_intro"] = group_intro
@@ -327,7 +324,11 @@ def register_settings_routes(app: FastAPI) -> None:
         group = advanced_group(key)
         if group is None:
             raise HTTPException(status_code=404)
-        return _render(request, group_section(group), group=group)
+        # register_row_routes' add/update/remove redirect here with
+        # ?added=1 / ?changed=1 / ?removed=1 after a row write; nothing used
+        # to read it, so the "Saved" banner never fired for one.
+        saved = any(request.query_params.get(f) == "1" for f in ("added", "changed", "removed"))
+        return _render(request, group_section(group), group=group, saved=saved)
 
     @app.post("/settings/advanced/{key}", response_class=HTMLResponse)
     async def advanced_save(request: Request, key: str):
@@ -353,5 +354,9 @@ def register_settings_routes(app: FastAPI) -> None:
         # all yet) — everything else, including a secrets-only section like
         # integrations, saves through the same generic path.
         if section is None or not (section.paths or section.secrets):
+            raise HTTPException(status_code=404)
+        # A section with bulk_save=False has no generic form save; every write
+        # goes through its own row-specific routes.
+        if not section.bulk_save:
             raise HTTPException(status_code=404)
         return await save_section(request, section)

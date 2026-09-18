@@ -1,9 +1,14 @@
 """The partition: every editable path belongs to exactly one place."""
-from src.settings.fields import KIND_READ_ONLY, editable_fields, field_map
+from src.config import Secrets
+from src.settings.boards import BOARD_FAMILIES
+from src.settings.fields import KIND_ROWS, editable_fields, field_map
+from src.web.app import create_app
 from src.web.settings.sections import (
-    SECTIONS, UNCLAIMED_SECRETS, advanced_group, advanced_groups, section_by_slug,
-    section_fields,
+    GROUP_TITLES, SECTIONS, UNCLAIMED_SECRETS, advanced_group, advanced_groups,
+    section_by_slug, section_fields,
 )
+from tests.auth_helpers import signed_in_client
+from tests.settings_helpers import WEB_TEST_SETTINGS, make_service
 
 
 def test_no_path_is_claimed_by_two_sections():
@@ -49,12 +54,27 @@ def test_a_fully_claimed_key_has_no_advanced_group():
     assert "filters" not in {g.key for g in advanced_groups()}
 
 
-def test_structured_source_families_appear_read_only_in_advanced():
-    sources = advanced_group("sources")
-    workday = next(f for f in sources.fields if f.path == "sources.workday")
-    assert workday.kind == KIND_READ_ONLY
-    greenhouse = next(f for f in sources.fields if f.path == "sources.greenhouse")
-    assert greenhouse.kind != KIND_READ_ONLY
+def test_companies_claims_every_source_family():
+    companies = section_by_slug("companies")
+    assert set(companies.paths) == {f"sources.{f}" for f in BOARD_FAMILIES}
+
+
+def test_advanced_sources_keeps_only_the_aggregator_feeds():
+    left = {f.path for f in advanced_group("sources").fields}
+    assert not any(p == f"sources.{f}" for f in BOARD_FAMILIES for p in left)
+    assert "sources.hiringcafe.enabled" in left
+    assert "sources.adzuna.countries" in left
+
+
+def test_the_leftover_sources_group_is_renamed_for_what_it_holds():
+    assert GROUP_TITLES["sources"] == "Aggregators"
+    assert advanced_group("sources").title == "Aggregators"
+
+
+def test_history_and_backup_claim_nothing():
+    for slug in ("history", "backup"):
+        section = section_by_slug(slug)
+        assert section.paths == () and section.secrets == ()
 
 
 def test_section_fields_are_returned_in_claim_order():
@@ -62,20 +82,54 @@ def test_section_fields_are_returned_in_claim_order():
     assert [f.path for f in section_fields(filters)] == list(filters.paths)
 
 
-def test_nav_order_starts_at_overview_and_ends_at_advanced():
+def test_nav_order_starts_at_overview_and_ends_at_backup():
     assert SECTIONS[0].slug == "overview"
-    assert SECTIONS[-1].slug == "advanced"
+    assert SECTIONS[-1].slug == "backup"
 
 
 def test_secret_claims_are_real_secret_names():
-    from src.config import Secrets
     for section in SECTIONS:
         unknown = set(section.secrets) - set(Secrets.model_fields)
         assert not unknown, f"{section.slug} claims unknown secrets: {sorted(unknown)}"
 
 
 def test_every_secret_is_claimed_or_explicitly_exempt():
-    from src.config import Secrets
     claimed = {name for s in SECTIONS for name in s.secrets}
     assert claimed | UNCLAIMED_SECRETS == set(Secrets.model_fields)
     assert not (claimed & UNCLAIMED_SECRETS)
+
+
+def _app(tmp_path, monkeypatch, service=None):
+    """Create a test app with optional service. Used for testing section saves."""
+    monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
+    return create_app(service=service if service is not None else make_service(WEB_TEST_SETTINGS))
+
+
+def test_every_editable_path_is_reachable_from_some_page():
+    """A flag that no hand-built section claims and no Advanced group renders
+    would be invisible in the UI and impossible to change without the CLI."""
+    claimed = {p for s in SECTIONS for p in s.paths}
+    generated = {f.path for g in advanced_groups() for f in g.fields}
+    missing = {f.path for f in editable_fields()} - claimed - generated
+    assert not missing, f"unreachable settings: {sorted(missing)}"
+
+
+def test_no_editable_field_renders_as_read_only():
+    """Every kind the UI can be asked to render has a branch in the field
+    macro. read_only is the 'we cannot render this' escape hatch and should
+    stay empty."""
+    from src.settings.fields import KIND_READ_ONLY, editable_fields
+    assert [f.path for f in editable_fields() if f.kind == KIND_READ_ONLY] == []
+
+
+def test_a_bare_post_to_companies_returns_404(tmp_path, monkeypatch):
+    service = make_service({"sources": {"greenhouse": ["acme"],
+                                        "workday": [{"tenant": "m", "region": "wd1",
+                                                     "site": "External"}]}})
+    app = _app(tmp_path, monkeypatch, service)
+    r = signed_in_client(app).post("/settings/companies", data={})
+    assert r.status_code == 404
+    cfg = app.state.service.snapshot().cfg
+    assert cfg.sources.greenhouse == ["acme"]
+    assert len(cfg.sources.workday) == 1

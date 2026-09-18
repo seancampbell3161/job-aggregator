@@ -74,6 +74,11 @@ header { display: flex; align-items: baseline; gap: 16px; }
 .stat { border: 1px solid var(--border); border-radius: 8px; padding: 7px 11px; background: var(--surface); }
 .stat .v { font-size: 16px; font-weight: 700; }
 .ok { color: #10b981; } .warn { color: #f59e0b; } .bad { color: #ef4444; }
+/* Preserves embedded newlines (e.g. the backup page's multi-line import-guard
+   refusal — a header line, indented setting lines, "saved in:", indented
+   version rows) instead of collapsing them into one run-on line, without
+   changing how a plain one-line message (most .bad/.ok/.warn uses) renders. */
+.pre-line { white-space: pre-line; }
 .panel { border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; margin-bottom: 16px; background: var(--surface); }
 .panel h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; opacity: .7; margin: 0 0 12px; }
 .panel p { margin: 8px 0; }
@@ -292,6 +297,22 @@ header { display: flex; align-items: baseline; gap: 16px; }
 .chips { display: flex; flex-wrap: wrap; gap: .35rem; }
 .chips input { width: 12rem; }
 .btn.small { padding: .1rem .5rem; font-size: .8rem; }
+.rows-list { display: flex; flex-direction: column; gap: .4rem; margin: 0 0 .5rem; }
+.row-entry { display: flex; align-items: center; gap: .6rem; padding: .35rem .5rem;
+  border: 1px solid var(--border); border-radius: 6px; }
+.row-summary { flex: 1; font-size: .9rem; }
+.row-summary-list { margin: 0 0 1rem; padding-left: 1.2rem; }
+.company-add { display: flex; gap: .5rem; margin-bottom: .6rem; }
+.company-add input { flex: 1; padding: .35rem .55rem; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--surface-2); color: var(--text); }
+.company-filter { width: 100%; padding: .35rem .55rem; margin: .25rem 0 .6rem;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text); }
+#company-rows h3 { margin: 1.1rem 0 .25rem; font-size: .75rem; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--muted); }
+#company-rows table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+#company-rows th, #company-rows td { padding: .3rem .5rem; border-bottom: 1px solid var(--border); text-align: left; }
+#company-rows th { color: var(--muted); font-weight: 600; font-size: .7rem; }
+.company-key { font-size: .7rem; }
 .readiness { list-style: none; padding: 0; }
 .readiness .warn { display: flex; align-items: center; justify-content: space-between;
   gap: 1rem; padding: .6rem .8rem; margin-bottom: .4rem;

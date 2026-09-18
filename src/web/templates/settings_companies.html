@@ -1,0 +1,55 @@
+{% extends "settings_base.html" %}
+{% block section %}
+{% if status is none %}
+<p class="bad">status unavailable — could not read the connector health store.</p>
+{% endif %}
+
+{% if blocked %}
+{# The generic "Saved" banner (settings_base.html) is suppressed for this
+   redirect (companies_page passes saved=False when `blocked` is set) —
+   blocking has no other visible effect on this page (it doesn't render
+   filters.blocked_companies), so this is the operator's only confirmation
+   that anything happened at all. #}
+<p class="ok">Blocked &ldquo;{{ blocked }}&rdquo; — future postings from this company will be filtered out.</p>
+{% endif %}
+
+<form class="company-add" hx-post="/settings/companies/probe" hx-target="#probe-result" hx-swap="innerHTML">
+  <input type="text" name="target" placeholder="Paste a careers page URL or domain">
+  <button type="submit" class="btn small">Check</button>
+</form>
+<div id="probe-result"></div>
+
+{% if board_families %}
+<details class="manual-add">
+  <summary>Add a board manually</summary>
+  <p class="muted">For a board the check above can't identify on its own — e.g. a
+    branded Phenom or Avature careers domain — pick its family and fill in the
+    details directly.</p>
+  <ul class="manual-add-list">
+    {% for family in board_families %}
+    <li><a href="/settings/rows/sources.{{ family }}/new">{{ family }}</a></li>
+    {% endfor %}
+  </ul>
+</details>
+{% endif %}
+
+{% if groups %}
+<input type="search" id="company-filter" class="company-filter"
+       placeholder="Filter by name, family, or key&hellip;" oninput="filterCompanies(this.value)">
+{% endif %}
+
+{% include "_company_rows.html" %}
+
+{% if discovery_only %}
+<p class="muted">{{ discovery_only }} more slug{{ 's' if discovery_only != 1 else '' }} discovered but not yet added — see <a href="/pipeline">the discovery pipeline</a>.</p>
+{% endif %}
+
+<script>
+  function filterCompanies(q) {
+    q = q.toLowerCase();
+    document.querySelectorAll('#company-rows tr[data-search]').forEach(function (row) {
+      row.style.display = row.getAttribute('data-search').indexOf(q) === -1 ? 'none' : '';
+    });
+  }
+</script>
+{% endblock %}

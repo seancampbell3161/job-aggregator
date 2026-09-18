@@ -11,14 +11,12 @@ The comparison runs on complete settings — every field, defaults included — 
 a setting a file leaves out counts as its default, just as it will once imported."""
 from __future__ import annotations
 
-import json
-
 from src.config import AppConfig
+from src.settings.diff import show_item, show_items
 
 # A default the comparison can't know: fields inside an optional section, whose
 # own default is None.
 _UNKNOWN = object()
-_MAX_LISTED_ITEMS = 5
 
 
 def undone_changes(base: AppConfig | None, current: AppConfig, incoming: AppConfig) -> list[str]:
@@ -83,9 +81,9 @@ def _compare_lists(
         dropped = [item for item in current if item not in base and item not in incoming]
         restored = [item for item in base if item not in current and item in incoming]
     if dropped:
-        out.append(f"{path}: would drop {_items(dropped)}")
+        out.append(f"{path}: would drop {show_items(dropped)}")
     if restored:
-        out.append(f"{path}: would bring back {_items(restored)}")
+        out.append(f"{path}: would bring back {show_items(restored)}")
 
 
 def _all_are(kind: type, *values: object) -> bool:
@@ -101,18 +99,4 @@ def _change(path: str, now: object, target: object, default: object, direction: 
 
 
 def _show(value: object, default: object) -> str:
-    return f"{_item(value)} (the default)" if value == default else _item(value)
-
-
-def _item(value: object) -> str:
-    """Plain strings as-is; empty, padded, or comma-holding strings and every
-    other value as JSON, so each item reads unambiguously in a list."""
-    if isinstance(value, str) and value and value == value.strip() and "," not in value:
-        return value
-    return json.dumps(value, sort_keys=True)
-
-
-def _items(values: list) -> str:
-    shown = ", ".join(_item(v) for v in values[:_MAX_LISTED_ITEMS])
-    extra = len(values) - _MAX_LISTED_ITEMS
-    return f"{shown} and {extra} more" if extra > 0 else shown
+    return f"{show_item(value)} (the default)" if value == default else show_item(value)

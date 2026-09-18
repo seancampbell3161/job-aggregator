@@ -492,6 +492,19 @@ docker compose down                    # stop everything (add --profile ollama
 > set, a notification fires only when a posting is fresh, survives filters, and
 > scores above `score_low`. Most cycles are quiet.
 
+### Backing up
+
+**`/settings/backup`** downloads everything — settings, profile, résumé
+documents, and any template packs you've uploaded — as one `.zip`. It never
+includes secrets (API keys, webhook URLs, the tailoring signing secret); after
+restoring onto a new box, set those again by hand or with `import-env-secrets`.
+The same page, and **`/setup`** on a fresh install with no settings yet, accept
+that file back to restore.
+
+Made a change you want to undo? **`/settings/history`** lists every saved
+settings version with a diff against what's currently live, and restores any
+of them — no file needed.
+
 ---
 
 ## Optional extras

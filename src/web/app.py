@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qs
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -161,6 +161,28 @@ def _setup_exempt(path: str) -> bool:
     return any(path == p or path.startswith(p + "/") for p in SETUP_EXEMPT_PREFIXES)
 
 
+def _setup_page(request: Request, *, status_code: int = 200, **extra) -> HTMLResponse:
+    return request.app.state.templates.TemplateResponse(
+        request, "setup.html", extra, status_code=status_code,
+    )
+
+
+# restore_from_upload's ImportGuardRefused closing sentence (see
+# OVERWRITE_CHECKBOX_HINT in src/web/settings/backup.py) for /setup/restore's
+# own page, which — unlike /settings/backup/import — has no overwrite
+# checkbox. This branch is reachable here precisely because a settings
+# version can come to exist between this request's own idempotence check
+# (read once, at the top of setup_restore, before its upload is read and
+# extracted) and import_dir's later guard check — see setup_restore's
+# docstring below — and whenever it fires, that means a settings version now
+# exists, so Settings → Backup (which does have the checkbox) is where to
+# finish the job.
+_SETUP_RESTORE_GUARD_HINT = (
+    "This instance now has settings — reload this page, then restore from "
+    "Settings → Backup, which has an overwrite option."
+)
+
+
 def _register_setup_gate(app: FastAPI) -> None:
     """Take the request's settings snapshot — one per request, per the
     snapshot rule — and, until the instance is set up, send everything outside
@@ -180,7 +202,7 @@ def _register_setup_gate(app: FastAPI) -> None:
     def setup(request: Request):
         if request.state.snapshot is not None:
             return RedirectResponse("/", status_code=303)
-        return request.app.state.templates.TemplateResponse(request, "setup.html", {})
+        return _setup_page(request)
 
     @app.post("/setup/start")
     def setup_start(request: Request):
@@ -193,6 +215,55 @@ def _register_setup_gate(app: FastAPI) -> None:
         if request.state.snapshot is None:
             service.save_settings({}, source="ui", note="started from defaults")
         return RedirectResponse("/settings/filters", status_code=303)
+
+    @app.post("/setup/restore")
+    async def setup_restore(request: Request, archive: UploadFile | None = None):
+        """Restore a backup on a fresh install, with no shell needed.
+
+        Idempotent like setup_start above: if a settings version already
+        exists (two visitors racing this form, or someone reloading /setup
+        after another tab already restored), nothing is written here —
+        this redirects to /settings/backup instead, the configured
+        instance's own restore path, which runs the import guard rather than
+        silently clobbering whatever is already there. On success, redirects
+        to /settings/overview, the page that says what is still missing
+        (titles, a source, a notification target) rather than back to /,
+        which would 303 right back to /setup until those are added.
+
+        That idempotence check above is read once, at the top of this
+        request, before restore_from_upload's own (possibly slow, up to
+        MAX_UPLOAD_BYTES) read-and-extract runs — so it does NOT guarantee no
+        settings version exists by the time import_dir's own guard is
+        evaluated moments later. If a real settings change lands in that
+        window (another tab finishes /setup/start, then edits real filters
+        or companies, while this upload is still in flight), import_dir can
+        still raise ImportGuardRefused here. That is exactly why this call
+        passes its own _SETUP_RESTORE_GUARD_HINT rather than
+        backup.OVERWRITE_CHECKBOX_HINT: /setup's page has no such checkbox,
+        and whenever this guard does fire, a settings version now exists —
+        so the hint points at Settings → Backup, which does have one.
+
+        Reuses restore_from_upload (src/web/settings/backup.py) — the same
+        bounded-read / extract / import_dir(trust_paths=False) pipeline
+        /settings/backup/import uses — rather than a second copy of it, so an
+        uploaded config.yaml gets the same LEGACY_PATH_KEYS confinement
+        there: an absolute or archive-escaping legacy path is ignored (with a
+        warning), never read off this server's disk on the uploader's
+        behalf."""
+        from src.web.settings.backup import restore_from_upload
+
+        if request.state.snapshot is not None:
+            return RedirectResponse("/settings/backup", status_code=303)
+        if archive is None or not archive.filename:
+            return _setup_page(request, status_code=400,
+                                errors=["Choose a file to restore from."])
+
+        outcome = await restore_from_upload(
+            request, archive, force=False, guard_hint=_SETUP_RESTORE_GUARD_HINT,
+        )
+        if not outcome.ok:
+            return _setup_page(request, status_code=outcome.status_code, errors=outcome.errors)
+        return RedirectResponse("/settings/overview", status_code=303)
 
 
 def _ctx(request: Request, **extra) -> dict:

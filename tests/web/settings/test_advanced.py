@@ -42,29 +42,26 @@ def test_saving_a_group_writes_only_that_subtree(tmp_path, monkeypatch):
     assert cfg.relevance.score_high == 7  # untouched
 
 
-def test_slug_source_families_are_editable(tmp_path, monkeypatch):
+def test_only_aggregator_feeds_are_in_advanced_sources(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
     r = signed_in_client(app).get("/settings/advanced/sources")
-    assert 'name="sources.greenhouse"' in r.text
+    # Slug families are claimed by the Companies section
+    assert 'name="sources.greenhouse"' not in r.text
+    assert 'name="sources.lever"' not in r.text
+    # Only aggregator feeds remain in Advanced
+    assert 'name="sources.hiringcafe.enabled"' in r.text
+    assert 'name="sources.adzuna.countries"' in r.text
 
 
-def test_structured_families_render_read_only(tmp_path, monkeypatch):
-    service = make_service({**WEB_TEST_SETTINGS, "sources": {"workday": [
-        {"tenant": "acme", "region": "wd1", "site": "External"}]}})
-    r = signed_in_client(_app(tmp_path, monkeypatch, service)).get("/settings/advanced/sources")
-    assert 'name="sources.workday"' not in r.text
-    assert "add-source" in r.text
-
-
-def test_saving_sources_does_not_wipe_structured_families(tmp_path, monkeypatch):
+def test_saving_aggregator_feeds_does_not_wipe_structured_families(tmp_path, monkeypatch):
     service = make_service({**WEB_TEST_SETTINGS, "sources": {"workday": [
         {"tenant": "acme", "region": "wd1", "site": "External"}]}})
     app = _app(tmp_path, monkeypatch, service)
     signed_in_client(app).post("/settings/advanced/sources",
-                               data={"sources.greenhouse": ["stripe"]})
+                               data={"sources.adzuna.countries": ["gb", "ie"]})
     cfg = app.state.service.snapshot().cfg
-    assert cfg.sources.greenhouse == ["stripe"]
-    assert len(cfg.sources.workday) == 1  # read-only fields are never patched
+    assert cfg.sources.adzuna.countries == ["gb", "ie"]
+    assert len(cfg.sources.workday) == 1  # rows fields are never patched by a section form
 
 
 def test_unknown_group_is_404(tmp_path, monkeypatch):
