@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 import httpx
 from bs4 import BeautifulSoup
 
-from src.config import SLUG_SOURCE_FAMILIES, AppConfig
+from src.config import AppConfig
 from src.models import ConnectorState
 from src.user_agent import headers as ua_headers
 
@@ -534,15 +534,14 @@ def config_entry(result: FingerprintResult) -> tuple[str, str | dict]:
 
 
 def gather_already_polled(cfg: AppConfig) -> set[str]:
-    """Connector names for every source in a settings config."""
-    sources = cfg.sources
-    names = {f"{family}:{slug}" for family in SLUG_SOURCE_FAMILIES for slug in getattr(sources, family)}
-    names |= {f"workday:{e.tenant}:{e.site}" for e in sources.workday}
-    names |= {f"oraclecloud:{e.tenant}:{e.site}" for e in sources.oraclecloud}
-    names |= {f"{e.family}:{e.slug}" for e in sources.jsonld_boards}
-    names |= {f"eightfold:{e.slug}" for e in sources.eightfold}
-    names |= {f"taleo:{e.tenant}:{e.section}" for e in sources.taleo}
-    return names
+    """Connector names for every source in a settings config.
+
+    Delegates to src.settings.boards for the one naming rule shared with
+    build_connectors, connector_health and discovered_slugs — this used to
+    build 14 of the 16 families' names inline and missed phenom/avature."""
+    from src.settings.boards import board_entries
+
+    return {entry.key for entry in board_entries(cfg)}
 
 
 def merge_results_into_settings(
