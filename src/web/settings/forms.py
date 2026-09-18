@@ -21,11 +21,21 @@ def decode(
     *,
     optional_groups: Iterable[str] = (),
 ) -> dict[str, Any]:
-    """One patch entry per editable field, submitted or not.
+    """One patch entry per editable field the form could plausibly have sent.
 
-    Iterating `fields` rather than the submitted keys is the whole point: an
-    unchecked checkbox sends nothing, so a submitted-keys loop could never turn
-    a bool off. Raises SettingsInvalid for values the form cannot represent."""
+    Iterating `fields` rather than the submitted keys is the whole point for a
+    checkbox (bool or multi_choice): an unchecked box sends nothing, so a
+    submitted-keys loop could never turn one off — those two kinds are always
+    visited, "submitted or not". Every other kind's input always sends its
+    key when the page it lives on is submitted (a blank text/number/chips
+    input still posts an empty value), so a path that's genuinely absent from
+    `form` there means this call wasn't given that field's page at all, not
+    "the user cleared it" — skipping it leaves the effective value alone
+    instead of forcing it back to the type default. This is what keeps a
+    request scoped to one Advanced group from tripping an unrelated
+    validator (e.g. sources.adzuna.countries' non-empty check) on a group
+    with dozens of fields. Raises SettingsInvalid for values the form cannot
+    represent."""
     groups = tuple(optional_groups)
     disabled = {g for g in groups if not form.get(f"{g}{GROUP_TOGGLE_SUFFIX}")}
 
@@ -37,6 +47,8 @@ def decode(
             continue
         if any(spec.path == g or spec.path.startswith(g + ".") for g in disabled):
             continue  # the whole group is being removed
+        if spec.kind not in (KIND_BOOL, KIND_MULTI_CHOICE) and spec.path not in form:
+            continue  # not a checkbox, and never submitted at all: leave it
         values = form.get(spec.path, [])
         try:
             patch[spec.path] = _value(spec, values)

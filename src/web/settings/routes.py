@@ -19,7 +19,10 @@ from src.settings.service import canonical_doc, secret_env_var
 from src.web.settings.forms import apply_patch, decode, decode_secrets, errors_by_path
 from src.web.settings.probes import ProbeResult, probe_discord, probe_llm, probe_ntfy
 from src.web.settings.readiness import check
-from src.web.settings.sections import Section, SECTIONS, section_by_slug, section_fields
+from src.web.settings.sections import (
+    Section, SECTIONS, advanced_group, advanced_groups, group_section, section_by_slug,
+    section_fields,
+)
 
 # profile has its own page; the rest share the generic editor.
 EDITABLE_KINDS: tuple[str, ...] = tuple(k for k in DOCUMENT_KINDS if k != "profile")
@@ -131,10 +134,12 @@ async def save_section(request: Request, section: Section, **extra) -> HTMLRespo
         by_path, form_level = errors_by_path(exc, known={s.path for s in specs})
         return render_error(by_path, form_level)
 
-    # decode() emits one entry per field, submitted or not (that's what makes
-    # an unchecked checkbox work) — so an unchanged resubmission still comes
-    # back with a full set of entries. Keep only the ones that actually move
-    # a path away from what's in effect now: apply_patch's own "changed" test
+    # decode() emits one entry per field the page actually submits (every
+    # checkbox, submitted or not — that's what makes an unchecked one work —
+    # plus every other field that was on the page at all) — so a resubmission
+    # of the whole rendered form still comes back with a full set of entries.
+    # Keep only the ones that actually move a path away from what's in effect
+    # now: apply_patch's own "changed" test
     # is structural against the *sparse* stored doc, and a value that merely
     # matches its pydantic default is never present there, so re-asserting it
     # would look like a change even though canonical_doc() strips it right
@@ -305,6 +310,24 @@ def register_settings_routes(app: FastAPI) -> None:
         if not url:
             url = request.app.state.service.effective_secret(name)
         return _probe_partial(request, await run(url))
+
+    @app.get("/settings/advanced", response_class=HTMLResponse)
+    def advanced_index(request: Request):
+        return _render(request, section_by_slug("advanced"), groups=advanced_groups())
+
+    @app.get("/settings/advanced/{key}", response_class=HTMLResponse)
+    def advanced_page(request: Request, key: str):
+        group = advanced_group(key)
+        if group is None:
+            raise HTTPException(status_code=404)
+        return _render(request, group_section(group), group=group)
+
+    @app.post("/settings/advanced/{key}", response_class=HTMLResponse)
+    async def advanced_save(request: Request, key: str):
+        group = advanced_group(key)
+        if group is None:
+            raise HTTPException(status_code=404)
+        return await save_section(request, group_section(group), group=group)
 
     @app.get("/settings/{slug}", response_class=HTMLResponse)
     def section_page(request: Request, slug: str):

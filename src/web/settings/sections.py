@@ -155,3 +155,14 @@ def advanced_groups() -> tuple[AdvancedGroup, ...]:
 
 def advanced_group(key: str) -> AdvancedGroup | None:
     return _ADVANCED_BY_KEY.get(key)
+
+
+def group_section(group: AdvancedGroup) -> Section:
+    """An AdvancedGroup dressed as a Section, so the shared save handler works
+    on generated pages with no special cases."""
+    return Section(
+        slug=f"advanced/{group.key}",
+        title=group.title,
+        template="settings_advanced_group.html",
+        paths=tuple(f.path for f in group.fields),
+    )

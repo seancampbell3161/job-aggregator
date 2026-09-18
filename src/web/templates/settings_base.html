@@ -6,7 +6,7 @@
   <nav class="settings-nav">
     {% for s in sections %}
     <a href="/settings/{{ s.slug }}"
-       class="{% if s.slug == section.slug %}on{% endif %}">{{ s.title }}</a>
+       class="{% if s.slug == section.slug.split('/')[0] %}on{% endif %}">{{ s.title }}</a>
     {% endfor %}
   </nav>
   <div class="settings-pane">
