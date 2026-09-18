@@ -17,6 +17,19 @@ def _digest(app, index=0):
     return list_rows(app.state.service.snapshot().cfg, PATH)[index].digest
 
 
+def _field_block(html: str, name: str) -> str:
+    """The markup for one `<div class="field">` block, located by an input's
+    `name` attribute — so a test can assert an error is nested under the
+    field it belongs to, not merely present somewhere on the page. Duplicated
+    from tests/web/settings/test_rows.py rather than imported: no test module
+    in this suite imports from another one, and the helper is five lines."""
+    start = html.index(f'name="{name}"')
+    end = html.find('<div class="field', start)
+    if end == -1:
+        end = html.index("</form>", start)
+    return html[start:end]
+
+
 def test_the_aggregators_page_lists_the_queries(tmp_path, monkeypatch):
     service = make_service({"sources": {"hiringcafe": {"extra_queries": [
         "rust", {"query": "golang", "location": "DE"}]}}})
@@ -57,7 +70,8 @@ def test_an_invalid_location_is_an_inline_error(tmp_path, monkeypatch):
         f"/settings/rows/{PATH}",
         data={"item.query": "zig", "item.location": "not-a-country"})
     assert r.status_code == 200
-    assert "field-error" in r.text     # placed under the input, not banner-dumped
+    block = _field_block(r.text, "item.location")
+    assert "field-error" in block      # placed under the input, not banner-dumped
     assert app.state.service.snapshot().cfg.sources.hiringcafe.extra_queries == []
 
 
