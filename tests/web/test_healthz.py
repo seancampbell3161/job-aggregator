@@ -1,7 +1,7 @@
 """/healthz: 200 in every setup state, past every gate, without touching settings."""
 from src.sqlite_db import connect
 from src.web.app import create_app
-from tests.auth_helpers import signed_in_client
+from tests.auth_helpers import sign_in, signed_in_client
 from tests.settings_helpers import configured_stores, make_service
 from tests.sqlite_helpers import sqlite_stores
 
@@ -55,9 +55,7 @@ def test_healthz_does_not_read_settings(tmp_path, monkeypatch):
 
 
 def test_healthz_matches_whole_path_only(tmp_path, monkeypatch):
-    monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
-    monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
-    client = signed_in_client(create_app(stores=sqlite_stores(connect(":memory:")), service=make_service()), follow_redirects=False)
+    client = sign_in(_client(tmp_path, monkeypatch, make_service()))
     r = client.get("/healthzz")
     assert r.status_code == 303
     assert r.headers["location"] == "/setup"
