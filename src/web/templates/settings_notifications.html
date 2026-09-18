@@ -1,0 +1,21 @@
+{% extends "settings_base.html" %}
+{% import "_settings_macros.html" as w %}
+{% block section %}
+<form method="post" action="/settings/notifications">
+  <h3>Where matches go</h3>
+  {% for s in secrets %}
+    {{ w.secret_field(s, errors, probe_targets, "/settings/notifications/test/") }}
+  {% endfor %}
+
+  <h3>Quiet hours</h3>
+  <p class="field-help">Suppresses phone pushes during a nightly window.
+    Discord delivery is unaffected, so nothing is lost.</p>
+  <label class="check"><input type="checkbox" name="quiet_hours__enabled"
+    {% if cfg.quiet_hours %}checked{% endif %}> Enable quiet hours</label>
+  {% for spec in fields %}
+    {{ w.field(spec, shown(submitted, cfg, spec), errors) }}
+  {% endfor %}
+
+  <button type="submit" class="btn primary">Save notifications</button>
+</form>
+{% endblock %}

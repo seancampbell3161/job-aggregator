@@ -16,6 +16,31 @@
   <button type="button" class="btn small" onclick="addChip(this)">+ add another</button>
 {% endmacro %}
 
+{% macro secret_field(s, errors, probe_targets, test_prefix="") %}
+<div class="field {{ 'has-error' if s.name in errors }}">
+  <label class="field-label" for="s-{{ s.name }}">{{ s.label }}
+    <span class="field-meta">{{ s.source }}</span></label>
+  {% if s.source == 'env' %}
+    <input id="s-{{ s.name }}" type="text" disabled value="set by {{ s.env_var }}">
+    <p class="field-help">The environment variable wins. Remove it from
+      <code>.env</code> and recreate the container to manage this here.</p>
+  {% else %}
+    <input id="s-{{ s.name }}" type="password" name="secret.{{ s.name }}"
+           autocomplete="new-password"
+           placeholder="{{ 'stored — type to replace' if s.source == 'stored' else 'not set' }}">
+    {% if s.source == 'stored' %}
+    <label class="check"><input type="checkbox" name="clear.{{ s.name }}"> clear</label>
+    {% endif %}
+  {% endif %}
+  {% if probe_targets and s.name in probe_targets %}
+  <button type="button" class="btn small" hx-post="{{ test_prefix }}{{ probe_targets[s.name] }}"
+          hx-include="closest form" hx-target="#probe-{{ s.name }}">Test</button>
+  <div id="probe-{{ s.name }}"></div>
+  {% endif %}
+  {{ help_for('secrets.' ~ s.name) }}
+</div>
+{% endmacro %}
+
 {% macro field(spec, value, errors) %}
 <div class="field {{ 'has-error' if spec.path in errors }}">
   {% if spec.kind == 'bool' %}

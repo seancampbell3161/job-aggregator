@@ -17,7 +17,7 @@ from src.settings.fields import (
 from src.settings.help import field_help, group_intro
 from src.settings.service import canonical_doc, secret_env_var
 from src.web.settings.forms import apply_patch, decode, decode_secrets, errors_by_path
-from src.web.settings.probes import ProbeResult, probe_llm
+from src.web.settings.probes import ProbeResult, probe_discord, probe_llm, probe_ntfy
 from src.web.settings.readiness import check
 from src.web.settings.sections import Section, SECTIONS, section_by_slug, section_fields
 
@@ -59,6 +59,13 @@ def page_ctx(request: Request, section, **extra) -> dict:
         "form_errors": [],
         "saved": False,
         "submitted": None,
+        # Secret name -> the {probe} slug it tests, for the notifications and
+        # integrations templates' per-secret Test buttons. A secret with no
+        # entry here (most of them) simply renders no button.
+        "probe_targets": {
+            "ntfy_topic_url": "ntfy", "discord_webhook_url": "discord",
+            "ops_ntfy_topic_url": "ops_ntfy", "ops_discord_webhook_url": "ops_discord",
+        },
     }
     ctx.update(extra)
     return ctx
@@ -261,6 +268,32 @@ def register_settings_routes(app: FastAPI) -> None:
         cfg = cfg.model_copy(update={"secrets": Secrets(**effective)})
         result = await probe_llm(cfg, snap.documents.profile)
         return _probe_partial(request, result)
+
+    # The {probe} URL slug -> (secret it tests, probe to run). Each value is a
+    # lambda, not the bare function, so every call looks `probe_ntfy` /
+    # `probe_discord` up on this module fresh — that's what lets tests
+    # monkeypatch `src.web.settings.routes.probe_ntfy` and have it take
+    # effect here.
+    _SINK_PROBES = {
+        "ntfy": ("ntfy_topic_url", lambda url: probe_ntfy(url)),
+        "discord": ("discord_webhook_url", lambda url: probe_discord(url)),
+        "ops_ntfy": ("ops_ntfy_topic_url", lambda url: probe_ntfy(url)),
+        "ops_discord": ("ops_discord_webhook_url", lambda url: probe_discord(url)),
+    }
+
+    @app.post("/settings/notifications/test/{probe}", response_class=HTMLResponse)
+    async def notifications_test(request: Request, probe: str):
+        """Probe the URL in the form; fall back to the effective secret when the
+        field was left blank (it renders blank when a value is already stored)."""
+        entry = _SINK_PROBES.get(probe)
+        if entry is None:
+            raise HTTPException(status_code=404)
+        name, run = entry
+        form = await request.form()
+        url = str(form.get(f"secret.{name}", "")).strip()
+        if not url:
+            url = request.app.state.service.effective_secret(name)
+        return _probe_partial(request, await run(url))
 
     @app.get("/settings/{slug}", response_class=HTMLResponse)
     def section_page(request: Request, slug: str):
