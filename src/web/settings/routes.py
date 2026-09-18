@@ -9,9 +9,10 @@ single-segment /settings/{slug} catch-all (verified by moving the call and
 rerunning the suite: nothing broke), but Tasks 11 and 13 add single-segment
 paths under this same registration, where the collision is real.
 
-register_companies_routes(app) and register_history_routes(app) are also
-called early, right after register_row_routes, for that exact reason:
-/settings/companies and /settings/history are each a single path segment, so
+register_companies_routes(app), register_history_routes(app), and
+register_backup_routes(app) are also called early, right after
+register_row_routes, for that exact reason: /settings/companies,
+/settings/history, and /settings/backup are each a single path segment, so
 unlike the row routes they would genuinely be swallowed by /settings/{slug}
 if that catch-all were declared first.
 
@@ -34,6 +35,7 @@ from src.settings.fields import (
 from src.settings.help import field_help, group_intro
 from src.settings.rows import list_rows
 from src.settings.service import canonical_doc
+from src.web.settings.backup import register_backup_routes
 from src.web.settings.companies import register_companies_routes
 from src.web.settings.forms import apply_patch, decode, decode_secrets, errors_by_path
 from src.web.settings.history import register_history_routes
@@ -188,6 +190,7 @@ def register_settings_routes(app: FastAPI) -> None:
     register_row_routes(app)
     register_companies_routes(app)
     register_history_routes(app)
+    register_backup_routes(app)
 
     env = app.state.templates.env
     env.globals["field_help"] = field_help

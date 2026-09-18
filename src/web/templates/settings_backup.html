@@ -1,0 +1,50 @@
+{% extends "settings_base.html" %}
+{% block section %}
+<p class="muted">
+  A backup is one zip file with everything needed to stand this instance up
+  again: settings, your profile, your résumé documents, and any résumé
+  template packs you've uploaded. It does <strong>not</strong> include
+  secrets — API keys, webhook URLs, and the tailoring signing secret stay out
+  of the file; reconnect those by hand (or with <code>import-env-secrets</code>)
+  after restoring elsewhere.
+</p>
+
+<p><a class="btn primary" href="/settings/backup/export">Download backup (.zip)</a></p>
+
+<h3>Restore from a backup</h3>
+<p class="muted">
+  Restoring replaces the current settings, profile, and résumé documents with
+  what the archive holds, written as one new settings version. Nothing is
+  written until the archive is fully validated.
+</p>
+
+{% if report %}
+<p class="ok">Restored settings version {{ report.version_id }} from:</p>
+<ul>
+  {% for f in report.files %}<li>{{ f }}</li>{% endfor %}
+</ul>
+{% for w in report.warnings %}<p class="warn">{{ w }}</p>{% endfor %}
+{% if report.templates_copied %}
+<p class="muted">Copied template packs: {{ report.templates_copied | join(', ') }}</p>
+{% endif %}
+{% if report.templates_skipped %}
+<p class="muted">Skipped template packs already present: {{ report.templates_skipped | join(', ') }}</p>
+{% endif %}
+{% endif %}
+
+<form method="post" action="/settings/backup/import" enctype="multipart/form-data">
+  <p><input type="file" name="archive" accept=".zip" required></p>
+  <p>
+    <label>
+      <input type="checkbox" name="force">
+      Overwrite settings changed since the last import
+    </label>
+  </p>
+  <p class="muted">
+    Tick this only when you mean to discard changes made since the backup was
+    taken (an added source, a seed, or a restored history version) — it's
+    unchecked by default so those are never silently dropped.
+  </p>
+  <button type="submit" class="btn primary">Restore from backup</button>
+</form>
+{% endblock %}

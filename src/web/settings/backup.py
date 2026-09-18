@@ -1,0 +1,140 @@
+"""The Backup page: download every setting as one file, or restore from one.
+
+Registered early, alongside register_row_routes/register_companies_routes/
+register_history_routes in routes.py's register_settings_routes, and for the
+same reason given there: /settings/backup is a single path segment and would
+otherwise be swallowed by the /settings/{slug} catch-all if that were
+registered first. (/settings/backup/export and /settings/backup/import are
+two segments each, so they could not collide with that catch-all either
+way — they're registered alongside /settings/backup purely because this
+module owns all three.)
+
+Restoring wires together two things neither module owns on its own:
+archive.extract_upload (untrusted zip bytes -> a tree of files on disk,
+nothing written if the archive is rejected) and transfer.import_dir (that
+tree -> one new settings version). Nothing is wrong in archive.py or
+transfer.py by themselves — but this endpoint is what makes transfer.py's
+LEGACY_PATH_KEYS handling reachable from an anonymous zip upload for the
+first time. A pre-settings-DB config could set e.g.
+`relevance.profile_path: /etc/passwd`, and import_dir would read that path
+and store its contents as the profile document (which the UI then
+displays) — that used to only ever run against a file the CLI operator
+already had shell access to. Reachable from here, over HTTP, it would be an
+authenticated arbitrary-file-read. That is why the import below passes
+trust_paths=False — see import_dir's own docstring for exactly what that
+does. The CLI's `settings import` command still passes the default
+(trust_paths=True): there, the path is the user's own shell, and refusing to
+read a file they can already read directly would protect nothing."""
+from __future__ import annotations
+
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+from fastapi import FastAPI, Form, Request, UploadFile
+from fastapi.responses import HTMLResponse, Response
+from starlette.concurrency import run_in_threadpool
+
+from src.settings.archive import ArchiveRejected, export_zip, extract_upload
+from src.settings.errors import SettingsInvalid
+from src.settings.transfer import ImportFailed, ImportGuardRefused, ImportReport, import_dir
+from src.web.settings.forms import errors_by_path
+from src.web.settings.sections import section_by_slug
+from src.web.settings.shell import page_ctx, render_section
+
+# A generous cap on the whole upload: comfortably above what
+# archive.MAX_TOTAL_BYTES (64 MB uncompressed) implies a legitimate compressed
+# backup could realistically be, while still bounding what a single request
+# can make this process read before extract_upload's own per-member caps
+# ever run.
+MAX_UPLOAD_BYTES = 32 * 1024 * 1024
+
+# Read size for _read_bounded below — not a cap in itself, just how much
+# accumulates per iteration before the running total is checked again.
+_CHUNK_SIZE = 1024 * 1024
+
+
+async def _read_bounded(upload: UploadFile, limit: int) -> tuple[bytes, bool]:
+    """Read ``upload`` in chunks, stopping the moment the running total
+    passes ``limit`` — never holding more than roughly ``limit`` bytes and
+    never calling .read() with no size, which would buffer the whole body
+    (however large) before anything gets a chance to check it. Returns
+    (data, oversized); ``data`` is empty when oversized is True."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await upload.read(_CHUNK_SIZE)
+        if not chunk:
+            return b"".join(chunks), False
+        total += len(chunk)
+        if total > limit:
+            return b"", True
+        chunks.append(chunk)
+
+
+def _truthy(value: str) -> bool:
+    return value.strip().lower() in ("on", "true", "1", "yes")
+
+
+def _render(request: Request, *, status_code: int = 200, **extra) -> HTMLResponse:
+    section = section_by_slug("backup")
+    return request.app.state.templates.TemplateResponse(
+        request, section.template, page_ctx(request, section, **extra),
+        status_code=status_code,
+    )
+
+
+def register_backup_routes(app: FastAPI) -> None:
+    @app.get("/settings/backup", response_class=HTMLResponse)
+    def backup_page(request: Request):
+        return render_section(request, section_by_slug("backup"))
+
+    @app.get("/settings/backup/export")
+    def backup_export(request: Request):
+        blob = export_zip(request.app.state.service)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+        return Response(
+            content=blob, media_type="application/zip",
+            headers={"content-disposition":
+                     f'attachment; filename="job-aggregator-settings-{stamp}.zip"'},
+        )
+
+    @app.post("/settings/backup/import", response_class=HTMLResponse)
+    async def backup_import(
+        request: Request, archive: UploadFile | None = None, force: str = Form(""),
+    ):
+        if archive is None or not archive.filename:
+            return _render(request, status_code=400,
+                            form_errors=["Choose a file to restore from."])
+
+        data, oversized = await _read_bounded(archive, MAX_UPLOAD_BYTES)
+        if oversized:
+            mb = MAX_UPLOAD_BYTES // (1024 * 1024)
+            return _render(request, status_code=413, form_errors=[
+                f"That file is larger than the {mb} MB limit.",
+            ])
+
+        service = request.app.state.service
+        force_flag = _truthy(force)
+
+        def do_import() -> ImportReport:
+            with tempfile.TemporaryDirectory() as tmp:
+                dest = Path(tmp)
+                extract_upload(data, dest)
+                return import_dir(service, dest, force=force_flag, trust_paths=False)
+
+        try:
+            report = await run_in_threadpool(do_import)
+        except ArchiveRejected as exc:
+            return _render(request, status_code=400, form_errors=[str(exc)])
+        except ImportGuardRefused as exc:
+            return _render(request, status_code=409, form_errors=[
+                f"{exc}\n\ntick overwrite and upload again.",
+            ])
+        except ImportFailed as exc:
+            return _render(request, status_code=400, form_errors=[str(exc)])
+        except SettingsInvalid as exc:
+            _, form_level = errors_by_path(exc, known=set())
+            return _render(request, status_code=400, form_errors=form_level)
+
+        return _render(request, report=report)

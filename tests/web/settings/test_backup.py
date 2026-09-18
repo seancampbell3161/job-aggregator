@@ -1,0 +1,135 @@
+"""Backup: download everything, upload it back."""
+import io
+import zipfile
+
+from src.web.app import create_app
+from tests.auth_helpers import signed_in_client
+from tests.settings_helpers import make_service
+
+
+def _app(tmp_path, monkeypatch, service=None):
+    monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
+    monkeypatch.setenv("JOB_AGG_TEMPLATES_DIR", str(tmp_path / "templates"))
+    return create_app(service=service if service is not None else make_service({}))
+
+
+def test_the_page_says_secrets_are_not_included(tmp_path, monkeypatch):
+    r = signed_in_client(_app(tmp_path, monkeypatch)).get("/settings/backup")
+    assert "secret" in r.text.lower()
+
+
+def test_export_downloads_a_named_zip(tmp_path, monkeypatch):
+    app = _app(tmp_path, monkeypatch, make_service({"filters": {"titles": ["staff engineer"]}}))
+    r = signed_in_client(app).get("/settings/backup/export")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+    assert "attachment" in r.headers["content-disposition"]
+    assert ".zip" in r.headers["content-disposition"]
+    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        assert b"staff engineer" in z.read("config.yaml")
+
+
+def test_import_applies_an_uploaded_backup(tmp_path, monkeypatch):
+    source = make_service({"filters": {"titles": ["staff engineer"]}})
+    from src.settings.archive import export_zip
+    blob = export_zip(source, templates_dir=tmp_path / "none")
+    app = _app(tmp_path, monkeypatch)
+    r = signed_in_client(app).post(
+        "/settings/backup/import",
+        files={"archive": ("backup.zip", blob, "application/zip")},
+        data={"force": "on"})
+    assert r.status_code == 200
+    assert app.state.service.snapshot().cfg.filters.titles == ["staff engineer"]
+    assert "config.yaml" in r.text
+
+
+def test_a_hostile_archive_is_refused_and_changes_nothing(tmp_path, monkeypatch):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("../escape.yaml", b"x")
+    app = _app(tmp_path, monkeypatch, make_service({"filters": {"titles": ["keep me"]}}))
+    r = signed_in_client(app).post(
+        "/settings/backup/import",
+        files={"archive": ("bad.zip", buf.getvalue(), "application/zip")})
+    assert r.status_code == 400
+    assert "escape.yaml" in r.text
+    assert app.state.service.snapshot().cfg.filters.titles == ["keep me"]
+
+
+def test_an_archive_with_no_config_reports_the_missing_file(tmp_path, monkeypatch):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("profile.md", b"# me")
+    app = _app(tmp_path, monkeypatch)
+    r = signed_in_client(app).post(
+        "/settings/backup/import",
+        files={"archive": ("bad.zip", buf.getvalue(), "application/zip")})
+    assert r.status_code == 400
+    assert "config" in r.text.lower()
+
+
+def test_the_guard_refusal_is_shown_with_the_overwrite_instruction(tmp_path, monkeypatch):
+    """A backup taken before an add-source would undo it; the import must
+    refuse and say how to proceed, not silently drop the board."""
+    from src.settings.archive import export_zip
+    from src.settings.sources import append_slug_sources
+
+    service = make_service({"filters": {"titles": ["x"]}})
+    blob = export_zip(service, templates_dir=tmp_path / "none")
+    # The export above is the 'files'; now change settings in the DB only.
+    service.save_settings({"filters": {"titles": ["x"]}}, source="import", note="import: baseline")
+    append_slug_sources(service, {"greenhouse": ["acme"]}, label="add-source")
+    app = _app(tmp_path, monkeypatch, service)
+    r = signed_in_client(app).post(
+        "/settings/backup/import",
+        files={"archive": ("backup.zip", blob, "application/zip")})
+    assert r.status_code == 409
+    assert "acme" in r.text
+    assert "overwrite" in r.text.lower()
+    assert app.state.service.snapshot().cfg.sources.greenhouse == ["acme"]
+
+
+def test_an_oversize_upload_is_refused(tmp_path, monkeypatch):
+    from src.web.settings.backup import MAX_UPLOAD_BYTES
+    app = _app(tmp_path, monkeypatch)
+    r = signed_in_client(app).post(
+        "/settings/backup/import",
+        files={"archive": ("big.zip", b"0" * (MAX_UPLOAD_BYTES + 1), "application/zip")})
+    assert r.status_code == 413
+
+
+def test_no_file_selected_is_a_clear_error(tmp_path, monkeypatch):
+    app = _app(tmp_path, monkeypatch)
+    r = signed_in_client(app).post("/settings/backup/import", data={})
+    assert r.status_code == 400
+    assert "choose a file" in r.text.lower()
+
+
+def test_an_absolute_legacy_path_key_is_ignored_not_read(tmp_path, monkeypatch):
+    """R11: a config.yaml smuggled inside an uploaded archive can set a
+    LEGACY_PATH_KEYS value (e.g. relevance.profile_path) to an absolute path
+    on the SERVER's filesystem. Wired through the web endpoint, honouring it
+    would be an authenticated arbitrary-file-read: the file's contents would
+    be stored and shown back as the profile document. The upload path must
+    ignore it (with a warning), not read it -- unlike the CLI, which trusts
+    the path because it's the operator's own shell."""
+    secret = tmp_path / "outside-the-archive-secret.txt"
+    secret.write_text("TOP-SECRET-SERVER-FILE-CONTENTS")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr(
+            "config.yaml",
+            f"filters:\n  titles: [staff engineer]\n"
+            f"relevance:\n  enabled: true\n  profile_path: {secret}\n",
+        )
+    app = _app(tmp_path, monkeypatch)
+    r = signed_in_client(app).post(
+        "/settings/backup/import",
+        files={"archive": ("backup.zip", buf.getvalue(), "application/zip")})
+    assert r.status_code == 200
+    assert app.state.service.documents().profile != "TOP-SECRET-SERVER-FILE-CONTENTS"
+    assert "TOP-SECRET-SERVER-FILE-CONTENTS" not in r.text
+    # The setting itself still applies -- only the dangerous path is ignored.
+    assert app.state.service.snapshot().cfg.filters.titles == ["staff engineer"]
