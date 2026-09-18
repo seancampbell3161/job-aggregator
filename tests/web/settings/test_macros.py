@@ -72,8 +72,9 @@ def test_only_true_secrets_are_masked(tmp_path, monkeypatch):
     type="text" so it can be proofread before submit; the integrations page
     has no Test button, so a typo in a plain-text field like that would
     otherwise fail silently until the feature breaks. Exercised through the
-    real app (not the macro in isolation) so this catches a regression in
-    either secret_rows()'s masked flag or the template's use of it."""
+    real app on two pages (llm, notifications) that both render through the
+    shared secret_field macro, so this catches a regression in either
+    secret_rows()'s masked flag or the template's use of it."""
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
     app = create_app(service=make_service(WEB_TEST_SETTINGS))

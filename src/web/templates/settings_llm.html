@@ -8,24 +8,7 @@
 
   <h3>API keys</h3>
   {% for s in secrets %}
-  <div class="field">
-    <label class="field-label" for="s-{{ s.name }}">{{ s.label }}
-      <span class="field-meta">{{ s.source }}</span></label>
-    {% if s.source == 'env' %}
-      <input id="s-{{ s.name }}" type="text" disabled
-             value="set by {{ s.env_var }}">
-      <p class="field-help">The environment variable wins. Remove it from
-        <code>.env</code> and recreate the container to manage this here.</p>
-    {% else %}
-      <input id="s-{{ s.name }}" type="password" name="secret.{{ s.name }}"
-             autocomplete="new-password"
-             placeholder="{{ 'stored — type to replace' if s.source == 'stored' else 'not set' }}">
-      {% if s.source == 'stored' %}
-      <label class="check"><input type="checkbox" name="clear.{{ s.name }}"> clear</label>
-      {% endif %}
-    {% endif %}
-    {{ w.help_for('secrets.' ~ s.name) }}
-  </div>
+    {{ w.secret_field(s, errors, probe_targets) }}
   {% endfor %}
 
   <div class="actions">
