@@ -1,17 +1,5 @@
 {% extends "settings_base.html" %}
 {% block section %}
-<style>
-  .company-add { display: flex; gap: 8px; margin-bottom: 10px; }
-  .company-add input { flex: 1; padding: 6px 9px; border: 1px solid var(--border);
-                        border-radius: 6px; background: var(--surface-2); color: var(--text); }
-  .company-filter { width: 100%; padding: 6px 9px; margin: 4px 0 10px; border: 1px solid var(--border);
-                     border-radius: 6px; background: var(--surface-2); color: var(--text); }
-  #company-rows h3 { margin: 18px 0 4px; font-size: 12px; letter-spacing: .04em;
-                      text-transform: uppercase; color: var(--muted); }
-  #company-rows table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  #company-rows th, #company-rows td { padding: 5px 8px; border-bottom: 1px solid var(--border); text-align: left; }
-  #company-rows th { color: var(--muted); font-weight: 600; font-size: 11px; }
-</style>
 {% if status is none %}
 <p class="bad">status unavailable — could not read the connector health store.</p>
 {% endif %}

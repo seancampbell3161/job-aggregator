@@ -215,11 +215,13 @@ async def save_section(request: Request, section: Section, **extra) -> HTMLRespo
 def register_settings_routes(app: FastAPI) -> None:
     register_row_routes(app)
 
-    # Lazy import: src.web.settings.companies imports `_render` and
-    # `section_by_slug` back out of this module, so importing it at this
-    # module's own top level would be circular. By the time this function
-    # runs, routes.py has already finished loading, so the import below just
-    # resolves against the already-initialized module.
+    # Lazy import: src.web.settings.companies imports `_render` back out of
+    # this module (Ruling R9 — section_by_slug comes straight from
+    # sections.py instead, same as rows.py; only _render still round-trips
+    # through here, pending Task 11's shared shell.py), so importing it at
+    # this module's own top level would be circular. By the time this
+    # function runs, routes.py has already finished loading, so the import
+    # below just resolves against the already-initialized module.
     from src.web.settings.companies import register_companies_routes
     register_companies_routes(app)
 

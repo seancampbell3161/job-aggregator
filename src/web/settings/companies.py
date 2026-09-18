@@ -5,17 +5,31 @@ Registered separately from the generic /settings/{slug} catch-all (Ruling 1
 on this branch) — /settings/companies is a single path segment, so the
 catch-all would genuinely swallow it. This module is imported lazily from
 register_settings_routes (not at src.web.settings.routes' own module top)
-specifically to avoid that: this module imports `_render` and
-`section_by_slug` back out of routes.py, and importing companies.py at
-routes.py's top level would make that a real circular import."""
+specifically to avoid that: this module imports `_render` back out of
+routes.py, and importing companies.py at routes.py's top level would make
+that a real circular import. `section_by_slug` itself comes straight from
+sections.py (the layering this branch established — rows.py does the same,
+per Ruling R9), so it is `_render` alone that forces the lazy import here.
+
+Per Ruling R9, `_render` is NOT similarly hoisted in this fix round: it wraps
+page_ctx, which depends on routes.py's own _SINK_PROBES registry, and
+tests/web/settings/test_probes.py monkeypatches probe functions by that
+module's path — moving the registry now risks quietly breaking those tests.
+Task 11 is expected to move page_ctx/render_section into a shared shell.py so
+no leaf settings module needs to import from routes.py at all."""
 from __future__ import annotations
+
+import logging
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 
 from src.settings.boards import BOARD_FAMILIES, BoardEntry, board_entries
 from src.web.settings.health import board_status
-from src.web.settings.routes import _render, section_by_slug
+from src.web.settings.routes import _render
+from src.web.settings.sections import section_by_slug
+
+log = logging.getLogger(__name__)
 
 
 def _discovery_only(stores, configured: set[str]) -> int:
@@ -26,7 +40,8 @@ def _discovery_only(stores, configured: set[str]) -> int:
         return sum(
             1 for r in stores.discovered.list_healthy() if r.connector_name not in configured
         )
-    except Exception:  # noqa: BLE001 — telemetry never breaks a settings page
+    except Exception as exc:  # noqa: BLE001 — telemetry never breaks a settings page
+        log.warning("discovery_only_count_unavailable", extra={"error": str(exc)})
         return 0
 
 

@@ -14,13 +14,13 @@
 <div id="company-rows">
   {% for family, entries in groups %}
   <h3>{{ family }}</h3>
-  <table class="wide">
+  <table>
     <tr><th>Board</th><th>Detail</th><th>Status</th><th></th></tr>
     {% for entry in entries %}
     {% set s = status[entry.key] if status is not none else none %}
     <tr data-search="{{ (entry.label ~ ' ' ~ entry.summary ~ ' ' ~ entry.key ~ ' ' ~ family) | lower }}">
       <td>{{ entry.label }}</td>
-      <td class="muted">{{ entry.summary }}<br><span style="font-size:11px">{{ entry.key }}</span></td>
+      <td class="muted">{{ entry.summary }}<br><span class="company-key">{{ entry.key }}</span></td>
       <td>
         {% if s is none %}
         <span class="muted">&mdash;</span>
