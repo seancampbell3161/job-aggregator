@@ -54,9 +54,32 @@ def test_a_structured_board_entry_reads_as_a_whole_value():
 
 def test_secrets_never_appear():
     """Secrets are not part of a settings document; if one ever leaks into the
-    dump, a diff would print it on a page. Prove it cannot."""
-    lines = diff_settings(cfg(), cfg(relevance={"enabled": True}))
-    assert not any("secret" in line for line in lines)
+    dump, a diff would print it on a page. Prove it cannot, even when a secret
+    is the only real difference between the two configs — a config that
+    differs only in ``relevance.enabled`` proves nothing about secrets, since
+    both sides then dump an identical default ``Secrets()`` block regardless
+    of whether the exclusion is applied."""
+    old = cfg()
+    new = cfg(secrets={"ntfy_topic_url": "https://example.com/hunter2"})
+    lines = diff_settings(old, new)
+    assert lines == []
+    assert not any("secret" in line or "hunter2" in line for line in lines)
+
+
+def test_a_changed_scalar_is_rendered_as_old_arrow_new():
+    lines = diff_settings(cfg(relevance={"score_low": 4}), cfg(relevance={"score_low": 6}))
+    assert lines == ["relevance.score_low: 4 -> 6"]
+
+
+def test_list_changes_are_rendered_as_plus_and_minus_lines():
+    lines = diff_settings(
+        cfg(sources={"greenhouse": ["acme", "beta"]}),
+        cfg(sources={"greenhouse": ["beta", "gamma"]}),
+    )
+    assert lines == [
+        "sources.greenhouse: - acme",
+        "sources.greenhouse: + gamma",
+    ]
 
 
 def test_the_diff_is_directional():

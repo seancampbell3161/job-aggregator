@@ -31,6 +31,10 @@ def _values(cfg: AppConfig) -> dict:
 
 
 def _walk(old: dict, new: dict, prefix: str, out: list[str]) -> None:
+    # Union, not intersection: AppConfig has no free-form dict field today, so
+    # old and new always carry the same keys in practice, but a section that
+    # ever gains one (as import_guard.py's free-form-mapping case does) must
+    # not go unreported just because one side lacks the key.
     for key in dict.fromkeys([*old, *new]):
         path = f"{prefix}{key}"
         was = old.get(key)
