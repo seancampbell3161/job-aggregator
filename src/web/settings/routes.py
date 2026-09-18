@@ -12,7 +12,12 @@ paths under this same registration, where the collision is real.
 register_companies_routes(app) is also called early, right after
 register_row_routes, for that exact reason: /settings/companies IS a single
 path segment, so unlike the row routes it would genuinely be swallowed by
-/settings/{slug} if that catch-all were declared first."""
+/settings/{slug} if that catch-all were declared first.
+
+page_ctx/render_section/secret_rows live in shell.py (Ruling R10) — this
+module still uses them constantly, but so does every leaf settings route
+module, and none of them (including this one, now) reaches into another for
+its own private helpers."""
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Request
@@ -27,28 +32,20 @@ from src.settings.fields import (
 )
 from src.settings.help import field_help, group_intro
 from src.settings.rows import list_rows
-from src.settings.service import canonical_doc, secret_env_var
+from src.settings.service import canonical_doc
+from src.web.settings.companies import register_companies_routes
 from src.web.settings.forms import apply_patch, decode, decode_secrets, errors_by_path
 from src.web.settings.probes import ProbeResult, probe_discord, probe_llm, probe_ntfy
 from src.web.settings.readiness import check
 from src.web.settings.rows import register_row_routes
 from src.web.settings.sections import (
-    Section, SECTIONS, advanced_group, advanced_groups, group_section, section_by_slug,
-    section_fields,
+    Section, advanced_group, advanced_groups, group_section, section_by_slug, section_fields,
 )
+from src.web.settings.shell import page_ctx as _base_page_ctx, render_section
 
 # profile has its own page; the rest share the generic editor.
 EDITABLE_KINDS: tuple[str, ...] = tuple(k for k in DOCUMENT_KINDS if k != "profile")
 
-
-# Secrets masked as type="password" — a name ending in one of these never
-# renders its stored value either way, so masking only affects what the user
-# can see while typing or pasting a new one. That's worth it for an API key,
-# but not for a pasted URL or identifier (ntfy topic, Discord webhook,
-# tailor_endpoint_url, ...): those can't be proofread before submit if
-# masked, and several of their pages (integrations) have no Test button, so a
-# typo fails silently until the feature breaks.
-_MASKED_SECRET_SUFFIXES = ("_key", "_password", "_secret")
 
 # The {probe} URL slug -> (secret it tests, probe to run). Each value is a
 # lambda, not the bare function, so every call looks `probe_ntfy` /
@@ -66,56 +63,29 @@ _SINK_PROBES = {
 }
 
 
-def secret_rows(service, names) -> list[dict]:
-    """{name, source, env_var, label, masked} for each of a section's secrets
-    — the template never sees the value, only where it currently comes from."""
-    return [
-        {
-            "name": name,
-            "source": service.secret_source(name),
-            "env_var": secret_env_var(name),
-            "label": name.replace("_", " "),
-            "masked": name.endswith(_MASKED_SECRET_SUFFIXES),
-        }
-        for name in names
-    ]
-
-
 def _probe_partial(request: Request, result: ProbeResult) -> HTMLResponse:
     return request.app.state.templates.TemplateResponse(
         request, "_probe_result.html", {"result": result}
     )
 
 
+def _probe_targets() -> dict[str, str]:
+    """Secret name -> the {probe} slug it tests, derived fresh from
+    _SINK_PROBES on every call (never cached) so a test that monkeypatches
+    _SINK_PROBES after the app is built still sees the button appear."""
+    return {secret: slug for slug, (secret, _fn) in _SINK_PROBES.items()}
+
+
 def page_ctx(request: Request, section, **extra) -> dict:
-    """The context every section template expects. Values render from the
-    validated AppConfig on the request snapshot, never from the stored doc —
-    the doc is sparse (canonical_doc drops defaults), the config is complete."""
-    ctx = {
-        "sections": SECTIONS,
-        "section": section,
-        "cfg": request.state.snapshot.cfg,
-        "fields": section_fields(section) if section.paths else (),
-        "secrets": secret_rows(request.app.state.service, section.secrets),
-        "errors": {},
-        "form_errors": [],
-        "saved": False,
-        "submitted": None,
-        # Secret name -> the {probe} slug it tests, for secret_field's
-        # per-secret Test button — derived from _SINK_PROBES above so this
-        # can't drift out of sync with it. A secret with no entry here (most
-        # of them, including every secret integrations and llm own) simply
-        # renders no button.
-        "probe_targets": {secret: slug for slug, (secret, _fn) in _SINK_PROBES.items()},
-    }
-    ctx.update(extra)
-    return ctx
+    """shell.page_ctx with this module's own probe-target mapping filled in —
+    every call in this module goes through here (or _render below) rather
+    than shell.page_ctx directly, so no call site can forget it and silently
+    lose its section's Test buttons."""
+    return _base_page_ctx(request, section, probe_targets=_probe_targets(), **extra)
 
 
 def _render(request: Request, section, **extra) -> HTMLResponse:
-    return request.app.state.templates.TemplateResponse(
-        request, section.template, page_ctx(request, section, **extra)
-    )
+    return render_section(request, section, probe_targets=_probe_targets(), **extra)
 
 
 def shown(ctx_submitted, cfg, spec):
@@ -214,15 +184,6 @@ async def save_section(request: Request, section: Section, **extra) -> HTMLRespo
 
 def register_settings_routes(app: FastAPI) -> None:
     register_row_routes(app)
-
-    # Lazy import: src.web.settings.companies imports `_render` back out of
-    # this module (Ruling R9 — section_by_slug comes straight from
-    # sections.py instead, same as rows.py; only _render still round-trips
-    # through here, pending Task 11's shared shell.py), so importing it at
-    # this module's own top level would be circular. By the time this
-    # function runs, routes.py has already finished loading, so the import
-    # below just resolves against the already-initialized module.
-    from src.web.settings.companies import register_companies_routes
     register_companies_routes(app)
 
     env = app.state.templates.env
