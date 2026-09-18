@@ -35,10 +35,15 @@ NOT folded into that -- it isn't the upload's fault, so it is left to
 propagate as a plain OSError rather than being reported as a rejected
 archive.
 
-Cleanup only ever removes what THIS call added: a target path that already
+Cleanup only ever REMOVES what THIS call added: a target path that already
 existed before this call touched it -- file or directory -- is never
-queued for removal, so a failure never destroys content the archive did not
-put there. See _ensure_dir/_cleanup."""
+queued for deletion, so a failure never makes a pre-existing path vanish.
+That is narrower than "left untouched", though: extract_upload is meant to
+be called with a fresh, empty destination (see its docstring) -- if it is
+not, a pre-existing FILE colliding with a member name can still be
+truncated or overwritten by the write attempt itself, before a later
+member's failure is ever detected. Cleanup does not undo that; it only
+guarantees it never deletes what collided. See _ensure_dir/_cleanup."""
 from __future__ import annotations
 
 import errno
@@ -95,15 +100,28 @@ def export_zip(service: ConfigService, *, templates_dir: Path | str | None = Non
 def extract_upload(data: bytes, dest: Path | str) -> None:
     """Extract an uploaded backup into ``dest``.
 
+    ``dest`` is meant to be a fresh, empty directory -- a private
+    tempfile.TemporaryDirectory(), as every caller in this codebase uses it
+    -- not a directory that may already hold unrelated content. That
+    precondition is what makes the collision case below unreachable in
+    practice; it is documented, not defended against.
+
     Raises ArchiveRejected, having written nothing, for anything that is not
     a plain tree of regular files within the declared caps. Every member is
     validated in one pass before a second pass writes anything, so a
     rejection from that first pass never leaves a partial extraction behind
     -- and the second pass is itself wrapped so a failure zipfile only
     raises while actually reading a member cleans up after itself the same
-    way. Cleanup never removes anything that existed before this call: a
-    target that collided with something already at ``dest`` is left alone,
-    whether this call fails or not."""
+    way.
+
+    Cleanup never DELETES anything that already existed at ``dest`` before
+    this call: such a path is never queued for removal. It does NOT
+    guarantee such a path is left otherwise untouched -- if ``dest`` is not
+    empty and a member's name collides with a pre-existing FILE,
+    open(target, "wb") truncates that file the moment it is opened, before
+    the member is even read, so a later failure (this call's or a
+    different member's) can leave it empty or holding the archive's
+    (also-rejected) content rather than what it held before."""
     dest = Path(dest)
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
@@ -136,8 +154,19 @@ def extract_upload(data: bytes, dest: Path | str) -> None:
 
         # Every member has been checked before anything is written.
         dest_created: list[Path] = []
-        _ensure_dir(dest, dest_created)
-        created_root = dest_created[-1] if dest_created else None
+        try:
+            _ensure_dir(dest, dest_created)
+        except OSError:
+            # Narrow, environment-only case: mkdir() failed partway up a
+            # chain of new parent directories (e.g. permission denied on
+            # one level). Clean up what was created so far and propagate
+            # unchanged -- this is a filesystem fault, not an archive one.
+            _remove_empty_dirs(dest_created)
+            raise
+        # _ensure_dir appends in creation order (shallowest/topmost first),
+        # so the topmost new directory -- the one whose removal takes
+        # everything under it with it -- is the FIRST element, not the last.
+        created_root = dest_created[0] if dest_created else None
         root = dest.resolve()
         touched: list[Path] = []
         created_dirs: list[Path] = []
@@ -176,10 +205,10 @@ def extract_upload(data: bytes, dest: Path | str) -> None:
 
 
 def _ensure_dir(path: Path, created: list[Path]) -> None:
-    """mkdir -p ``path``, recording every level that did not already exist
-    (deepest first, matching creation order reversed) so a caller can later
-    remove exactly what THIS call added -- and nothing that was already
-    there."""
+    """mkdir -p ``path``, recording each level in ``created`` AS it is
+    created (not after the whole chain succeeds) -- so if mkdir() fails
+    partway up the chain, ``created`` still accurately reflects what this
+    call actually made, and a caller can clean up exactly that."""
     missing = []
     probe = path
     while not probe.exists():
@@ -187,7 +216,19 @@ def _ensure_dir(path: Path, created: list[Path]) -> None:
         probe = probe.parent
     for d in reversed(missing):
         d.mkdir()
-    created.extend(missing)
+        created.append(d)
+
+
+def _remove_empty_dirs(dirs: list[Path]) -> None:
+    """Best-effort rmdir, deepest first (by path depth, not insertion
+    order, so sibling subtrees created in any order are still handled
+    correctly), ignoring anything not empty (holds something this call
+    didn't create) or already gone."""
+    for path in sorted(set(dirs), key=lambda p: len(p.parts), reverse=True):
+        try:
+            path.rmdir()
+        except OSError:
+            pass
 
 
 def _cleanup(created_root: Path | None, touched: list[Path], created_dirs: list[Path]) -> None:
@@ -203,12 +244,11 @@ def _cleanup(created_root: Path | None, touched: list[Path], created_dirs: list[
         shutil.rmtree(created_root, ignore_errors=True)
         return
     for path in touched:
-        path.unlink(missing_ok=True)
-    for path in sorted(set(created_dirs), key=lambda p: len(p.parts), reverse=True):
         try:
-            path.rmdir()
+            path.unlink(missing_ok=True)
         except OSError:
-            pass   # not empty (holds something this call didn't create) or already gone
+            pass   # best-effort: must not mask the exception already in flight
+    _remove_empty_dirs(created_dirs)
 
 
 def _check_member(info: zipfile.ZipInfo) -> None:

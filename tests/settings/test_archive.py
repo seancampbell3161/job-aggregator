@@ -406,6 +406,46 @@ def test_a_pre_existing_directory_colliding_with_a_member_name_is_left_alone(tmp
     assert not (dest / "config.yaml").exists()
 
 
+def test_a_colliding_pre_existing_file_is_left_truncated_by_a_bad_crc_member(tmp_path):
+    """Round 3 (reviewer's probe P1): pins the DOCUMENTED behaviour, not an
+    aspirational one. _cleanup never DELETES a pre-existing path (the two
+    tests above), but open(target, "wb") truncates it the instant it is
+    opened -- before the member is even read -- so a bad-CRC member (unlike
+    the Overlapped-entries fixture above, which fails inside archive.open()
+    before the target is ever opened at all) leaves a colliding pre-existing
+    file truncated to empty, not restored to its original content. This is
+    exactly what extract_upload's docstring now says can happen when dest is
+    not the fresh, empty directory it is meant to be; a test that avoided
+    this shape (as the Important-A regression test above does, deliberately,
+    to isolate that finding) would leave the docstring's claim unverified."""
+    blob = _zip({"keep.txt": b"hello world"})
+    blob = _patch_central_dir(blob, "keep.txt", 16, 0xDEADBEEF, 4)  # bad CRC
+    dest = tmp_path / "out"
+    dest.mkdir()
+    (dest / "keep.txt").write_text("USER CONTENT DO NOT DELETE")
+    with pytest.raises(ArchiveRejected, match="keep.txt"):
+        extract_upload(blob, dest)
+    assert (dest / "keep.txt").exists()            # cleanup never deletes it --
+    assert (dest / "keep.txt").read_text() == ""   # -- but it is left truncated, not restored
+
+
+def test_a_colliding_pre_existing_file_is_overwritten_when_a_later_member_fails(tmp_path):
+    """Round 3 (reviewer's probe P2): the other documented shape. A
+    colliding member writes successfully in full (so the pre-existing file
+    is completely overwritten with the archive's content), then a LATER
+    member fails. The whole restore is still reported as ArchiveRejected,
+    but the successful collision is not rolled back: the user's original
+    content is gone, replaced by the archive's (also-rejected) content."""
+    blob = _zip({"config.yaml": b"ARCHIVE CONTENT", "bad.txt": b"hello world"})
+    blob = _patch_central_dir(blob, "bad.txt", 16, 0xDEADBEEF, 4)  # bad CRC, fails later
+    dest = tmp_path / "out"
+    dest.mkdir()
+    (dest / "config.yaml").write_text("USER'S ORIGINAL CONFIG")
+    with pytest.raises(ArchiveRejected):
+        extract_upload(blob, dest)
+    assert (dest / "config.yaml").read_text() == "ARCHIVE CONTENT"   # overwritten, not restored
+
+
 def test_cleanup_removes_sibling_new_directories_it_created(tmp_path):
     """A failure partway through must remove every directory THIS call
     created, not just a single linear chain: two independent new
@@ -493,3 +533,54 @@ def test_an_environment_failure_is_not_reported_as_a_bad_archive(tmp_path, monke
     assert not isinstance(exc.value, ArchiveRejected)
     assert exc.value.errno == errno.ENOSPC
     assert not (tmp_path / "out").exists()
+
+
+def test_cleanups_own_unlink_failure_does_not_mask_the_original_rejection(tmp_path, monkeypatch):
+    """archive.py's _cleanup: the touched-file unlink loop was unguarded
+    while the adjacent rmdir loop was already wrapped in try/except OSError
+    -- the exact shape of the defect round 2 fixed (cleanup itself raising
+    and swallowing the real ArchiveRejected). No real archive can trigger
+    this (the reviewer could not construct one either -- missing_ok=True
+    already handles "already gone"), so this monkeypatches Path.unlink to
+    simulate the kind of environment failure (permission revoked mid-
+    cleanup) that would. Needs a pre-existing dest so _cleanup takes the
+    per-file unlink branch rather than a whole-directory rmtree."""
+    dest = tmp_path / "out"
+    dest.mkdir()
+    (dest / "keep.txt").write_text("pre-existing, unrelated")
+    blob = _zip({"bad.txt": b"hello world"})
+    blob = _patch_central_dir(blob, "bad.txt", 16, 0xDEADBEEF, 4)
+
+    real_unlink = Path.unlink
+
+    def flaky_unlink(self, missing_ok=False):
+        if self.name == "bad.txt":
+            raise PermissionError(errno.EACCES, "permission denied")
+        return real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", flaky_unlink)
+    with pytest.raises(ArchiveRejected, match="bad.txt"):
+        extract_upload(blob, dest)
+    assert (dest / "keep.txt").read_text() == "pre-existing, unrelated"
+
+
+def test_a_partial_dest_creation_failure_cleans_up_what_it_made(tmp_path, monkeypatch):
+    """archive.py: _ensure_dir(dest, dest_created) used to run outside the
+    try block, so if mkdir() failed partway up a chain of new parent
+    directories, whatever was already created leaked with no cleanup.
+    Monkeypatches Path.mkdir to fail on the second (deeper) of two new
+    levels, after the first has already been created."""
+    top = tmp_path / "new_a"
+    dest = top / "new_b"
+    real_mkdir = Path.mkdir
+
+    def flaky_mkdir(self, *args, **kwargs):
+        if self == dest:
+            raise PermissionError(errno.EACCES, "permission denied")
+        return real_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", flaky_mkdir)
+    blob = _zip({"config.yaml": b"filters: {}\n"})
+    with pytest.raises(PermissionError):
+        extract_upload(blob, dest)
+    assert not top.exists()   # "new_a" was created before the failure; must not leak
