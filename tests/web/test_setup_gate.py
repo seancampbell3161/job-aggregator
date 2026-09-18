@@ -218,3 +218,51 @@ def test_setup_restore_ignores_an_absolute_legacy_path(tmp_path, monkeypatch):
     assert r.headers["location"] == "/settings/overview"
     assert c.app.state.service.documents().profile is None
     assert c.app.state.service.snapshot().cfg.filters.titles == ["staff engineer"]
+
+
+def test_setup_restore_guard_refusal_points_at_settings_backup(tmp_path, monkeypatch):
+    """Fix round 1 (post-review): /setup/restore's own idempotence check
+    (request.state.snapshot read once, at the top of the request) does NOT
+    guarantee no settings version exists by the time import_dir's own guard
+    runs, moments later, after this (possibly slow) upload has been read and
+    extracted off the event loop. A real settings change landing in that
+    window — another tab finishing /setup/start, then editing real filters or
+    companies, while this upload is still in flight — can raise
+    ImportGuardRefused here even though the instance looked unconfigured when
+    this request started.
+
+    Simulates that race directly (the TestClient is synchronous, so no two
+    real requests can interleave): monkeypatches
+    src.web.settings.backup.import_dir so that, right where the real
+    import_dir would run inside restore_from_upload's threadpool call, a
+    'racing' tab's real change lands first, then delegates to the real
+    import_dir. The resulting ImportGuardRefused message must NOT reuse
+    /settings/backup/import's "Tick overwrite and upload again." — /setup's
+    page has no such checkbox — but instead point at Settings -> Backup,
+    which does have one. (Settings -> Backup is also exactly where the
+    operator ends up if they retry /setup/restore now: the idempotence check
+    would redirect them there anyway, since a settings version exists.)"""
+    import src.web.settings.backup as backup_mod
+    from src.settings.archive import export_zip
+
+    service = make_service()  # unconfigured when this request starts
+    c = _client(tmp_path, monkeypatch, service)
+
+    real_import_dir = backup_mod.import_dir
+
+    def racing_import_dir(svc, directory, **kwargs):
+        svc.save_settings({}, source="ui", note="started from defaults")
+        svc.save_settings({"filters": {"titles": ["real change"]}}, source="ui", note="raced")
+        return real_import_dir(svc, directory, **kwargs)
+
+    monkeypatch.setattr(backup_mod, "import_dir", racing_import_dir)
+
+    blob = export_zip(make_service({"filters": {"titles": ["staff engineer"]}}),
+                      templates_dir=tmp_path / "none")
+    r = c.post("/setup/restore", files={"archive": ("b.zip", blob, "application/zip")})
+    assert r.status_code == 409
+    assert "Settings" in r.text and "Backup" in r.text
+    assert "Tick overwrite and upload again." not in r.text
+    # Nothing from THIS request was written — the racing change (simulating
+    # the other tab) is what's in effect.
+    assert service.snapshot().cfg.filters.titles == ["real change"]

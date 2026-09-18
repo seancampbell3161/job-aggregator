@@ -87,6 +87,11 @@ def test_the_guard_refusal_is_shown_with_the_overwrite_instruction(tmp_path, mon
     assert r.status_code == 409
     assert "acme" in r.text
     assert "overwrite" in r.text.lower()
+    # Pinned exactly (round-1 fix): /setup/restore's own guard_hint must stay
+    # distinct from this one, since /setup's page has no overwrite checkbox
+    # to tick — see test_setup_restore_guard_refusal_points_at_settings_backup
+    # in tests/web/test_setup_gate.py.
+    assert "Tick overwrite and upload again." in r.text
     assert app.state.service.snapshot().cfg.sources.greenhouse == ["acme"]
 
 

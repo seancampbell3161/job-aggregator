@@ -98,6 +98,15 @@ def _truthy(value: str) -> bool:
     return value.strip().lower() in ("on", "true", "1", "yes")
 
 
+# restore_from_upload's ImportGuardRefused message is
+# "{exc}\n\nNothing was written. {guard_hint}" — the head (str(exc), transfer's
+# own change list, per Ruling R13) and the "Nothing was written." lead-in are
+# shared verbatim by every caller; only this trailing sentence, telling the
+# operator how to proceed, is caller-specific. /settings/backup/import's own
+# form has the overwrite checkbox this refers to.
+OVERWRITE_CHECKBOX_HINT = "Tick overwrite and upload again."
+
+
 @dataclass
 class RestoreOutcome:
     """What restore_from_upload produced: either ``ok`` with the
@@ -110,7 +119,9 @@ class RestoreOutcome:
     errors: list[str] = field(default_factory=list)
 
 
-async def restore_from_upload(request: Request, archive: UploadFile, *, force: bool) -> RestoreOutcome:
+async def restore_from_upload(
+    request: Request, archive: UploadFile, *, force: bool, guard_hint: str,
+) -> RestoreOutcome:
     """The one implementation of "take an uploaded archive and import it":
     a bounded read (413 past MAX_UPLOAD_BYTES), extraction into a fresh
     tempfile.TemporaryDirectory(), import_dir run off the event loop, and the
@@ -119,7 +130,21 @@ async def restore_from_upload(request: Request, archive: UploadFile, *, force: b
     way the CLI's own `settings import` trusts a path on the operator's own
     shell. Both /settings/backup/import (a configured instance restoring over
     itself) and /setup/restore (an unconfigured instance's first import) call
-    this rather than each running their own read/extract/import pipeline."""
+    this rather than each running their own read/extract/import pipeline.
+
+    ``guard_hint`` is the closing sentence of an ImportGuardRefused message
+    (see OVERWRITE_CHECKBOX_HINT above) — the one part of that message that
+    isn't shared verbatim, because it names how THIS caller's page lets the
+    operator proceed. This matters even for /setup/restore: request.state
+    .snapshot is read once, at the top of the request, before this
+    (possibly slow, up to MAX_UPLOAD_BYTES) read-and-extract runs; import_dir's
+    own guard is evaluated later, against whatever settings rows exist by
+    then. So a real, non-default, non-import settings change landing in that
+    window — another tab finishing /setup/start and then editing real
+    filters or companies while this upload is still in flight — can raise
+    ImportGuardRefused here even though the instance looked unconfigured when
+    this request started. /setup's page has no overwrite checkbox, so its
+    caller must pass a hint that doesn't claim one exists."""
     data, oversized = await _read_bounded(archive, MAX_UPLOAD_BYTES)
     if oversized:
         mb = MAX_UPLOAD_BYTES // (1024 * 1024)
@@ -143,9 +168,9 @@ async def restore_from_upload(request: Request, archive: UploadFile, *, force: b
         # transfer._undone_changes_message ends at the "saved in:" rows
         # (Ruling R13) — the closing instruction is this surface's own,
         # not the CLI's "run export DIR / pass --force" (neither exists
-        # on this page).
+        # on this page) — see guard_hint above.
         return RestoreOutcome(ok=False, status_code=409, errors=[
-            f"{exc}\n\nNothing was written. Tick overwrite and upload again.",
+            f"{exc}\n\nNothing was written. {guard_hint}",
         ])
     except ImportFailed as exc:
         return RestoreOutcome(ok=False, status_code=400, errors=[str(exc)])
@@ -187,7 +212,9 @@ def register_backup_routes(app: FastAPI) -> None:
             return _render(request, status_code=400,
                             form_errors=["Choose a file to restore from."])
 
-        outcome = await restore_from_upload(request, archive, force=_truthy(force))
+        outcome = await restore_from_upload(
+            request, archive, force=_truthy(force), guard_hint=OVERWRITE_CHECKBOX_HINT,
+        )
         if outcome.ok:
             return _render(request, report=outcome.report)
         return _render(request, status_code=outcome.status_code, form_errors=outcome.errors)
