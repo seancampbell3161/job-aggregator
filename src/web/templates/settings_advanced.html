@@ -1,0 +1,12 @@
+{% extends "settings_base.html" %}
+{% block section %}
+<ul class="group-list">
+  {% for g in groups %}
+  <li><a href="/settings/advanced/{{ g.key }}">{{ g.title }}</a>
+    <span class="field-meta">{{ g.fields|length }} settings</span>
+    {% set intro = group_intro(g.key) %}
+    {% if intro %}<p class="field-help">{{ intro|safe }}</p>{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endblock %}

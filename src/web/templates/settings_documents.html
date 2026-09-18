@@ -1,0 +1,17 @@
+{% extends "settings_base.html" %}
+{% block section %}
+<form method="get" action="/settings/documents" class="doc-picker">
+  <label>Document
+    <select name="kind" onchange="this.form.submit()">
+      {% for k in kinds %}
+      <option value="{{ k }}" {% if k == kind %}selected{% endif %}>{{ k }}</option>
+      {% endfor %}
+    </select></label>
+  <noscript><button type="submit" class="btn small">Open</button></noscript>
+</form>
+<form method="post" action="/settings/documents">
+  <input type="hidden" name="kind" value="{{ kind }}">
+  <textarea name="body" rows="24" class="doc-edit">{{ body }}</textarea>
+  <button type="submit" class="btn primary">Save document</button>
+</form>
+{% endblock %}

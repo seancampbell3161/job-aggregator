@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% import "_settings_macros.html" as w %}
+{% block content %}
+<h1 class="page-title">Settings</h1>
+<div class="settings">
+  <nav class="settings-nav">
+    {% for s in sections %}
+    <a href="/settings/{{ s.slug }}"
+       class="{% if s.slug == section.slug.split('/')[0] %}on{% endif %}">{{ s.title }}</a>
+    {% endfor %}
+  </nav>
+  <div class="settings-pane">
+    <h2>{{ section.title }}</h2>
+    {% if section.blurb %}<p class="muted">{{ section.blurb }}</p>{% endif %}
+    {% if saved %}<p class="ok">Saved — running live, no restart needed.</p>{% endif %}
+    {% for msg in form_errors %}<p class="bad">{{ msg }}</p>{% endfor %}
+    {% block section %}{% endblock %}
+  </div>
+</div>
+<script>
+  // Chip lists need no JS to work — blank inputs are dropped on save — this
+  // just saves a round trip when adding several at once.
+  function addChip(btn) {
+    var box = btn.previousElementSibling;
+    var last = box.lastElementChild;
+    var copy = last.cloneNode();
+    copy.value = '';
+    box.appendChild(copy);
+    copy.focus();
+  }
+</script>
+{% endblock %}
