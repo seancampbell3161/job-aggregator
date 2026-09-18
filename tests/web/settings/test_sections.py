@@ -1,8 +1,9 @@
 """The partition: every editable path belongs to exactly one place."""
+from src.settings.boards import BOARD_FAMILIES
 from src.settings.fields import KIND_ROWS, editable_fields, field_map
 from src.web.settings.sections import (
-    SECTIONS, UNCLAIMED_SECRETS, advanced_group, advanced_groups, section_by_slug,
-    section_fields,
+    GROUP_TITLES, SECTIONS, UNCLAIMED_SECRETS, advanced_group, advanced_groups,
+    section_by_slug, section_fields,
 )
 
 
@@ -49,12 +50,27 @@ def test_a_fully_claimed_key_has_no_advanced_group():
     assert "filters" not in {g.key for g in advanced_groups()}
 
 
-def test_structured_source_families_appear_as_rows_in_advanced():
-    sources = advanced_group("sources")
-    workday = next(f for f in sources.fields if f.path == "sources.workday")
-    assert workday.kind == KIND_ROWS
-    greenhouse = next(f for f in sources.fields if f.path == "sources.greenhouse")
-    assert greenhouse.kind != KIND_ROWS
+def test_companies_claims_every_source_family():
+    companies = section_by_slug("companies")
+    assert set(companies.paths) == {f"sources.{f}" for f in BOARD_FAMILIES}
+
+
+def test_advanced_sources_keeps_only_the_aggregator_feeds():
+    left = {f.path for f in advanced_group("sources").fields}
+    assert not any(p == f"sources.{f}" for f in BOARD_FAMILIES for p in left)
+    assert "sources.hiringcafe.enabled" in left
+    assert "sources.adzuna.countries" in left
+
+
+def test_the_leftover_sources_group_is_renamed_for_what_it_holds():
+    assert GROUP_TITLES["sources"] == "Aggregators"
+    assert advanced_group("sources").title == "Aggregators"
+
+
+def test_history_and_backup_claim_nothing():
+    for slug in ("history", "backup"):
+        section = section_by_slug(slug)
+        assert section.paths == () and section.secrets == ()
 
 
 def test_section_fields_are_returned_in_claim_order():
@@ -62,9 +78,9 @@ def test_section_fields_are_returned_in_claim_order():
     assert [f.path for f in section_fields(filters)] == list(filters.paths)
 
 
-def test_nav_order_starts_at_overview_and_ends_at_advanced():
+def test_nav_order_starts_at_overview_and_ends_at_backup():
     assert SECTIONS[0].slug == "overview"
-    assert SECTIONS[-1].slug == "advanced"
+    assert SECTIONS[-1].slug == "backup"
 
 
 def test_secret_claims_are_real_secret_names():
@@ -79,3 +95,27 @@ def test_every_secret_is_claimed_or_explicitly_exempt():
     claimed = {name for s in SECTIONS for name in s.secrets}
     assert claimed | UNCLAIMED_SECRETS == set(Secrets.model_fields)
     assert not (claimed & UNCLAIMED_SECRETS)
+
+
+def _app(tmp_path, monkeypatch, service=None):
+    """Create a test app with optional service. Used for testing section saves."""
+    from src.web.app import create_app
+    from tests.settings_helpers import WEB_TEST_SETTINGS, make_service
+
+    monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
+    return create_app(service=service if service is not None else make_service(WEB_TEST_SETTINGS))
+
+
+def test_a_bare_post_to_companies_writes_nothing(tmp_path, monkeypatch):
+    from tests.auth_helpers import signed_in_client
+    from tests.settings_helpers import make_service
+
+    service = make_service({"sources": {"greenhouse": ["acme"],
+                                        "workday": [{"tenant": "m", "region": "wd1",
+                                                     "site": "External"}]}})
+    app = _app(tmp_path, monkeypatch, service)
+    signed_in_client(app).post("/settings/companies", data={})
+    cfg = app.state.service.snapshot().cfg
+    assert cfg.sources.greenhouse == ["acme"]
+    assert len(cfg.sources.workday) == 1

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field as dc_field
 
+from src.settings.boards import BOARD_FAMILIES
 from src.settings.fields import FieldSpec, editable_fields, field_map
 
 
@@ -96,12 +97,28 @@ SECTIONS: tuple[Section, ...] = (
         ),
     ),
     Section(
+        slug="companies", title="Companies", template="settings_companies.html",
+        blurb=(
+            "Every company board this instance polls directly. Add one by "
+            "pasting its careers page; discovery finds more on its own."
+        ),
+        paths=tuple(f"sources.{family}" for family in BOARD_FAMILIES),
+    ),
+    Section(
         slug="documents", title="Documents", template="settings_documents.html",
         blurb="Résumé and apply-kit data the tailoring features read.",
     ),
     Section(
         slug="advanced", title="Advanced", template="settings_advanced.html",
         blurb="Every remaining flag, generated from the settings model.",
+    ),
+    Section(
+        slug="history", title="History", template="settings_history.html",
+        blurb="Every saved version of these settings, and how to go back.",
+    ),
+    Section(
+        slug="backup", title="Backup", template="settings_backup.html",
+        blurb="Download everything as a file, or restore from one.",
     ),
 )
 
@@ -112,6 +129,11 @@ CLAIMED_PATHS: frozenset[str] = frozenset(p for s in SECTIONS for p in s.paths)
 # invalidate every deep link already sent to the user's phone, so it stays
 # CLI-only by design. The rest are claimed by the integrations section.
 UNCLAIMED_SECRETS: frozenset[str] = frozenset({"tailor_signing_secret"})
+
+# An Advanced group is titled after its config key, which stops being
+# descriptive when a hand-built section claims most of the key. `sources` keeps
+# only the aggregator feeds once Companies claims the sixteen board families.
+GROUP_TITLES: dict[str, str] = {"sources": "Aggregators"}
 
 _BY_SLUG = {s.slug: s for s in SECTIONS}
 
@@ -140,7 +162,11 @@ def _groups() -> tuple[AdvancedGroup, ...]:
             continue
         buckets.setdefault(spec.root, []).append(spec)
     return tuple(
-        AdvancedGroup(key=key, title=key.replace("_", " ").capitalize(), fields=tuple(specs))
+        AdvancedGroup(
+            key=key,
+            title=GROUP_TITLES.get(key, key.replace("_", " ").capitalize()),
+            fields=tuple(specs),
+        )
         for key, specs in buckets.items()
     )
 
