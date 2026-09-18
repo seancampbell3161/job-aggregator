@@ -37,6 +37,21 @@ EDITABLE_KINDS: tuple[str, ...] = tuple(k for k in DOCUMENT_KINDS if k != "profi
 # typo fails silently until the feature breaks.
 _MASKED_SECRET_SUFFIXES = ("_key", "_password", "_secret")
 
+# The {probe} URL slug -> (secret it tests, probe to run). Each value is a
+# lambda, not the bare function, so every call looks `probe_ntfy` /
+# `probe_discord` up on this module fresh — that's what lets tests
+# monkeypatch `src.web.settings.routes.probe_ntfy` and have it take effect
+# here. This is the single source of truth for the probe mapping: page_ctx's
+# probe_targets (secret -> slug, for the per-secret Test button) is derived
+# from it below rather than hand-kept as its own inverse, so the two can
+# never drift apart.
+_SINK_PROBES = {
+    "ntfy": ("ntfy_topic_url", lambda url: probe_ntfy(url)),
+    "discord": ("discord_webhook_url", lambda url: probe_discord(url)),
+    "ops_ntfy": ("ops_ntfy_topic_url", lambda url: probe_ntfy(url)),
+    "ops_discord": ("ops_discord_webhook_url", lambda url: probe_discord(url)),
+}
+
 
 def secret_rows(service, names) -> list[dict]:
     """{name, source, env_var, label, masked} for each of a section's secrets
@@ -73,13 +88,12 @@ def page_ctx(request: Request, section, **extra) -> dict:
         "form_errors": [],
         "saved": False,
         "submitted": None,
-        # Secret name -> the {probe} slug it tests, for the notifications and
-        # integrations templates' per-secret Test buttons. A secret with no
-        # entry here (most of them) simply renders no button.
-        "probe_targets": {
-            "ntfy_topic_url": "ntfy", "discord_webhook_url": "discord",
-            "ops_ntfy_topic_url": "ops_ntfy", "ops_discord_webhook_url": "ops_discord",
-        },
+        # Secret name -> the {probe} slug it tests, for secret_field's
+        # per-secret Test button — derived from _SINK_PROBES above so this
+        # can't drift out of sync with it. A secret with no entry here (most
+        # of them, including every secret integrations and llm own) simply
+        # renders no button.
+        "probe_targets": {secret: slug for slug, (secret, _fn) in _SINK_PROBES.items()},
     }
     ctx.update(extra)
     return ctx
@@ -278,24 +292,17 @@ def register_settings_routes(app: FastAPI) -> None:
         # document), so the probe re-attaches the effective ones: what's
         # already in effect (env, else stored) for every secret this section
         # owns, overlaid with whatever the form has typed but not yet saved.
-        to_set, _ = decode_secrets(section.secrets, raw, service.secret_source)
+        to_set, to_clear = decode_secrets(section.secrets, raw, service.secret_source)
         effective = {name: service.effective_secret(name) for name in section.secrets}
         effective.update(to_set)
+        # A pending "clear" checkbox is what Save will actually do to this
+        # secret — the probe must reflect that too, or ticking clear and
+        # pressing Test reports green off the still-stored value.
+        for name in to_clear:
+            effective[name] = ""
         cfg = cfg.model_copy(update={"secrets": Secrets(**effective)})
         result = await probe_llm(cfg, snap.documents.profile)
         return _probe_partial(request, result)
-
-    # The {probe} URL slug -> (secret it tests, probe to run). Each value is a
-    # lambda, not the bare function, so every call looks `probe_ntfy` /
-    # `probe_discord` up on this module fresh — that's what lets tests
-    # monkeypatch `src.web.settings.routes.probe_ntfy` and have it take
-    # effect here.
-    _SINK_PROBES = {
-        "ntfy": ("ntfy_topic_url", lambda url: probe_ntfy(url)),
-        "discord": ("discord_webhook_url", lambda url: probe_discord(url)),
-        "ops_ntfy": ("ops_ntfy_topic_url", lambda url: probe_ntfy(url)),
-        "ops_discord": ("ops_discord_webhook_url", lambda url: probe_discord(url)),
-    }
 
     @app.post("/settings/notifications/test/{probe}", response_class=HTMLResponse)
     async def notifications_test(request: Request, probe: str):

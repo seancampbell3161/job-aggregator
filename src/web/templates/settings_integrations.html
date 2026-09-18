@@ -3,7 +3,10 @@
 {% block section %}
 <form method="post" action="/settings/integrations">
   {% for s in secrets %}
-    {{ w.secret_field(s, errors, probe_targets) }}
+    {# No secret this section owns is a probe target (see probe_targets in
+       routes.py), so this prefix is never actually used — but the macro
+       argument is required, so it must still be passed explicitly. #}
+    {{ w.secret_field(s, errors, probe_targets, "") }}
   {% endfor %}
 
   <button type="submit" class="btn primary">Save integrations</button>

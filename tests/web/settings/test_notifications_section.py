@@ -193,6 +193,22 @@ def test_a_bad_stored_url_reports_instead_of_500ing_on_the_fallback_path(
     assert "does not look like a url" in r.text.lower()
 
 
+def test_a_new_sink_probe_registration_automatically_gets_a_test_button(tmp_path, monkeypatch):
+    """probe_targets (secret -> slug, read by the template) must be derived
+    from _SINK_PROBES (slug -> secret, read by the route), not a second
+    hand-maintained mirror of it — otherwise a probe registered in one place
+    silently gets no button, or a button that 404s. Registering a new probe
+    only in _SINK_PROBES must be enough for its button to appear."""
+    import src.web.settings.routes as routes
+
+    app = _app(tmp_path, monkeypatch)
+    monkeypatch.setitem(routes._SINK_PROBES, "heartbeat",
+                        ("heartbeat_url", lambda url: routes.probe_ntfy(url)))
+    r = signed_in_client(app).get("/settings/notifications")
+    assert r.status_code == 200
+    assert 'hx-post="/settings/notifications/test/heartbeat"' in r.text
+
+
 def test_saving_an_untouched_quiet_hours_form_twice_writes_one_version(tmp_path, monkeypatch):
     """Regression: value_at() used to render a stored time as "HH:MM:SS"
     while <input type="time"> submits "HH:MM" — they never compared equal,

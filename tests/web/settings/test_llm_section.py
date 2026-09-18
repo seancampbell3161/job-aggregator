@@ -101,6 +101,26 @@ def test_test_button_returns_a_partial(tmp_path, monkeypatch):
     assert "<html" not in r.text.lower()  # a partial, not a page
 
 
+def test_test_button_honours_a_pending_clear(tmp_path, monkeypatch):
+    """Tick "clear" on the API key and press Test: the probe must see the
+    key as cleared (what Save will actually do to it), not the value still
+    sitting in storage — otherwise Test reports green on a key that's about
+    to be deleted the moment the user presses Save."""
+    service = make_service(WEB_TEST_SETTINGS, secrets={"anthropic_api_key": "sk-old"})
+    app = _app(tmp_path, monkeypatch, service)
+    seen = {}
+
+    async def fake_probe(cfg, profile):
+        from src.web.settings.probes import ProbeResult
+        seen["key"] = cfg.secrets.anthropic_api_key
+        return ProbeResult(True, "ok")
+
+    monkeypatch.setattr("src.web.settings.routes.probe_llm", fake_probe)
+    signed_in_client(app).post(
+        "/settings/llm/test/llm", data={**FORM, "clear.anthropic_api_key": "on"})
+    assert seen["key"] == ""
+
+
 def test_test_button_does_not_save(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
     before = app.state.service.current_config()[0]

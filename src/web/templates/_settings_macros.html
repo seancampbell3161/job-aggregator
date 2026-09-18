@@ -16,8 +16,8 @@
   <button type="button" class="btn small" onclick="addChip(this)">+ add another</button>
 {% endmacro %}
 
-{% macro secret_field(s, errors, probe_targets, test_prefix="") %}
-<div class="field {{ 'has-error' if s.name in errors }}">
+{% macro secret_field(s, errors, probe_targets, test_prefix) %}
+<div class="field">
   <label class="field-label" for="s-{{ s.name }}">{{ s.label }}
     <span class="field-meta">{{ s.source }}</span></label>
   {% if s.source == 'env' %}
