@@ -1,5 +1,5 @@
 """The partition: every editable path belongs to exactly one place."""
-from src.settings.fields import KIND_READ_ONLY, editable_fields, field_map
+from src.settings.fields import KIND_ROWS, editable_fields, field_map
 from src.web.settings.sections import (
     SECTIONS, UNCLAIMED_SECRETS, advanced_group, advanced_groups, section_by_slug,
     section_fields,
@@ -49,12 +49,12 @@ def test_a_fully_claimed_key_has_no_advanced_group():
     assert "filters" not in {g.key for g in advanced_groups()}
 
 
-def test_structured_source_families_appear_read_only_in_advanced():
+def test_structured_source_families_appear_as_rows_in_advanced():
     sources = advanced_group("sources")
     workday = next(f for f in sources.fields if f.path == "sources.workday")
-    assert workday.kind == KIND_READ_ONLY
+    assert workday.kind == KIND_ROWS
     greenhouse = next(f for f in sources.fields if f.path == "sources.greenhouse")
-    assert greenhouse.kind != KIND_READ_ONLY
+    assert greenhouse.kind != KIND_ROWS
 
 
 def test_section_fields_are_returned_in_claim_order():

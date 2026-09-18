@@ -1,9 +1,13 @@
 """The AppConfig walker that both the settings UI and the docs guard read."""
+import pytest
+
 from src.settings.fields import (
     KIND_BOOL, KIND_CHIPS, KIND_CHOICE, KIND_INT, KIND_MULTI_CHOICE,
-    KIND_READ_ONLY, KIND_TEXT, KIND_TIME,
-    all_paths, editable_fields, field_map, optional_groups,
+    KIND_READ_ONLY, KIND_ROWS, KIND_TEXT, KIND_TIME,
+    all_paths, editable_fields, field_map, item_fields, item_model, optional_groups,
+    rows_paths,
 )
+from src.config import HiringCafeSearch, WorkdayTenant
 
 
 def test_scalar_kinds_and_bounds():
@@ -48,12 +52,70 @@ def test_list_defaults_are_immutable_tuples():
     assert m["sources.greenhouse"].default == ()
 
 
-def test_list_of_model_is_read_only():
-    assert field_map()["sources.workday"].kind == KIND_READ_ONLY
+def test_list_of_model_is_rows():
+    assert field_map()["sources.workday"].kind == KIND_ROWS
 
 
-def test_mixed_list_is_read_only():
-    assert field_map()["sources.hiringcafe.extra_queries"].kind == KIND_READ_ONLY
+def test_mixed_str_or_model_list_is_rows():
+    assert field_map()["sources.hiringcafe.extra_queries"].kind == KIND_ROWS
+
+
+def test_every_structured_source_family_is_rows():
+    families = ("workday", "oraclecloud", "eightfold", "jsonld_boards",
+                "phenom", "taleo", "avature")
+    for family in families:
+        assert field_map()[f"sources.{family}"].kind == KIND_ROWS, family
+
+
+def test_slug_families_are_still_chips():
+    assert field_map()["sources.greenhouse"].kind != KIND_ROWS
+
+
+def test_nothing_is_read_only_any_more():
+    """KIND_READ_ONLY survives as a concept for a shape nothing handles;
+    AppConfig has no such field today. If this fails, a new field was added
+    that the row editor cannot render — decide deliberately, don't delete it."""
+    assert [f.path for f in field_map().values() if f.kind == KIND_READ_ONLY] == []
+
+
+def test_item_model_is_the_element_type():
+    assert item_model("sources.workday") is WorkdayTenant
+    assert item_model("sources.hiringcafe.extra_queries") is HiringCafeSearch
+    assert item_model("sources.greenhouse") is None
+
+
+def test_item_fields_are_item_relative():
+    specs = item_fields("sources.workday")
+    assert [s.path for s in specs] == ["tenant", "region", "site"]
+    assert all(s.kind == KIND_TEXT for s in specs)
+
+
+def test_item_fields_carry_optionality_and_choices():
+    eightfold = {s.path: s for s in item_fields("sources.eightfold")}
+    assert eightfold["company"].optional is True
+    assert eightfold["flavor"].kind == KIND_CHOICE
+    assert eightfold["flavor"].choices == ("pcsx", "apply_v2")
+    assert eightfold["flavor"].default == "pcsx"
+
+
+def test_rows_paths_lists_every_rows_field():
+    paths = rows_paths()
+    assert "sources.taleo" in paths
+    assert "sources.hiringcafe.extra_queries" in paths
+    assert "sources.lever" not in paths
+
+
+def test_a_chips_path_has_one_synthetic_item_field():
+    """A slug family is a list of one-field rows, so the Companies page can
+    remove a Greenhouse slug through the same editor as a Workday tenant."""
+    specs = item_fields("sources.greenhouse")
+    assert [s.path for s in specs] == ["value"]
+    assert specs[0].kind == KIND_TEXT
+
+
+def test_item_fields_refuses_a_path_that_is_neither():
+    with pytest.raises(KeyError):
+        item_fields("relevance.score_low")
 
 
 def test_optional_scalar_is_marked_optional():

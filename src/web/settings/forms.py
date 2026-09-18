@@ -8,7 +8,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from src.settings.errors import SettingsInvalid
 from src.settings.fields import (
-    KIND_BOOL, KIND_CHIPS, KIND_INT, KIND_MULTI_CHOICE, KIND_READ_ONLY, FieldSpec,
+    KIND_BOOL, KIND_CHIPS, KIND_INT, KIND_MULTI_CHOICE, NON_FORM_KINDS, FieldSpec,
 )
 
 # An optional group (quiet_hours) renders an enable checkbox under this name.
@@ -43,7 +43,7 @@ def decode(
     errors: list[dict] = []
 
     for spec in fields:
-        if not spec.editable or spec.kind == KIND_READ_ONLY:
+        if not spec.editable or spec.kind in NON_FORM_KINDS:
             continue
         if any(spec.path == g or spec.path.startswith(g + ".") for g in disabled):
             continue  # the whole group is being removed

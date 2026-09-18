@@ -41,16 +41,6 @@ def test_chips_value_is_autoescaped(tmp_path, monkeypatch):
     assert "&lt;script&gt;" in html
 
 
-def test_read_only_renders_pointer_text_and_no_input_for_its_path(tmp_path, monkeypatch):
-    spec = field_map()["sources.workday"]
-    assert spec.kind == "read_only"
-    html = str(_macros(tmp_path, monkeypatch).field(spec, [], {}))
-    assert "configured" in html
-    assert "python -m src.settings add-source" in html
-    assert f'name="{spec.path}"' not in html
-    assert "<input" not in html
-
-
 def test_help_disclosure_appears_when_full_differs_from_summary(tmp_path, monkeypatch):
     """Correction 2: the <details>/<summary> disclosure, no onclick JS."""
     html = str(_macros(tmp_path, monkeypatch).help_for("filters.max_age_days"))

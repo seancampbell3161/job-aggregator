@@ -12,7 +12,7 @@ from src.config import Secrets
 from src.settings.documents import DOCUMENT_KINDS
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import (
-    KIND_BOOL, KIND_CHIPS, KIND_MULTI_CHOICE, KIND_READ_ONLY, optional_groups, value_at,
+    KIND_BOOL, KIND_CHIPS, KIND_MULTI_CHOICE, NON_FORM_KINDS, optional_groups, value_at,
 )
 from src.settings.help import field_help, group_intro
 from src.settings.service import canonical_doc, secret_env_var
@@ -108,9 +108,10 @@ def _render(request: Request, section, **extra) -> HTMLResponse:
 def shown(ctx_submitted, cfg, spec):
     """What an input should display: what the user typed if this render follows
     a failed save, otherwise the stored value."""
-    # A read-only field is never submitted, so echoing the form would render it
-    # as empty after a failed save. Always read those from the config.
-    if ctx_submitted is None or spec.kind == KIND_READ_ONLY:
+    # A read-only or rows field is never submitted by a section form, so
+    # echoing the form would render it as empty after a failed save. Always
+    # read those from the config.
+    if ctx_submitted is None or spec.kind in NON_FORM_KINDS:
         return value_at(cfg, spec.path)
     values = ctx_submitted.get(spec.path, [])
     if spec.kind in (KIND_CHIPS, KIND_MULTI_CHOICE):

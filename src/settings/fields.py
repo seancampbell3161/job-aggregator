@@ -26,6 +26,13 @@ KIND_CHOICE = "choice"
 KIND_MULTI_CHOICE = "multi_choice"
 KIND_CHIPS = "chips"
 KIND_READ_ONLY = "read_only"
+KIND_ROWS = "rows"
+
+# Kinds a section form neither submits nor decodes: a rows field is edited
+# through its own routes (src/web/settings/rows.py), and a read_only field is
+# not editable at all. Both must be read from the config when rendering, and
+# skipped when decoding, or a section save would blank them.
+NON_FORM_KINDS: tuple[str, ...] = (KIND_READ_ONLY, KIND_ROWS)
 
 # Walked (so the docs guard sees them) but never offered as a settings input:
 # secrets are not part of the settings document at all — they are written with
@@ -126,7 +133,23 @@ def _list_kind(ann: Any) -> tuple[str, tuple[str, ...]]:
         return KIND_MULTI_CHOICE, tuple(str(c) for c in get_args(item))
     if item is str:
         return KIND_CHIPS, ()
-    return KIND_READ_ONLY, ()  # list[Model], or a mixed union — 3b territory
+    if _item_model_in(item) is not None:
+        # list[Model] and list[str | Model] alike: rendered as addressable rows
+        # built from the element model's own fields.
+        return KIND_ROWS, ()
+    return KIND_READ_ONLY, ()  # a shape nothing else handles yet
+
+
+def _item_model_in(ann: Any) -> type[BaseModel] | None:
+    """The BaseModel in a list element annotation: Model, or str | Model."""
+    ann = _resolve(ann)
+    if _is_model(ann):
+        return ann
+    for arg in get_args(ann):
+        found = _item_model_in(_resolve(arg))
+        if found is not None:
+            return found
+    return None
 
 
 def _walk(model: type[BaseModel], prefix: str = "") -> Iterator[FieldSpec]:
@@ -222,3 +245,59 @@ def optional_groups() -> frozenset[str]:
 
     scan(AppConfig)
     return frozenset(out)
+
+
+@lru_cache(maxsize=1)
+def _item_models() -> dict[str, type[BaseModel]]:
+    """Every rows path -> its element model. Built by re-walking AppConfig;
+    _walk itself yields leaves, which is why the annotation is recovered here
+    rather than stored on FieldSpec (FieldSpec stays JSON-simple data)."""
+    out: dict[str, type[BaseModel]] = {}
+
+    def scan(model: type[BaseModel], prefix: str = "") -> None:
+        for name, field in model.model_fields.items():
+            path = f"{prefix}{name}"
+            ann, _ = _unwrap_optional(_resolve(field.annotation))
+            ann = _resolve(ann)
+            if _is_model(ann):
+                scan(ann, f"{path}.")
+                continue
+            if get_origin(ann) is list:
+                (item,) = get_args(ann) or (str,)
+                found = _item_model_in(_resolve(item))
+                if found is not None:
+                    out[path] = found
+
+    scan(AppConfig)
+    return out
+
+
+def item_model(path: str) -> type[BaseModel] | None:
+    """The element model of a rows path; None for any other path."""
+    return _item_models().get(path)
+
+
+SCALAR_ITEM_FIELD = "value"
+
+
+@lru_cache(maxsize=None)
+def item_fields(path: str) -> tuple[FieldSpec, ...]:
+    """One FieldSpec per leaf of a rows path's element model, with paths
+    relative to the item ("tenant", not "sources.workday.tenant") — so the row
+    form names inputs `item.<field>` and decoding is the same dict lookup a
+    section does.
+
+    A chips path (a list of plain strings) answers with one synthetic field,
+    so a slug family can be edited row-by-row like a structured one."""
+    model = item_model(path)
+    if model is not None:
+        return tuple(_walk(model))
+    spec = field_map().get(path)
+    if spec is not None and spec.kind == KIND_CHIPS:
+        return (FieldSpec(path=SCALAR_ITEM_FIELD, kind=KIND_TEXT),)
+    raise KeyError(f"{path} is not a list field")
+
+
+@lru_cache(maxsize=1)
+def rows_paths() -> frozenset[str]:
+    return frozenset(p for p, f in field_map().items() if f.kind == KIND_ROWS)

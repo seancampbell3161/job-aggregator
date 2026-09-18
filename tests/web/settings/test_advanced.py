@@ -48,14 +48,6 @@ def test_slug_source_families_are_editable(tmp_path, monkeypatch):
     assert 'name="sources.greenhouse"' in r.text
 
 
-def test_structured_families_render_read_only(tmp_path, monkeypatch):
-    service = make_service({**WEB_TEST_SETTINGS, "sources": {"workday": [
-        {"tenant": "acme", "region": "wd1", "site": "External"}]}})
-    r = signed_in_client(_app(tmp_path, monkeypatch, service)).get("/settings/advanced/sources")
-    assert 'name="sources.workday"' not in r.text
-    assert "add-source" in r.text
-
-
 def test_saving_sources_does_not_wipe_structured_families(tmp_path, monkeypatch):
     service = make_service({**WEB_TEST_SETTINGS, "sources": {"workday": [
         {"tenant": "acme", "region": "wd1", "site": "External"}]}})
@@ -64,7 +56,7 @@ def test_saving_sources_does_not_wipe_structured_families(tmp_path, monkeypatch)
                                data={"sources.greenhouse": ["stripe"]})
     cfg = app.state.service.snapshot().cfg
     assert cfg.sources.greenhouse == ["stripe"]
-    assert len(cfg.sources.workday) == 1  # read-only fields are never patched
+    assert len(cfg.sources.workday) == 1  # rows fields are never patched by a section form
 
 
 def test_unknown_group_is_404(tmp_path, monkeypatch):
