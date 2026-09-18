@@ -4,6 +4,8 @@
 <p>This instance has no settings yet. Settings, your profile, résumé data, and
 secrets live in the app database — changes apply live, no restart.</p>
 
+{% for msg in errors %}<p class="bad">{{ msg }}</p>{% endfor %}
+
 <section class="panel">
   <h2>Start from defaults</h2>
   <p>Creates an empty settings version and opens Settings. Nothing is polled
@@ -11,6 +13,18 @@ secrets live in the app database — changes apply live, no restart.</p>
     target — the Overview page tracks what is still missing.</p>
   <form method="post" action="/setup/start">
     <button type="submit" class="btn primary">Start from defaults</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Restore from a backup</h2>
+  <p>Restores settings, your profile, and résumé documents from a downloaded
+    backup (.zip). Secrets — the ntfy topic, Discord webhook, and API keys —
+    are never included in a backup; set them again on the Notifications and
+    LLM pages afterwards.</p>
+  <form method="post" action="/setup/restore" enctype="multipart/form-data">
+    <p><input type="file" name="archive" accept=".zip" required></p>
+    <button type="submit" class="btn primary">Restore from backup</button>
   </form>
 </section>
 

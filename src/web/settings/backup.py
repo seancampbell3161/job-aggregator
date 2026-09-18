@@ -45,6 +45,7 @@ single-operator settings page."""
 from __future__ import annotations
 
 import tempfile
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -97,6 +98,64 @@ def _truthy(value: str) -> bool:
     return value.strip().lower() in ("on", "true", "1", "yes")
 
 
+@dataclass
+class RestoreOutcome:
+    """What restore_from_upload produced: either ``ok`` with the
+    ``ImportReport`` both callers can show, or not, with the HTTP status and
+    messages each caller renders on its own page (/settings/backup/import's
+    settings-shell template vs. /setup/restore's setup page)."""
+    ok: bool
+    status_code: int = 200
+    report: ImportReport | None = None
+    errors: list[str] = field(default_factory=list)
+
+
+async def restore_from_upload(request: Request, archive: UploadFile, *, force: bool) -> RestoreOutcome:
+    """The one implementation of "take an uploaded archive and import it":
+    a bounded read (413 past MAX_UPLOAD_BYTES), extraction into a fresh
+    tempfile.TemporaryDirectory(), import_dir run off the event loop, and the
+    failure mapping below. Always passes trust_paths=False — see this
+    module's docstring for why an uploaded archive can never be trusted the
+    way the CLI's own `settings import` trusts a path on the operator's own
+    shell. Both /settings/backup/import (a configured instance restoring over
+    itself) and /setup/restore (an unconfigured instance's first import) call
+    this rather than each running their own read/extract/import pipeline."""
+    data, oversized = await _read_bounded(archive, MAX_UPLOAD_BYTES)
+    if oversized:
+        mb = MAX_UPLOAD_BYTES // (1024 * 1024)
+        return RestoreOutcome(ok=False, status_code=413, errors=[
+            f"That file is larger than the {mb} MB limit.",
+        ])
+
+    service = request.app.state.service
+
+    def do_import() -> ImportReport:
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            extract_upload(data, dest)
+            return import_dir(service, dest, force=force, trust_paths=False)
+
+    try:
+        report = await run_in_threadpool(do_import)
+    except ArchiveRejected as exc:
+        return RestoreOutcome(ok=False, status_code=400, errors=[str(exc)])
+    except ImportGuardRefused as exc:
+        # transfer._undone_changes_message ends at the "saved in:" rows
+        # (Ruling R13) — the closing instruction is this surface's own,
+        # not the CLI's "run export DIR / pass --force" (neither exists
+        # on this page).
+        return RestoreOutcome(ok=False, status_code=409, errors=[
+            f"{exc}\n\nNothing was written. Tick overwrite and upload again.",
+        ])
+    except ImportFailed as exc:
+        return RestoreOutcome(ok=False, status_code=400, errors=[str(exc)])
+    except SettingsInvalid as exc:
+        _, form_level = errors_by_path(exc, known=set())
+        return RestoreOutcome(ok=False, status_code=400, errors=form_level)
+
+    return RestoreOutcome(ok=True, report=report)
+
+
 def _render(request: Request, *, status_code: int = 200, **extra) -> HTMLResponse:
     section = section_by_slug("backup")
     return request.app.state.templates.TemplateResponse(
@@ -128,38 +187,7 @@ def register_backup_routes(app: FastAPI) -> None:
             return _render(request, status_code=400,
                             form_errors=["Choose a file to restore from."])
 
-        data, oversized = await _read_bounded(archive, MAX_UPLOAD_BYTES)
-        if oversized:
-            mb = MAX_UPLOAD_BYTES // (1024 * 1024)
-            return _render(request, status_code=413, form_errors=[
-                f"That file is larger than the {mb} MB limit.",
-            ])
-
-        service = request.app.state.service
-        force_flag = _truthy(force)
-
-        def do_import() -> ImportReport:
-            with tempfile.TemporaryDirectory() as tmp:
-                dest = Path(tmp)
-                extract_upload(data, dest)
-                return import_dir(service, dest, force=force_flag, trust_paths=False)
-
-        try:
-            report = await run_in_threadpool(do_import)
-        except ArchiveRejected as exc:
-            return _render(request, status_code=400, form_errors=[str(exc)])
-        except ImportGuardRefused as exc:
-            # transfer._undone_changes_message ends at the "saved in:" rows
-            # (Ruling R13) — the closing instruction is this surface's own,
-            # not the CLI's "run export DIR / pass --force" (neither exists
-            # on this page).
-            return _render(request, status_code=409, form_errors=[
-                f"{exc}\n\nNothing was written. Tick overwrite and upload again.",
-            ])
-        except ImportFailed as exc:
-            return _render(request, status_code=400, form_errors=[str(exc)])
-        except SettingsInvalid as exc:
-            _, form_level = errors_by_path(exc, known=set())
-            return _render(request, status_code=400, form_errors=form_level)
-
-        return _render(request, report=report)
+        outcome = await restore_from_upload(request, archive, force=_truthy(force))
+        if outcome.ok:
+            return _render(request, report=outcome.report)
+        return _render(request, status_code=outcome.status_code, form_errors=outcome.errors)

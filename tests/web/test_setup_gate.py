@@ -1,4 +1,6 @@
 """The not-set-up gate, per-request snapshots, and the degraded banner."""
+import io
+import zipfile
 from datetime import datetime, timezone
 
 from src.models import NormalizedPosting
@@ -150,3 +152,69 @@ def test_start_from_defaults_needs_a_session(tmp_path, monkeypatch):
     r = TestClient(app, follow_redirects=False).post("/setup/start")
     assert r.status_code == 401
     assert service.snapshot() is None
+
+
+def test_setup_offers_restore_from_a_backup(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch, make_service())
+    r = c.get("/setup")
+    assert "/setup/restore" in r.text
+    assert 'enctype="multipart/form-data"' in r.text
+
+
+def test_restoring_on_a_fresh_install_configures_it(tmp_path, monkeypatch):
+    from src.settings.archive import export_zip
+    blob = export_zip(make_service({"filters": {"titles": ["staff engineer"]}}),
+                      templates_dir=tmp_path / "none")
+    c = _client(tmp_path, monkeypatch, make_service())
+    r = c.post("/setup/restore", files={"archive": ("b.zip", blob, "application/zip")})
+    assert r.status_code == 303
+    assert r.headers["location"] == "/settings/overview"
+    assert c.app.state.service.snapshot().cfg.filters.titles == ["staff engineer"]
+
+
+def test_restore_is_rejected_once_the_instance_is_set_up(tmp_path, monkeypatch):
+    """/setup/restore is the fresh-install path; a configured instance must
+    use /settings/backup, which runs the import guard."""
+    c = _client(tmp_path, monkeypatch, make_service({"filters": {"titles": ["keep me"]}}))
+    empty_zip = b"PK\x05\x06" + b"\0" * 18
+    r = c.post("/setup/restore", files={"archive": ("b.zip", empty_zip, "application/zip")})
+    assert r.status_code == 303
+    assert r.headers["location"] == "/settings/backup"
+    assert c.app.state.service.snapshot().cfg.filters.titles == ["keep me"]
+
+
+def test_a_bad_archive_on_setup_reports_and_leaves_it_unconfigured(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch, make_service())
+    r = c.post("/setup/restore", files={"archive": ("b.zip", b"nope", "application/zip")})
+    assert r.status_code == 400
+    assert "zip" in r.text.lower()
+    assert c.app.state.service.snapshot() is None
+
+
+def test_setup_restore_ignores_an_absolute_legacy_path(tmp_path, monkeypatch):
+    """Same R11 guard as /settings/backup/import
+    (test_an_absolute_legacy_path_key_is_ignored_not_read in
+    tests/web/settings/test_backup.py), reached through the fresh-install
+    route instead: /setup/restore is an upload too, so a config.yaml smuggled
+    inside the archive that points relevance.profile_path at a file on the
+    server must be ignored, not read into the profile document, even though
+    this instance has never been configured before. If /setup/restore ever
+    called import_dir directly with trust_paths defaulting to True instead of
+    going through the shared restore_from_upload helper, this would read the
+    secret file's contents into the profile document."""
+    secret = tmp_path / "outside-the-archive-secret.txt"
+    secret.write_text("TOP-SECRET-SERVER-FILE-CONTENTS")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr(
+            "config.yaml",
+            f"filters:\n  titles: [staff engineer]\n"
+            f"relevance:\n  enabled: true\n  profile_path: {secret}\n",
+        )
+    c = _client(tmp_path, monkeypatch, make_service())
+    r = c.post("/setup/restore", files={"archive": ("b.zip", buf.getvalue(), "application/zip")})
+    assert r.status_code == 303
+    assert r.headers["location"] == "/settings/overview"
+    assert c.app.state.service.documents().profile is None
+    assert c.app.state.service.snapshot().cfg.filters.titles == ["staff engineer"]

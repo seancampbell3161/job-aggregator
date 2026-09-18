@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qs
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -161,6 +161,12 @@ def _setup_exempt(path: str) -> bool:
     return any(path == p or path.startswith(p + "/") for p in SETUP_EXEMPT_PREFIXES)
 
 
+def _setup_page(request: Request, *, status_code: int = 200, **extra) -> HTMLResponse:
+    return request.app.state.templates.TemplateResponse(
+        request, "setup.html", extra, status_code=status_code,
+    )
+
+
 def _register_setup_gate(app: FastAPI) -> None:
     """Take the request's settings snapshot — one per request, per the
     snapshot rule — and, until the instance is set up, send everything outside
@@ -180,7 +186,7 @@ def _register_setup_gate(app: FastAPI) -> None:
     def setup(request: Request):
         if request.state.snapshot is not None:
             return RedirectResponse("/", status_code=303)
-        return request.app.state.templates.TemplateResponse(request, "setup.html", {})
+        return _setup_page(request)
 
     @app.post("/setup/start")
     def setup_start(request: Request):
@@ -193,6 +199,40 @@ def _register_setup_gate(app: FastAPI) -> None:
         if request.state.snapshot is None:
             service.save_settings({}, source="ui", note="started from defaults")
         return RedirectResponse("/settings/filters", status_code=303)
+
+    @app.post("/setup/restore")
+    async def setup_restore(request: Request, archive: UploadFile | None = None):
+        """Restore a backup on a fresh install, with no shell needed.
+
+        Idempotent like setup_start above: if a settings version already
+        exists (two visitors racing this form, or someone reloading /setup
+        after another tab already restored), nothing is written here —
+        this redirects to /settings/backup instead, the configured
+        instance's own restore path, which runs the import guard rather than
+        silently clobbering whatever is already there. On success, redirects
+        to /settings/overview, the page that says what is still missing
+        (titles, a source, a notification target) rather than back to /,
+        which would 303 right back to /setup until those are added.
+
+        Reuses restore_from_upload (src/web/settings/backup.py) — the same
+        bounded-read / extract / import_dir(trust_paths=False) pipeline
+        /settings/backup/import uses — rather than a second copy of it, so an
+        uploaded config.yaml gets the same LEGACY_PATH_KEYS confinement
+        there: an absolute or archive-escaping legacy path is ignored (with a
+        warning), never read off this server's disk on the uploader's
+        behalf."""
+        from src.web.settings.backup import restore_from_upload
+
+        if request.state.snapshot is not None:
+            return RedirectResponse("/settings/backup", status_code=303)
+        if archive is None or not archive.filename:
+            return _setup_page(request, status_code=400,
+                                errors=["Choose a file to restore from."])
+
+        outcome = await restore_from_upload(request, archive, force=False)
+        if not outcome.ok:
+            return _setup_page(request, status_code=outcome.status_code, errors=outcome.errors)
+        return RedirectResponse("/settings/overview", status_code=303)
 
 
 def _ctx(request: Request, **extra) -> dict:
