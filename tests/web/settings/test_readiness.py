@@ -83,6 +83,20 @@ def test_unset_max_age_is_reported():
     assert "no_max_age" not in _check({"filters": {"max_age_days": 2}})
 
 
+def test_a_provider_missing_from_the_key_map_does_not_crash(monkeypatch):
+    """Adding a provider to relevance.provider's Literal in src/config.py
+    without a matching entry in readiness._PROVIDER_KEYS must not 500
+    /settings/overview — the page a first-time user's POST /setup/start
+    sends them to. Simulated by removing a known-good entry rather than by
+    constructing an out-of-Literal AppConfig (Pydantic would reject that)."""
+    from src.web.settings import readiness
+
+    monkeypatch.delitem(readiness._PROVIDER_KEYS, "anthropic")
+    doc = {"relevance": {"enabled": True, "provider": "anthropic"}}
+    codes = _check(doc)  # must not raise
+    assert "llm_no_key" not in codes  # can't check a key it doesn't know the name of
+
+
 def test_every_warning_points_at_a_real_section():
     from src.web.settings.sections import section_by_slug
     cfg = AppConfig.model_validate({"relevance": {"enabled": True}})

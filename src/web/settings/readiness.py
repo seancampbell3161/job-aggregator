@@ -64,9 +64,13 @@ def check(
             "notifications",
         ))
     if cfg.relevance.enabled:
-        key = _PROVIDER_KEYS[cfg.relevance.provider]
+        # .get(), not [] — a provider added to the Literal in src/config.py
+        # without a matching entry here must not 500 this page (it's where
+        # POST /setup/start sends a first-time user); skip the key check
+        # rather than guess which secret an unknown provider would need.
+        key = _PROVIDER_KEYS.get(cfg.relevance.provider)
         needs_key = not (cfg.relevance.provider == "ollama" and cfg.relevance.ollama_is_local)
-        if needs_key and not is_set(key):
+        if key is not None and needs_key and not is_set(key):
             out.append(Warning(
                 "llm_no_key",
                 f"Scoring is on with provider {cfg.relevance.provider}, but no "
