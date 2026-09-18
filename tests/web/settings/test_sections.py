@@ -1,10 +1,14 @@
 """The partition: every editable path belongs to exactly one place."""
+from src.config import Secrets
 from src.settings.boards import BOARD_FAMILIES
 from src.settings.fields import KIND_ROWS, editable_fields, field_map
+from src.web.app import create_app
 from src.web.settings.sections import (
     GROUP_TITLES, SECTIONS, UNCLAIMED_SECRETS, advanced_group, advanced_groups,
     section_by_slug, section_fields,
 )
+from tests.auth_helpers import signed_in_client
+from tests.settings_helpers import WEB_TEST_SETTINGS, make_service
 
 
 def test_no_path_is_claimed_by_two_sections():
@@ -84,14 +88,12 @@ def test_nav_order_starts_at_overview_and_ends_at_backup():
 
 
 def test_secret_claims_are_real_secret_names():
-    from src.config import Secrets
     for section in SECTIONS:
         unknown = set(section.secrets) - set(Secrets.model_fields)
         assert not unknown, f"{section.slug} claims unknown secrets: {sorted(unknown)}"
 
 
 def test_every_secret_is_claimed_or_explicitly_exempt():
-    from src.config import Secrets
     claimed = {name for s in SECTIONS for name in s.secrets}
     assert claimed | UNCLAIMED_SECRETS == set(Secrets.model_fields)
     assert not (claimed & UNCLAIMED_SECRETS)
@@ -99,23 +101,18 @@ def test_every_secret_is_claimed_or_explicitly_exempt():
 
 def _app(tmp_path, monkeypatch, service=None):
     """Create a test app with optional service. Used for testing section saves."""
-    from src.web.app import create_app
-    from tests.settings_helpers import WEB_TEST_SETTINGS, make_service
-
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
     return create_app(service=service if service is not None else make_service(WEB_TEST_SETTINGS))
 
 
-def test_a_bare_post_to_companies_writes_nothing(tmp_path, monkeypatch):
-    from tests.auth_helpers import signed_in_client
-    from tests.settings_helpers import make_service
-
+def test_a_bare_post_to_companies_returns_404(tmp_path, monkeypatch):
     service = make_service({"sources": {"greenhouse": ["acme"],
                                         "workday": [{"tenant": "m", "region": "wd1",
                                                      "site": "External"}]}})
     app = _app(tmp_path, monkeypatch, service)
-    signed_in_client(app).post("/settings/companies", data={})
+    r = signed_in_client(app).post("/settings/companies", data={})
+    assert r.status_code == 404
     cfg = app.state.service.snapshot().cfg
     assert cfg.sources.greenhouse == ["acme"]
     assert len(cfg.sources.workday) == 1

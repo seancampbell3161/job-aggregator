@@ -20,6 +20,7 @@ class Section:
     paths: tuple[str, ...] = ()
     secrets: tuple[str, ...] = ()
     blurb: str = ""
+    bulk_save: bool = True  # False: this section has no whole-page form; every write goes through its own routes
 
 
 SECTIONS: tuple[Section, ...] = (
@@ -103,6 +104,7 @@ SECTIONS: tuple[Section, ...] = (
             "pasting its careers page; discovery finds more on its own."
         ),
         paths=tuple(f"sources.{family}" for family in BOARD_FAMILIES),
+        bulk_save=False,  # Slug families (9) are KIND_CHIPS, not KIND_ROWS; structured families (7) are KIND_ROWS. Only KIND_ROWS are safe from form-based saves. Every write goes through row-specific routes, not generic bulk save.
     ),
     Section(
         slug="documents", title="Documents", template="settings_documents.html",

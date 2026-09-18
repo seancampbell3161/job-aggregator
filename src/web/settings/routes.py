@@ -355,4 +355,8 @@ def register_settings_routes(app: FastAPI) -> None:
         # integrations, saves through the same generic path.
         if section is None or not (section.paths or section.secrets):
             raise HTTPException(status_code=404)
+        # A section with bulk_save=False has no generic form save; every write
+        # goes through its own row-specific routes.
+        if not section.bulk_save:
+            raise HTTPException(status_code=404)
         return await save_section(request, section)
