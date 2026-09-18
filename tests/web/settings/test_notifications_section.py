@@ -50,12 +50,59 @@ def test_a_partial_quiet_hours_is_an_inline_error(tmp_path, monkeypatch):
     assert app.state.service.snapshot().cfg.quiet_hours is None
 
 
+def _quiet_hours_toggle_checked(html: str) -> bool:
+    """Whether the rendered "Enable quiet hours" checkbox came back checked —
+    inspects the actual <input> tag's attributes rather than searching the
+    whole page for the word "checked"."""
+    start = html.index('name="quiet_hours__enabled"')
+    end = html.index(">", start)
+    return "checked" in html[start:end]
+
+
 def test_a_bad_timezone_is_an_inline_error(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
     r = signed_in_client(app).post("/settings/notifications", data={
         **ON, "quiet_hours.timezone": "Mars/Olympus"})
     assert "quiet_hours.timezone" in r.text
     assert app.state.service.snapshot().cfg.quiet_hours is None
+    # Regression: the toggle used to read cfg.quiet_hours directly instead of
+    # echoing the submission, so a first-time enable that failed validation
+    # re-rendered the checkbox unchecked even though the user had just ticked
+    # it and the times/timezone around it echoed correctly.
+    assert _quiet_hours_toggle_checked(r.text)
+
+
+def test_fixing_a_bad_timezone_after_a_first_time_enable_still_saves_the_window(
+    tmp_path, monkeypatch,
+):
+    """End-to-end regression for the bug: step 1 submits a bad timezone (an
+    inline error); step 2 resubmits the form exactly AS A BROWSER WOULD
+    RENDER IT — the toggle checkbox is included only if step 1's response
+    rendered it checked. Before the fix, step 1 rendered it unchecked, so a
+    real browser's step-2 submission would send no
+    ``quiet_hours__enabled`` at all, decode() would read the group as
+    disabled, and the whole quiet-hours window would be silently discarded
+    even though the save appeared to succeed."""
+    app = _app(tmp_path, monkeypatch)
+    client = signed_in_client(app)
+
+    r1 = client.post("/settings/notifications", data={
+        **ON, "quiet_hours.timezone": "Mars/Olympus"})
+    assert r1.status_code == 200
+    assert app.state.service.snapshot().cfg.quiet_hours is None
+
+    step2 = {**ON, "quiet_hours.timezone": "America/Los_Angeles"}
+    if not _quiet_hours_toggle_checked(r1.text):
+        step2 = {k: v for k, v in step2.items() if k != "quiet_hours__enabled"}
+
+    r2 = client.post("/settings/notifications", data=step2)
+    assert r2.status_code == 200
+    assert "Saved" in r2.text
+
+    qh = app.state.service.snapshot().cfg.quiet_hours
+    assert qh is not None
+    assert str(qh.start) == "22:00:00"
+    assert str(qh.timezone) == "America/Los_Angeles"
 
 
 def test_a_stored_sink_url_never_leaks_even_after_a_failed_save(tmp_path, monkeypatch):
