@@ -62,6 +62,39 @@ def test_choice_passes_through():
     assert decode([spec], {"r.provider": ["gemini"]}) == {"r.provider": "gemini"}
 
 
+def test_absent_non_checkbox_field_is_omitted_from_the_patch():
+    """A text/int/chips input always sends its key when the page it's on is
+    submitted (even a blank chips field posts its trailing "add one…" input)
+    — so a path genuinely missing from `form` means this call wasn't given
+    that field's page at all, not "the user cleared it". Unlike a checkbox,
+    it must not appear in the patch."""
+    fields = [f("a.s", KIND_TEXT, default=""), f("a.other", KIND_TEXT, default="")]
+    assert decode(fields, {"a.other": ["x"]}) == {"a.other": "x"}
+
+
+def test_absent_checkbox_kinds_still_decode_to_cleared():
+    """The guarantee the absence fix had to preserve: a bool/multi_choice
+    field is a real checkbox, so HTML never sends its key when unchecked —
+    absence there still means "cleared", not "not submitted"."""
+    fields = [
+        f("discovery.enabled", KIND_BOOL, default=True),
+        f("f.seniority_allow", KIND_MULTI_CHOICE, default=["mid"],
+          choices=("junior", "mid", "senior")),
+    ]
+    assert decode(fields, {}) == {"discovery.enabled": False, "f.seniority_allow": []}
+
+
+def test_present_but_blank_chips_field_still_clears_to_empty():
+    """The distinction the whole fix rests on: *absent* means "not
+    submitted, leave it alone" (previous test); *present but blank* means
+    the user removed every chip and submitted the empty "add one…" input —
+    that must still clear the list. These two cases look identical in a
+    diff (both end up with no non-blank values) and behave oppositely."""
+    out = decode([f("s.greenhouse", KIND_CHIPS, default=["stripe"])],
+                 {"s.greenhouse": [""]})
+    assert out == {"s.greenhouse": []}
+
+
 def test_read_only_and_non_editable_fields_are_skipped():
     fields = [
         f("s.workday", KIND_READ_ONLY, default=[]),
