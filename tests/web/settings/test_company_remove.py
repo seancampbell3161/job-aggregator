@@ -110,8 +110,32 @@ def test_the_block_action_appends_to_blocked_companies(tmp_path, monkeypatch):
         "/settings/companies/block", data={"company": "Acme Inc"}, follow_redirects=False,
     )
     assert r.status_code == 303
-    assert r.headers["location"] == "/settings/companies?blocked=1"
+    # Whole-branch review, Important 4: the company name rides along in the
+    # query string (not a bare ?blocked=1) so the landing page can say WHICH
+    # company was blocked -- it has no other way to show it.
+    assert r.headers["location"] == "/settings/companies?blocked=Acme%20Inc"
     assert app.state.service.snapshot().cfg.filters.blocked_companies == ["Acme Inc"]
+
+
+def test_blocking_shows_a_confirmation_on_the_landing_page(tmp_path, monkeypatch):
+    """Whole-branch review, Important 4: every other successful write on
+    this branch redirects with a flag (?added=1, ?changed=1, ...) that
+    nothing reads, so settings_base.html's "Saved" banner never fires.
+    Blocking is the sharpest case -- landing on /settings/companies, which
+    doesn't render filters.blocked_companies, leaves no evidence anything
+    happened at all without this. Follows the real redirect rather than
+    asserting on the 303 alone, per the brief's own redirect-testing rule."""
+    app = _app(tmp_path, monkeypatch, {"sources": {"greenhouse": ["acme"]}})
+    client = signed_in_client(app)
+    r = client.post("/settings/companies/block", data={"company": "Acme Inc"}, follow_redirects=False)
+    landing = client.get(r.headers["location"])
+    assert landing.status_code == 200
+    assert "Blocked" in landing.text and "Acme Inc" in landing.text
+    # The generic "Saved — running live" banner is suppressed for this
+    # redirect (blocking has no other visible effect on this page) so it
+    # doesn't sit alongside the specific confirmation, implying two things
+    # happened.
+    assert "Saved — running live" not in landing.text
 
 
 def test_blocking_a_company_twice_writes_one_version(tmp_path, monkeypatch):

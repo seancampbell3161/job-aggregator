@@ -58,6 +58,11 @@ def test_add_writes_the_entry(tmp_path, monkeypatch):
     assert r.headers["location"].startswith("/settings/companies")
     tenants = [t.tenant for t in app.state.service.snapshot().cfg.sources.workday]
     assert tenants == ["acme"]
+    # Important 4 (whole-branch review): nothing used to read ?added=1 on
+    # the Companies page, so the "Saved" banner never fired for a board
+    # added through this generic route either.
+    landing = client.get(r.headers["location"])
+    assert "Saved — running live" in landing.text
 
 
 def test_a_successful_add_redirects_to_the_owning_advanced_group(tmp_path, monkeypatch):
@@ -71,6 +76,11 @@ def test_a_successful_add_redirects_to_the_owning_advanced_group(tmp_path, monke
     assert r.headers["location"] == "/settings/advanced/sources?added=1"
     queries = app.state.service.snapshot().cfg.sources.hiringcafe.extra_queries
     assert queries == ["staff platform engineer"]
+    # Important 4 (whole-branch review): nothing used to read ?added=1 on
+    # the landing page, so the "Saved" banner never fired for a row add
+    # that lands on an advanced group instead of the Companies page.
+    landing = client.get(r.headers["location"])
+    assert "Saved — running live" in landing.text
 
 
 def test_edit_form_is_prefilled(tmp_path, monkeypatch):

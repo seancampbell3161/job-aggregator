@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+from urllib.parse import quote
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -180,12 +181,28 @@ def register_companies_routes(app: FastAPI) -> None:
         cfg = request.state.snapshot.cfg
         entries = board_entries(cfg)
         configured = {entry.key for entry in entries}
+        # Every write on this page lands back here via a redirect carrying a
+        # flag (?added=1 from companies_add, ?changed=1/?removed=1 from the
+        # generic row routes editing/removing a board, ?blocked=1 from
+        # companies_block below) -- none of which anything used to read, so
+        # settings_base.html's "Saved" banner never fired for any of them.
+        # blocked gets its OWN message (below, in the template) instead of
+        # the generic banner: blocking a company has no visible effect on
+        # this page (filters.blocked_companies isn't rendered here), so the
+        # generic "Saved — running live" text alone would leave the operator
+        # with no evidence anything happened.
+        blocked = request.query_params.get("blocked") or None
+        saved = blocked is None and any(
+            request.query_params.get(flag) == "1" for flag in ("added", "changed", "removed")
+        )
         return render_section(
             request, section_by_slug("companies"),
             groups=_grouped(entries),
             status=board_status(stores),
             discovery_only=_discovery_only(stores, configured),
             board_families=BOARD_FAMILIES,
+            saved=saved,
+            blocked=blocked,
         )
 
     @app.post("/settings/companies/probe", response_class=HTMLResponse)
@@ -315,4 +332,8 @@ def register_companies_routes(app: FastAPI) -> None:
                 detail="Someone else saved while this was open. Reload and try again.",
             )
         request.state.snapshot = request.app.state.service.snapshot()
-        return RedirectResponse("/settings/companies?blocked=1", status_code=303)
+        # The company name rides along in the query string (not just a bare
+        # ?blocked=1) so companies_page can say WHICH company was blocked --
+        # the page has no other way to show it, since it doesn't render
+        # filters.blocked_companies at all.
+        return RedirectResponse(f"/settings/companies?blocked={quote(company)}", status_code=303)

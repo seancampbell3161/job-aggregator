@@ -89,3 +89,40 @@ def test_the_page_says_a_restore_will_make_the_next_file_import_refuse(tmp_path,
     app = _three(tmp_path, monkeypatch)
     r = signed_in_client(app).get("/settings/history")
     assert "export" in r.text.lower()
+
+
+def test_restoring_shows_the_saved_banner_after_the_redirect(tmp_path, monkeypatch):
+    """Important 4 (whole-branch review): history_restore redirects to
+    /settings/history?restored=1, but nothing used to read that flag —
+    settings_base.html's "Saved" banner never fired for a restore, the one
+    write on this page that uses a redirect rather than a direct
+    POST-then-render (history_restore is a plain @app.post with no
+    response_class="text/html" render of its own, unlike save_section's
+    callers)."""
+    app = _three(tmp_path, monkeypatch)
+    oldest = app.state.service.versions(limit=None)[-1].id
+    client = signed_in_client(app, follow_redirects=False)
+    r = client.post(f"/settings/history/{oldest}/restore")
+    assert r.headers["location"] == "/settings/history?restored=1"
+    landing = client.get(r.headers["location"])
+    assert "Saved — running live" in landing.text
+
+
+def test_the_htmx_lazy_diff_selector_matches_the_diff_partials_id(tmp_path, monkeypatch):
+    """Whole-branch review: the entire History lazy-diff feature rests on a
+    bare string contract between settings_history.html's
+    hx-select="#history-diff" and _history_diff.html's id="history-diff" —
+    nothing in the type system or the rest of the suite ties them together,
+    so renaming either half breaks the feature in the browser (htmx finds
+    nothing to select, so hx-target never gets filled) while every other
+    test in this file stays green. Rendering both real pages is a stand-in
+    for that comparison: htmx itself does the actual selecting client-side,
+    so the most this can assert from outside a browser is that the two
+    identifiers still appear, spelled identically, in the two places htmx
+    is told to look."""
+    app = _three(tmp_path, monkeypatch)
+    version_id = app.state.service.snapshot().version_id
+    list_page = signed_in_client(app).get("/settings/history")
+    assert 'hx-select="#history-diff"' in list_page.text
+    diff_page = signed_in_client(app).get(f"/settings/history/{version_id}")
+    assert 'id="history-diff"' in diff_page.text

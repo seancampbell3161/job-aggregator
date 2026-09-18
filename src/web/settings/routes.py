@@ -324,7 +324,11 @@ def register_settings_routes(app: FastAPI) -> None:
         group = advanced_group(key)
         if group is None:
             raise HTTPException(status_code=404)
-        return _render(request, group_section(group), group=group)
+        # register_row_routes' add/update/remove redirect here with
+        # ?added=1 / ?changed=1 / ?removed=1 after a row write; nothing used
+        # to read it, so the "Saved" banner never fired for one.
+        saved = any(request.query_params.get(f) == "1" for f in ("added", "changed", "removed"))
+        return _render(request, group_section(group), group=group, saved=saved)
 
     @app.post("/settings/advanced/{key}", response_class=HTMLResponse)
     async def advanced_save(request: Request, key: str):

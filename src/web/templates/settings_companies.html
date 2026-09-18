@@ -4,6 +4,15 @@
 <p class="bad">status unavailable — could not read the connector health store.</p>
 {% endif %}
 
+{% if blocked %}
+{# The generic "Saved" banner (settings_base.html) is suppressed for this
+   redirect (companies_page passes saved=False when `blocked` is set) —
+   blocking has no other visible effect on this page (it doesn't render
+   filters.blocked_companies), so this is the operator's only confirmation
+   that anything happened at all. #}
+<p class="ok">Blocked &ldquo;{{ blocked }}&rdquo; — future postings from this company will be filtered out.</p>
+{% endif %}
+
 <form class="company-add" hx-post="/settings/companies/probe" hx-target="#probe-result" hx-swap="innerHTML">
   <input type="text" name="target" placeholder="Paste a careers page URL or domain">
   <button type="submit" class="btn small">Check</button>

@@ -48,6 +48,9 @@ def register_history_routes(app: FastAPI) -> None:
             request, section_by_slug("history"),
             rows=rows, row=None, in_effect=request.state.snapshot.version_id,
             showing_all=all or len(rows) < _PAGE,
+            # history_restore below redirects here with ?restored=1; nothing
+            # used to read it, so the "Saved" banner never fired for a restore.
+            saved=request.query_params.get("restored") == "1",
         )
 
     @app.get("/settings/history/{version_id}", response_class=HTMLResponse)
