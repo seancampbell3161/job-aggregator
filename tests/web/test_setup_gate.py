@@ -104,3 +104,49 @@ def test_degraded_banner_renders(tmp_path, monkeypatch):
 def test_no_banner_when_healthy(tmp_path, monkeypatch):
     r = _client(tmp_path, monkeypatch, make_service({})).get("/")
     assert "config-banner" not in r.text
+
+
+def test_setup_offers_a_start_from_defaults_button(tmp_path, monkeypatch):
+    r = _client(tmp_path, monkeypatch, make_service()).get("/setup")
+    assert r.status_code == 200
+    assert 'action="/setup/start"' in r.text
+    assert "python -m src.settings import" in r.text  # the CLI path stays
+
+
+def test_start_from_defaults_creates_a_version_and_opens_settings(tmp_path, monkeypatch):
+    service = make_service()
+    client = _client(tmp_path, monkeypatch, service)
+    r = client.post("/setup/start")
+    assert r.status_code == 303
+    assert r.headers["location"] == "/settings/filters"
+    snap = service.snapshot()
+    assert snap is not None
+    assert snap.cfg.filters.titles == []
+
+
+def test_start_from_defaults_is_a_no_op_when_already_set_up(tmp_path, monkeypatch):
+    service = make_service({"filters": {"titles": ["staff engineer"]}})
+    before = service.current_config()[0]
+    r = _client(tmp_path, monkeypatch, service).post("/setup/start")
+    assert r.status_code == 303
+    assert service.current_config()[0] == before
+    assert service.snapshot().cfg.filters.titles == ["staff engineer"]
+
+
+def test_start_from_defaults_needs_a_session(tmp_path, monkeypatch):
+    # /setup/start is exempt from the setup gate but NOT from the login gate,
+    # so a password must be claimed (and a session held) before it can write
+    # anything. An anonymous POST without a session cookie — regardless of
+    # whether a password has been claimed yet — is denied 401 by the login
+    # gate itself (Starlette's established convention here: see
+    # test_other_methods_get_401 in test_auth_gate.py), before the route ever
+    # runs. If this guard were ever weakened — e.g. /setup/start added to
+    # PUBLIC_PATHS — this request would instead write a settings version and
+    # this assertion on `service.snapshot()` would catch it.
+    from fastapi.testclient import TestClient
+    monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
+    service = make_service()
+    app = create_app(stores=sqlite_stores(connect(":memory:")), service=service)
+    r = TestClient(app, follow_redirects=False).post("/setup/start")
+    assert r.status_code == 401
+    assert service.snapshot() is None

@@ -182,6 +182,18 @@ def _register_setup_gate(app: FastAPI) -> None:
             return RedirectResponse("/", status_code=303)
         return request.app.state.templates.TemplateResponse(request, "setup.html", {})
 
+    @app.post("/setup/start")
+    def setup_start(request: Request):
+        """Write a defaults-only settings version so the UI becomes reachable.
+
+        Nothing polls until titles and a source are added — Overview says so.
+        Idempotent: if a version already exists (two visitors racing the
+        button), this writes nothing."""
+        service = request.app.state.service
+        if request.state.snapshot is None:
+            service.save_settings({}, source="ui", note="started from defaults")
+        return RedirectResponse("/settings/filters", status_code=303)
+
 
 def _ctx(request: Request, **extra) -> dict:
     return {**config_ctx(request), **extra}

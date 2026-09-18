@@ -2,8 +2,19 @@
 {% block content %}
 <h1>Set up job-aggregator</h1>
 <p>This instance has no settings yet. Settings, your profile, résumé data, and
-secrets live in the app database. Load them once from files with the settings
-CLI — changes apply live, no restart.</p>
+secrets live in the app database — changes apply live, no restart.</p>
+
+<section class="panel">
+  <h2>Start from defaults</h2>
+  <p>Creates an empty settings version and opens Settings. Nothing is polled
+    or delivered until you add job titles, a company board, and a notification
+    target — the Overview page tracks what is still missing.</p>
+  <form method="post" action="/setup/start">
+    <button type="submit" class="btn primary">Start from defaults</button>
+  </form>
+</section>
+
+<h2>Or import existing files</h2>
 
 <h2>Docker Compose</h2>
 <p>From the directory holding your <code>config.yaml</code> (start from
