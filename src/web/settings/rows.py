@@ -11,7 +11,15 @@ every field it renders in one outer <form>, so a row <form> swapped inside it
 would be a nested form — browsers drop those, silently. On success the caller
 is redirected (303) back to the page that owns the path; on a validation
 failure the standalone page re-renders with the SUBMITTED values and an
-inline error, so nothing typed is lost."""
+inline error, so nothing typed is lost.
+
+Per Ruling R8, Remove is the same story one level up: _rows.html cannot even
+have an inline <form> for it (same nested-form hazard), so Remove is a plain
+<a> to a GET confirm PAGE (row_remove_confirm below) whose own standalone
+<form> POSTs to the mutating route. A formaction/formmethod button was
+rejected because it is inert outside of *some* <form> — it would only have
+worked by accident of currently always being included inside one, and Task
+7's Companies page has no outer form at all."""
 from __future__ import annotations
 
 from typing import Any, Mapping
@@ -125,6 +133,21 @@ def _render_row_page(request: Request, *, status_code: int = 200, **ctx) -> HTML
     )
 
 
+def _render_remove_confirm(request: Request, path: str, digest: str, row) -> HTMLResponse:
+    return request.app.state.templates.TemplateResponse(
+        request, "row_remove.html",
+        {
+            "sections": SECTIONS,
+            "section": _owner_section(path),
+            "saved": False,
+            "path": path,
+            "digest": digest,
+            "row": row,
+            "form_errors": [],
+        },
+    )
+
+
 def _gone(request: Request, path: str) -> HTMLResponse:
     return _render_row_page(
         request, status_code=409,
@@ -159,16 +182,28 @@ def register_row_routes(app: FastAPI) -> None:
     async def row_update(request: Request, path: str, digest: str):
         return await _write(request, _checked(path), digest=digest)
 
+    @app.get("/settings/rows/{path}/{digest}/remove", response_class=HTMLResponse)
+    def row_remove_confirm(request: Request, path: str, digest: str):
+        """Ruling R8: a GET confirm PAGE, not an inline form or a
+        formaction button — see the module docstring."""
+        _checked(path)
+        try:
+            row = find_row(request.state.snapshot.cfg, path, digest)
+        except RowGone:
+            return _gone(request, path)
+        return _render_remove_confirm(request, path, digest, row)
+
     @app.post("/settings/rows/{path}/{digest}/remove", response_class=HTMLResponse)
     async def row_remove(request: Request, path: str, digest: str):
         _checked(path)
         cfg = request.state.snapshot.cfg
         try:
+            row = find_row(cfg, path, digest)
             patch = remove_row_patch(cfg, path, digest)
         except RowGone:
             return _gone(request, path)
         note = f"ui: removed a {path.rsplit('.', 1)[-1]} entry"
-        outcome = _apply(request, path, digest, patch, note)
+        outcome = _apply(request, path, digest, row.values, patch, note)
         if outcome is not None:
             return outcome
         return RedirectResponse(owner_page(path) + "?removed=1", status_code=303)
@@ -211,16 +246,25 @@ async def _write(request: Request, path: str, *, digest: str | None) -> HTMLResp
 
     verb = "added" if digest is None else "changed"
     note = f"ui: {verb} a {path.rsplit('.', 1)[-1]} entry"
-    outcome = _apply(request, path, digest, patch, note)
+    outcome = _apply(request, path, digest, values, patch, note)
     if outcome is not None:
         return outcome
     return RedirectResponse(owner_page(path) + f"?{verb}=1", status_code=303)
 
 
 def _apply(
-    request: Request, path: str, digest: str | None, patch: dict, note: str,
+    request: Request, path: str, digest: str | None, values: Mapping[str, Any] | None,
+    patch: dict, note: str,
 ) -> HTMLResponse | None:
-    """Write the patch. None means it succeeded."""
+    """Write the patch. None means it succeeded.
+
+    ``values`` is what the standalone page re-renders with on a failure here
+    — the just-validated submission for an add/update, or the row's own
+    stored values for a remove — so a write that fails after validation
+    already passed (a model-level rule, or a StaleWrite race) doesn't also
+    blank out a form that had nothing wrong with it. This mirrors
+    save_section's render_error, which always re-renders with
+    submitted=raw on every one of its failure paths, including StaleWrite."""
     def mutate(doc: dict) -> str | None:
         return note if apply_patch(doc, patch) else None
 
@@ -230,14 +274,16 @@ def _apply(
         # A model-level validator (not a field one) rejected the whole
         # document; no single input owns it, so it goes in the banner.
         _, form_level = errors_by_path(exc, known=set())
-        return _render_row_page(
-            request, **row_form_ctx(request, path, digest=digest, form_errors=form_level)
-        )
+        return _render_row_page(request, **row_form_ctx(
+            request, path, digest=digest, values=values, form_errors=form_level
+        ))
     except StaleWrite:
-        return _render_row_page(request, **row_form_ctx(request, path, digest=digest, form_errors=[
-            "Someone else saved while you were editing. Reload the page and "
-            "reapply your change.",
-        ]))
+        return _render_row_page(request, **row_form_ctx(
+            request, path, digest=digest, values=values, form_errors=[
+                "Someone else saved while you were editing. Reload the page and "
+                "reapply your change.",
+            ],
+        ))
     except NotConfigured:
         return RedirectResponse("/setup", status_code=303)
     return None

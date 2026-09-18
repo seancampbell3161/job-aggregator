@@ -3,7 +3,11 @@
 Route order matters: /settings/advanced is declared before /settings/{slug},
 because Starlette matches in registration order and the parameterised route
 would otherwise swallow it. register_row_routes(app) is called first, ahead
-of every route this module declares, for the same reason (Ruling R1)."""
+of every route this module declares, per Ruling R1 — today's /settings/rows/...
+routes are all 3+ segments, so they cannot actually collide with the
+single-segment /settings/{slug} catch-all (verified by moving the call and
+rerunning the suite: nothing broke), but Tasks 11 and 13 add single-segment
+paths under this same registration, where the collision is real."""
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Request

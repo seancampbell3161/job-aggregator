@@ -1,4 +1,5 @@
 """The generic row editor: add, edit, remove one entry of a rows field."""
+from src.settings.errors import SettingsInvalid, StaleWrite
 from src.web.app import create_app
 from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import make_service
@@ -98,6 +99,94 @@ def test_remove_drops_the_row(tmp_path, monkeypatch):
         f"/settings/rows/sources.workday/{_digest(app)}/remove", data={"confirm": "yes"})
     assert r.status_code == 303
     assert app.state.service.snapshot().cfg.sources.workday == []
+
+
+def test_remove_confirm_page_names_the_entry_and_posts_to_remove(tmp_path, monkeypatch):
+    """Ruling R8: Remove is a GET confirm PAGE, not an inline form — this is
+    that page, reached by following the plain <a> _rows.html renders."""
+    app = _app(tmp_path, monkeypatch, make_service(ONE))
+    digest = _digest(app)
+    r = signed_in_client(app).get(f"/settings/rows/sources.workday/{digest}/remove")
+    assert r.status_code == 200
+    assert "microsoft" in r.text
+    assert f'action="/settings/rows/sources.workday/{digest}/remove"' in r.text
+    # visiting the confirm page must not itself remove anything
+    assert app.state.service.snapshot().cfg.sources.workday[0].tenant == "microsoft"
+
+
+def test_remove_confirm_for_a_stale_digest_reports_gone(tmp_path, monkeypatch):
+    app = _app(tmp_path, monkeypatch, make_service(ONE))
+    r = signed_in_client(app).get("/settings/rows/sources.workday/000000000000/remove")
+    assert r.status_code == 409
+    assert "no longer configured" in r.text
+
+
+def test_remove_confirm_is_gated_the_same_way_as_new(tmp_path, monkeypatch):
+    app = _app(tmp_path, monkeypatch)
+    r = signed_in_client(app).get("/settings/rows/filters.titles/000000000000/remove")
+    assert r.status_code == 404
+
+
+def test_the_rows_branch_never_nests_a_form_in_the_group_form(tmp_path, monkeypatch):
+    """settings_advanced_group.html wraps every field it renders in one outer
+    <form action="/settings/advanced/{key}">. Per HTML5 tree construction, a
+    second <form> inside it is a parse error and the browser drops it,
+    promoting its button into the OUTER form's submit control — so a nested
+    Remove form would silently submit "Save Aggregators" instead of removing
+    anything. The rows branch must never emit a <form>; Remove is a plain <a>
+    to the confirm page above (Ruling R8)."""
+    app = _app(tmp_path, monkeypatch, make_service(
+        {"sources": {"hiringcafe": {"extra_queries": ["staff platform engineer"]}}}))
+    r = signed_in_client(app).get("/settings/advanced/sources")
+    assert r.status_code == 200
+    start = r.text.index('<form method="post" action="/settings/advanced/sources">')
+    end = r.text.index("</form>", start)
+    assert "<form" not in r.text[start + 1:end]
+
+    from src.settings.rows import list_rows
+    digest = list_rows(app.state.service.snapshot().cfg,
+                       "sources.hiringcafe.extra_queries")[0].digest
+    assert f'href="/settings/rows/sources.hiringcafe.extra_queries/{digest}/remove"' in r.text
+
+
+def test_a_stale_write_during_update_preserves_the_submitted_values(tmp_path, monkeypatch):
+    """_apply's failure paths must not blank the form out from under a
+    submission that already passed validation — this mirrors
+    save_section's render_error, which always re-renders with submitted=raw,
+    on every one of its failure paths including StaleWrite."""
+    app = _app(tmp_path, monkeypatch, make_service(ONE))
+    digest = _digest(app)
+
+    def boom(mutate, *, source):
+        raise StaleWrite("conflict")
+
+    monkeypatch.setattr(app.state.service, "update_settings", boom)
+    r = signed_in_client(app).post(
+        f"/settings/rows/sources.workday/{digest}",
+        data={"item.tenant": "microsoft", "item.region": "wd1", "item.site": "Internal"})
+    assert r.status_code == 200
+    assert "saved while you were editing" in r.text
+    block = _field_block(r.text, "item.site")
+    assert 'value="Internal"' in block
+    assert f'action="/settings/rows/sources.workday/{digest}"' in r.text
+
+
+def test_a_model_level_failure_during_remove_keeps_the_rows_values(tmp_path, monkeypatch):
+    """A remove that fails at the whole-document level (a cross-field
+    validator, not this row) must still show what it was about to remove,
+    not a blank edit form."""
+    app = _app(tmp_path, monkeypatch, make_service(ONE))
+    digest = _digest(app)
+
+    def boom(mutate, *, source):
+        raise SettingsInvalid([{"loc": "", "msg": "cross-field problem"}])
+
+    monkeypatch.setattr(app.state.service, "update_settings", boom)
+    r = signed_in_client(app).post(f"/settings/rows/sources.workday/{digest}/remove", data={})
+    assert r.status_code == 200
+    assert "cross-field problem" in r.text
+    block = _field_block(r.text, "item.tenant")
+    assert 'value="microsoft"' in block
 
 
 def test_a_stale_digest_reports_instead_of_touching_a_neighbour(tmp_path, monkeypatch):

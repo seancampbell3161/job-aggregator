@@ -2,7 +2,16 @@
    to add one. Rendered from the `field` macro's `rows` branch, which
    {% include %}s this with `spec` and `value` (a list[Row], src/settings/rows.py)
    already bound in its own scope. The Companies page (Task 7) renders its
-   own table instead of this one. #}
+   own table instead of this one.
+
+   Remove is a plain <a> to a confirm PAGE, never a <form> here — this
+   partial is included inside settings_advanced_group.html's own outer
+   <form action="/settings/advanced/{key}">, and per HTML5 tree construction
+   a nested <form> there is a parse error: the browser drops it and promotes
+   its button into the OUTER form, so "Remove" would silently submit
+   "Save Aggregators" instead. An anchor has no such hazard in any container,
+   which also matters because Task 7's Companies page has no outer form at
+   all — this exact partial has to work in both places. #}
 <div class="rows-list" data-path="{{ spec.path }}">
   {% for row in value %}
   <div class="row-entry">
@@ -10,9 +19,7 @@
       {% for name, v in row.values.items() %}{{ name }}: {{ v if v is not none else '—' }}{% if not loop.last %} &middot; {% endif %}{% endfor %}
     </span>
     <a class="btn small" href="/settings/rows/{{ spec.path }}/{{ row.digest }}/edit">Edit</a>
-    <form method="post" action="/settings/rows/{{ spec.path }}/{{ row.digest }}/remove" class="inline-form">
-      <button type="submit" class="btn small" onclick="return confirm('Remove this entry?')">Remove</button>
-    </form>
+    <a class="btn small" href="/settings/rows/{{ spec.path }}/{{ row.digest }}/remove">Remove</a>
   </div>
   {% else %}
   <p class="muted">None configured.</p>
