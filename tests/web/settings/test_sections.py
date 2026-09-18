@@ -106,6 +106,23 @@ def _app(tmp_path, monkeypatch, service=None):
     return create_app(service=service if service is not None else make_service(WEB_TEST_SETTINGS))
 
 
+def test_every_editable_path_is_reachable_from_some_page():
+    """A flag that no hand-built section claims and no Advanced group renders
+    would be invisible in the UI and impossible to change without the CLI."""
+    claimed = {p for s in SECTIONS for p in s.paths}
+    generated = {f.path for g in advanced_groups() for f in g.fields}
+    missing = {f.path for f in editable_fields()} - claimed - generated
+    assert not missing, f"unreachable settings: {sorted(missing)}"
+
+
+def test_no_editable_field_renders_as_read_only():
+    """Every kind the UI can be asked to render has a branch in the field
+    macro. read_only is the 'we cannot render this' escape hatch and should
+    stay empty."""
+    from src.settings.fields import KIND_READ_ONLY, editable_fields
+    assert [f.path for f in editable_fields() if f.kind == KIND_READ_ONLY] == []
+
+
 def test_a_bare_post_to_companies_returns_404(tmp_path, monkeypatch):
     service = make_service({"sources": {"greenhouse": ["acme"],
                                         "workday": [{"tenant": "m", "region": "wd1",

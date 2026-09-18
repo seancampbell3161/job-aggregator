@@ -79,6 +79,13 @@ per company board, added with `python -m src.settings add-source <family> <slug>
 and **structured families** (hand-curated mapping entries — see the example
 block below the table). Adding/removing companies: GETTING_STARTED §2d.
 
+The sixteen company-board families below are managed at **`/settings/companies`**
+in the web UI — pasting a careers-page URL (or a bare domain) is enough to add
+one; the page fingerprints it, shows what it found, and adds it on
+confirmation. The aggregator feeds further down this table (`hn_who_is_hiring`,
+`remotive`, `remoteok`, `hiringcafe`, `adzuna`) are not boards and stay on this
+page — edit them at **`/settings/advanced/sources`**.
+
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
 | `sources.greenhouse` | `[]` | Slugs from `boards.greenhouse.io/{slug}`. |
