@@ -39,6 +39,45 @@ def test_no_warning_when_discovery_has_not_seen_it(tmp_path, monkeypatch):
     assert "/settings/companies/block" not in r.text
 
 
+def test_no_warning_when_the_discovered_row_is_not_ok(tmp_path, monkeypatch):
+    """Row presence alone isn't the signal — validation_status has to be
+    "ok". A "failed" row (discovery tried this board and it's currently
+    broken) is not discovery successfully tracking it, so it earns no
+    warning either. This is the case that actually discriminates
+    _discovered_ok_row's status check from a bare `is not None`."""
+    app = _app(tmp_path, monkeypatch, {"sources": {"greenhouse": ["acme"]}})
+    app.state.stores.discovered.upsert_failed("greenhouse:acme")
+    r = signed_in_client(app).get(f"/settings/companies/remove/{_digest(app)}")
+    assert "/settings/companies/block" not in r.text
+
+
+def test_removing_a_digest_that_is_no_longer_configured_is_404(tmp_path, monkeypatch):
+    app = _app(tmp_path, monkeypatch, {"sources": {"greenhouse": ["acme"]}})
+    r = signed_in_client(app).get("/settings/companies/remove/000000000000")
+    assert r.status_code == 404
+
+
+def test_the_entrys_own_company_wins_over_a_differing_discovered_name(tmp_path, monkeypatch):
+    """The prefill order is entry.company, THEN the discovered row's
+    company_name, THEN the label — in that order, not the reverse. This is
+    the one place this task deviates from the brief's own snippet
+    (`row.company_name or entry.label`), and it only shows up on a
+    structured family whose element model actually has a company field
+    (Avature, Workday, ...) — a slug family's entry.values never has one.
+    Discovery's own company_name ("Jacobs Engineering LLC") differing from
+    the configured entry's ("Jacobs") is what makes the two orderings
+    disagree; if the precedence were ever swapped back to the brief's, this
+    goes red."""
+    doc = {"sources": {"avature": [
+        {"careers_url": "https://careers.jacobs.com/en_US/careers/SearchJobs", "company": "Jacobs"},
+    ]}}
+    app = _app(tmp_path, monkeypatch, doc)
+    app.state.stores.discovered.upsert_ok("avature:jacobs", company_name="Jacobs Engineering LLC")
+    r = signed_in_client(app).get(f"/settings/companies/remove/{_digest(app, 'avature')}")
+    assert 'value="Jacobs"' in r.text
+    assert "Jacobs Engineering LLC" not in r.text
+
+
 def test_the_confirm_survives_a_discovered_store_failure(tmp_path, monkeypatch):
     """A locked discovered_slugs table must not 500 the confirm page — same
     fail-soft contract as board_status (src/web/settings/health.py): the page
@@ -67,7 +106,11 @@ def test_the_remove_form_posts_to_the_existing_generic_route(tmp_path, monkeypat
 
 def test_the_block_action_appends_to_blocked_companies(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch, {"sources": {"greenhouse": ["acme"]}})
-    signed_in_client(app).post("/settings/companies/block", data={"company": "Acme Inc"})
+    r = signed_in_client(app).post(
+        "/settings/companies/block", data={"company": "Acme Inc"}, follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == "/settings/companies?blocked=1"
     assert app.state.service.snapshot().cfg.filters.blocked_companies == ["Acme Inc"]
 
 

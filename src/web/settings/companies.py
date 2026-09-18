@@ -308,4 +308,5 @@ def register_companies_routes(app: FastAPI) -> None:
                 status_code=409,
                 detail="Someone else saved while this was open. Reload and try again.",
             )
+        request.state.snapshot = request.app.state.service.snapshot()
         return RedirectResponse("/settings/companies?blocked=1", status_code=303)
