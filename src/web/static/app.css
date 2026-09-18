@@ -8,6 +8,9 @@
   --muted: #9aa0a8;
   --accent: #4b8cf7;
   --row-hover: #1f2735;
+  --readiness-warn: #c9a227;
+  --probe-ok: #5fae6a;
+  --probe-bad: #c0554f;
 }
 * { box-sizing: border-box; }
 body { font: 14px/1.4 system-ui, sans-serif; margin: 0; color: var(--text); background: var(--bg); }
@@ -268,3 +271,37 @@ header { display: flex; align-items: baseline; gap: 16px; }
 .account { margin-left: auto; display: flex; gap: 12px; align-items: baseline; font-size: 13px; }
 .account a { color: var(--accent); text-decoration: none; }
 .account form { margin: 0; }
+
+/* ---- Settings shell: section sidebar + shared field macros ---- */
+.settings { display: grid; grid-template-columns: 12rem 1fr; gap: 1.5rem; }
+.settings-nav { display: flex; flex-direction: column; gap: .15rem; }
+.settings-nav a { padding: .35rem .6rem; border-radius: 4px; text-decoration: none; color: var(--accent); }
+.settings-nav a.on { background: var(--surface-2); color: var(--text); font-weight: 600; }
+.settings-pane { max-width: 44rem; }
+.field { margin: 0 0 1.1rem; }
+.field-label { display: block; font-weight: 600; margin-bottom: .2rem; }
+.field-meta { margin-left: .5rem; font-size: .8rem; color: var(--muted); }
+.field-help { margin: .25rem 0 0; font-size: .85rem; color: var(--muted); }
+.field-help code { font-size: .8rem; }
+.field-more { margin-top: .2rem; font-size: .85rem; color: var(--muted); }
+.field-more > summary { cursor: pointer; color: var(--accent); width: max-content; }
+.field-error { margin: .25rem 0 0; font-size: .85rem; }
+.field.has-error input, .field.has-error select { outline: 1px solid var(--probe-bad); }
+.checks { display: flex; flex-wrap: wrap; gap: .75rem; }
+.check { font-weight: 400; }
+.chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+.chips input { width: 12rem; }
+.btn.small { padding: .1rem .5rem; font-size: .8rem; }
+.readiness { list-style: none; padding: 0; }
+.readiness .warn { display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; padding: .6rem .8rem; margin-bottom: .4rem;
+  border-left: 3px solid var(--readiness-warn); background: var(--surface-2); }
+.bad-panel { border-left: 3px solid var(--probe-bad); }
+.probe-ok { color: var(--probe-ok); }
+.probe-bad { color: var(--probe-bad); }
+@media (max-width: 40rem) { .settings { grid-template-columns: 1fr; } }
+.doc-edit { width: 100%; font-family: ui-monospace, monospace; font-size: .85rem; }
+.doc-picker { margin-bottom: .75rem; }
+.actions { display: flex; gap: .5rem; align-items: center; margin-top: 1rem; }
+.group-list { list-style: none; padding: 0; }
+.group-list li { padding: .5rem 0; border-bottom: 1px solid var(--border); }

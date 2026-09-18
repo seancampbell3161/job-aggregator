@@ -378,6 +378,14 @@ def test_secret_resolution_env_then_db_then_empty():
     assert svc.secret_source("heartbeat_url") == "unset"
 
 
+def test_effective_secret_prefers_env_then_stored():
+    service = make_service({}, secrets={"ntfy_topic_url": "stored"},
+                           env={"JOB_AGG_DISCORD_WEBHOOK_URL": "from-env"})
+    assert service.effective_secret("ntfy_topic_url") == "stored"
+    assert service.effective_secret("discord_webhook_url") == "from-env"
+    assert service.effective_secret("heartbeat_url") == ""
+
+
 def test_secret_changes_rebuild_the_snapshot():
     svc, _ = _svc()
     svc.save_settings({}, source="cli")

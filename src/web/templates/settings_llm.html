@@ -1,0 +1,24 @@
+{% extends "settings_base.html" %}
+{% import "_settings_macros.html" as w %}
+{% block section %}
+<form method="post" action="/settings/llm">
+  {% for spec in fields %}
+    {{ w.field(spec, shown(submitted, cfg, spec), errors) }}
+  {% endfor %}
+
+  <h3>API keys</h3>
+  {% for s in secrets %}
+    {# No secret this section owns is a probe target (see probe_targets in
+       routes.py), so this prefix is never actually used — but the macro
+       argument is required, so it must still be passed explicitly. #}
+    {{ w.secret_field(s, errors, probe_targets, "") }}
+  {% endfor %}
+
+  <div class="actions">
+    <button type="submit" class="btn primary">Save LLM settings</button>
+    <button type="button" class="btn" hx-post="/settings/llm/test/llm"
+            hx-include="closest form" hx-target="#probe-llm">Test scoring</button>
+  </div>
+  <div id="probe-llm"></div>
+</form>
+{% endblock %}

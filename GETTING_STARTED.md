@@ -429,6 +429,13 @@ docker compose exec ollama ollama pull llama3.1:8b   # pull your model once
 
 The first build takes a few minutes (it installs WeasyPrint's native libraries).
 
+### The short path
+
+Bring the stack up, open `http://localhost:8000`, set a password, and choose
+**Start from defaults**. That drops you into Settings with nothing configured;
+the Overview page lists what is still missing before alerts can arrive. You
+only need the import command below if you already have a `config.yaml`.
+
 Then load your settings (the web UI shows a setup page and the poller logs
 `awaiting_setup` until you do):
 

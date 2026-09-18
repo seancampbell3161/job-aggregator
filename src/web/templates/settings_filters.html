@@ -1,0 +1,10 @@
+{% extends "settings_base.html" %}
+{% import "_settings_macros.html" as w %}
+{% block section %}
+<form method="post" action="/settings/filters">
+  {% for spec in fields %}
+    {{ w.field(spec, shown(submitted, cfg, spec), errors) }}
+  {% endfor %}
+  <button type="submit" class="btn primary">Save filters</button>
+</form>
+{% endblock %}

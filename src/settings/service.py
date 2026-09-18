@@ -239,6 +239,13 @@ class ConfigService:
             return "stored"
         return "unset"
 
+    def effective_secret(self, name: str) -> str:
+        """The value in effect for ``name``: the env var when non-empty, else
+        the stored value, else "". The UI's Test buttons need this; the value
+        is never rendered back to the page."""
+        _check_secret_name(name)
+        return self._env_secret(name) or (self._store.get_secret(name) or "")
+
     def set_secret(self, name: str, value: str) -> None:
         _check_secret_name(name)
         if not value:

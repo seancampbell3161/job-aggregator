@@ -1,0 +1,13 @@
+{% extends "settings_base.html" %}
+{% import "_settings_macros.html" as w %}
+{% block section %}
+<p><a href="/settings/advanced">&larr; All groups</a></p>
+{% set intro = group_intro(group.key) %}
+{% if intro %}<p class="field-help">{{ intro|safe }}</p>{% endif %}
+<form method="post" action="/settings/advanced/{{ group.key }}">
+  {% for spec in group.fields %}
+    {{ w.field(spec, shown(submitted, cfg, spec), errors) }}
+  {% endfor %}
+  <button type="submit" class="btn primary">Save {{ group.title }}</button>
+</form>
+{% endblock %}

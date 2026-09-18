@@ -34,6 +34,12 @@ narrative lives in [GETTING_STARTED.md](../GETTING_STARTED.md); this page is the
 lookup table. The drift-guard test `tests/test_config_docs.py` fails CI whenever
 a flag is added to `src/config.py` without a row here (or a row outlives its flag).
 
+Everything below is editable in the web UI at **`/settings`** — the hand-built
+sections cover filters, profile, LLM, notifications, integrations, schedules,
+and documents, and **Advanced** generates a form for every remaining flag from
+this table. YAML stays the import/export format for backup, sharing, and
+migration.
+
 ## filters
 
 Hard gates run on every posting before LLM scoring — a posting rejected here

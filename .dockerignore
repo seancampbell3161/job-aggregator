@@ -10,6 +10,10 @@ tmp
 build
 tests
 docs
+!docs/CONFIG.md
+# ^ docs/ is excluded (narrative docs, not needed at runtime) except
+# CONFIG.md, which the settings UI reads at runtime for per-flag help text —
+# without it every Advanced field renders with no help.
 scripts
 !scripts/seeds
 # ^ scripts/ is excluded (CLI tooling, not needed at runtime) except seeds/,
