@@ -98,3 +98,15 @@ def test_value_at_reads_a_dotted_path_off_a_config():
     assert value_at(cfg, "filters.location.allowed_countries") == ["US"]
     # quiet_hours is unset, so anything under it reads as None rather than raising
     assert value_at(cfg, "quiet_hours.start") is None
+
+
+def test_value_at_formats_a_set_time_as_hh_mm_not_hh_mm_ss():
+    """<input type="time"> both renders and submits "HH:MM" — str(time) would
+    emit "HH:MM:SS", which never round-trips back equal to a submitted value
+    (see save_section's changed-fields filter)."""
+    from src.config import AppConfig
+    from src.settings.fields import value_at
+    cfg = AppConfig.model_validate({
+        "quiet_hours": {"timezone": "America/Los_Angeles", "start": "22:00", "end": "07:00"},
+    })
+    assert value_at(cfg, "quiet_hours.start") == "22:00"

@@ -173,6 +173,22 @@ def editable_fields() -> tuple[FieldSpec, ...]:
     return tuple(f for f in field_map().values() if f.editable)
 
 
+def _render_scalar(value: Any) -> Any:
+    if isinstance(value, time):
+        # <input type="time"> both renders and submits "HH:MM" — str(time)
+        # would emit "HH:MM:SS", which then never compares equal to a
+        # submitted value. save_section diffs a decoded form against
+        # value_at() to decide what actually changed, so that permanent
+        # mismatch made every untouched quiet-hours save look like a change,
+        # writing a fresh settings version on every single resubmission.
+        # Seconds are never meaningful for a quiet-hours window (docs/CONFIG.md
+        # documents these as HH:MM), so nothing is lost by dropping them.
+        return value.strftime("%H:%M")
+    if isinstance(value, ZoneInfo):
+        return str(value)
+    return value
+
+
 def value_at(root: object, path: str) -> Any:
     """Read a dotted path off a validated AppConfig.
 
@@ -183,11 +199,9 @@ def value_at(root: object, path: str) -> Any:
         if node is None:
             return None
         node = getattr(node, part, None)
-    if isinstance(node, (time, ZoneInfo)):
-        return str(node)
     if isinstance(node, (list, tuple)):
-        return [str(v) if isinstance(v, (time, ZoneInfo)) else v for v in node]
-    return node
+        return [_render_scalar(v) for v in node]
+    return _render_scalar(node)
 
 
 @lru_cache(maxsize=1)

@@ -117,3 +117,23 @@ def test_unknown_probe_is_404(tmp_path, monkeypatch):
     r = signed_in_client(_app(tmp_path, monkeypatch)).post(
         "/settings/notifications/test/nope", data={})
     assert r.status_code == 404
+
+
+def test_saving_an_untouched_quiet_hours_form_twice_writes_one_version(tmp_path, monkeypatch):
+    """Regression: value_at() used to render a stored time as "HH:MM:SS"
+    while <input type="time"> submits "HH:MM" — they never compared equal,
+    so save_section's changed-fields filter kept re-writing quiet_hours on
+    every resubmission of an untouched form, bumping the settings version
+    each time."""
+    app = _app(tmp_path, monkeypatch)
+    client = signed_in_client(app)
+
+    r1 = client.post("/settings/notifications", data=ON)
+    assert r1.status_code == 200
+    version_after_first = app.state.service.current_config()[0]
+
+    r2 = client.post("/settings/notifications", data=ON)
+    assert r2.status_code == 200
+    version_after_second = app.state.service.current_config()[0]
+
+    assert version_after_second == version_after_first
