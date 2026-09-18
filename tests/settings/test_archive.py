@@ -1,4 +1,6 @@
 """The archive layer: a settings backup as one file, and a hostile one refused."""
+import builtins
+import errno
 import io
 import struct
 import zipfile
@@ -179,7 +181,13 @@ def test_a_high_ratio_member_is_refused_even_under_the_total_cap(tmp_path):
         observed_ratio = info.file_size / info.compress_size
         assert observed_ratio > MAX_RATIO, "fixture must exceed MAX_RATIO"
         assert info.file_size <= MAX_TOTAL_BYTES
-    with pytest.raises(ArchiveRejected, match=rf"ratio {int(observed_ratio)}x exceeds the {MAX_RATIO}x"):
+    # Uses the SAME format spec as the implementation (f"{ratio:.0f}") rather
+    # than a separately-written int(observed_ratio): a truncating int() and
+    # a rounding :.0f can disagree on a x.5-ish value, so building the
+    # expectation from int() would only agree with the implementation by
+    # luck. Formatting both sides identically makes them agree by
+    # construction instead.
+    with pytest.raises(ArchiveRejected, match=rf"ratio {observed_ratio:.0f}x exceeds the {MAX_RATIO}x"):
         extract_upload(blob, tmp_path / "out")
     assert not (tmp_path / "out").exists()
 
@@ -244,10 +252,18 @@ def test_an_overrunning_compress_size_is_refused_and_nothing_is_written(tmp_path
     """A compress_size big enough to run into the next entry's data is also
     invisible to header-only size/ratio checks (it would make the ratio
     look SMALLER, not bigger) -- zipfile only raises "Overlapped entries"
-    once the member is actually opened. Note the order: the hostile member
-    is written FIRST here (not second), so the invariant under test is that
-    the earlier hostile write still gets fully unwound even though the
-    later, benign member was never reached."""
+    once the member is actually opened.
+
+    Re-derived rather than assumed (a prior version of this docstring
+    wrongly claimed "the earlier hostile write still gets fully unwound" --
+    there is no write to unwind: zipfile.ZipFile.open() raises "Overlapped
+    entries" before the target is ever created, since `archive.open(info)`
+    is evaluated and entered before `open(target, "wb")` in `with
+    archive.open(info) as src, open(target, "wb") as out:`. bad.txt is
+    listed first here only so it fails before config.yaml -- a member later
+    in iteration order -- is ever reached at all; what actually proves the
+    "nothing left behind" invariant here is dest.mkdir() being unwound by
+    _cleanup's created_root branch, not any per-file cleanup."""
     blob = _zip({"bad.txt": b"hello world", "config.yaml": b"filters: {}\n"})
     blob = _patch_central_dir(blob, "bad.txt", 20, len(blob), 4)
     with pytest.raises(ArchiveRejected, match="bad.txt"):
@@ -329,7 +345,13 @@ def test_extracting_into_an_existing_directory_only_removes_what_this_call_wrote
     CRC), not a pass-one rejection, because pass one never writes anything
     at all -- this specifically exercises the cleanup path in the except
     clause around the write loop, with a benign member that really does get
-    written to the pre-existing directory before the bad one fails."""
+    written to the pre-existing directory before the bad one fails.
+
+    Note this fixture's pre-existing file (keep.txt) is NOT itself an
+    archive member -- see
+    test_a_pre_existing_member_named_file_survives_a_rejected_archive below
+    for that case, which is the one that actually broke this invariant
+    (round 2 finding "Important A")."""
     dest = tmp_path / "out"
     dest.mkdir()
     (dest / "keep.txt").write_text("pre-existing")
@@ -340,3 +362,134 @@ def test_extracting_into_an_existing_directory_only_removes_what_this_call_wrote
     assert (dest / "keep.txt").read_text() == "pre-existing"
     assert not (dest / "config.yaml").exists()
     assert not (dest / "bad.txt").exists()
+
+
+def test_a_pre_existing_member_named_file_survives_a_rejected_archive(tmp_path):
+    """Round 2, Important A: _cleanup deleted pre-existing content whose
+    name happened to collide with an archive member, because the target was
+    queued for removal (`touched.append(target)`) BEFORE `archive.open()`
+    ever ran -- and here `archive.open()` itself raises ("Overlapped
+    entries", from an inflated compress_size), so the target file is never
+    opened, truncated, or written at all. The bug was invisible in the test
+    above because its pre-existing file was never a member name the
+    archive also used -- this one specifically is, which is the case that
+    breaks the invariant."""
+    blob = _zip({"keep.txt": b"hello world", "config.yaml": b"filters: {}\n"})
+    blob = _patch_central_dir(blob, "keep.txt", 20, len(blob), 4)
+    dest = tmp_path / "out"
+    dest.mkdir()
+    (dest / "keep.txt").write_text("USER CONTENT DO NOT DELETE")
+    with pytest.raises(ArchiveRejected, match="keep.txt"):
+        extract_upload(blob, dest)
+    assert (dest / "keep.txt").read_text() == "USER CONTENT DO NOT DELETE"
+    assert not (dest / "config.yaml").exists()
+
+
+def test_a_pre_existing_directory_colliding_with_a_member_name_is_left_alone(tmp_path):
+    """Round 2, Important B: a pre-existing directory ("sub/") whose name
+    collides with an archive member also named "sub" makes
+    open(target, "wb") raise IsADirectoryError, which _EXTRACTION_ERRORS
+    correctly converts to ArchiveRejected -- but the OLD _cleanup then tried
+    path.unlink() on that same still-existing directory and raised
+    PermissionError/IsADirectoryError out of the except block, so
+    ArchiveRejected never actually reached the caller. Proves both that a
+    clean ArchiveRejected is raised AND that the pre-existing directory and
+    its contents survive."""
+    blob = _zip({"sub": b"x", "config.yaml": b"filters: {}\n"})
+    dest = tmp_path / "out"
+    (dest / "sub").mkdir(parents=True)
+    (dest / "sub" / "userfile.txt").write_text("user data")
+    with pytest.raises(ArchiveRejected, match="sub"):
+        extract_upload(blob, dest)
+    assert (dest / "sub").is_dir()
+    assert (dest / "sub" / "userfile.txt").read_text() == "user data"
+    assert not (dest / "config.yaml").exists()
+
+
+def test_cleanup_removes_sibling_new_directories_it_created(tmp_path):
+    """A failure partway through must remove every directory THIS call
+    created, not just a single linear chain: two independent new
+    subdirectories (a/b and a/c, sharing new parent a) plus a pre-existing
+    file are set up in an already-existing dest, then a later member fails.
+    A cleanup that only walks one parent chain, or removes shallow-to-deep
+    instead of deep-to-first, would leave "a" (now-empty but attempted
+    first) behind."""
+    blob = _zip({"a/b/x.txt": b"x", "a/c/y.txt": b"y", "bad.txt": b"hello world"})
+    blob = _patch_central_dir(blob, "bad.txt", 16, 0xDEADBEEF, 4)
+    dest = tmp_path / "out"
+    dest.mkdir()
+    (dest / "keep.txt").write_text("keep me")
+    with pytest.raises(ArchiveRejected):
+        extract_upload(blob, dest)
+    remaining = sorted(str(p.relative_to(dest)) for p in dest.rglob("*"))
+    assert remaining == ["keep.txt"]
+
+
+def test_cleanup_removes_dests_own_new_parent_directories_too(tmp_path):
+    """dest.mkdir(parents=True) can create levels ABOVE dest itself when
+    none of dest's ancestors exist yet -- if cleanup only removes dest (not
+    also the new parents mkdir(parents=True) created for it), those
+    intermediates leak. Neither tmp_path/new_a nor tmp_path/new_a/new_b
+    (dest's parent) exist beforehand; a WRITE-LOOP failure (not a pass-one
+    rejection, which never calls dest.mkdir() at all and so would prove
+    nothing here) must remove the whole new_a/new_b/out chain it created,
+    not just dest itself."""
+    top = tmp_path / "new_a"
+    dest = top / "new_b" / "out"
+    assert not top.exists()
+    blob = _zip({"bad.txt": b"hello world"})
+    blob = _patch_central_dir(blob, "bad.txt", 16, 0xDEADBEEF, 4)
+    with pytest.raises(ArchiveRejected):
+        extract_upload(blob, dest)
+    assert not top.exists()
+
+
+def test_a_legitimately_deep_export_path_over_255_chars_total_is_not_rejected(tmp_path):
+    """Round 2 finding: MAX_NAME_LENGTH must be a per-component (NAME_MAX)
+    limit, not a whole-path one -- PATH_MAX covers the whole path, and
+    depends on dest's own absolute path length, which the archive doesn't
+    control. This path is 268 characters in total (over the old whole-path
+    255 limit) but every component is comfortably under 255 bytes, matching
+    a real, legitimate resume/templates/<pack>/<file> export."""
+    name = "resume/templates/" + "d" * 150 + "/fonts/" + "f" * 90 + ".ttf"
+    assert len(name) > MAX_NAME_LENGTH
+    assert all(len(part.encode("utf-8")) < MAX_NAME_LENGTH for part in name.split("/"))
+    blob = _zip({name: b"x", "config.yaml": b"filters: {}\n"})
+    extract_upload(blob, tmp_path / "out")
+    assert (tmp_path / "out" / name).read_bytes() == b"x"
+
+
+def test_an_unsupported_zip_version_is_refused(tmp_path):
+    """"Version needed to extract" beyond what zipfile supports raises
+    NotImplementedError from ZipFile.__init__ itself (_RealGetContents),
+    before extract_upload's own per-member checks ever run -- the original
+    except clause around that constructor call only caught BadZipFile."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("config.yaml", b"filters: {}\n")
+    blob = _patch_central_dir(buf.getvalue(), "config.yaml", 6, 100, 2)  # extract_version
+    with pytest.raises(ArchiveRejected, match="unsupported zip feature"):
+        extract_upload(blob, tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_environment_failure_is_not_reported_as_a_bad_archive(tmp_path, monkeypatch):
+    """A genuine server-side fault (disk full, permission denied) writing
+    to dest is not the upload's fault, and must not be reported as one --
+    it should propagate as a plain OSError so a caller can tell "your
+    archive is invalid" apart from "the server broke", rather than folding
+    both into ArchiveRejected."""
+    real_open = builtins.open
+
+    def flaky_open(path, mode="r", *args, **kwargs):
+        if mode == "wb" and str(path).endswith("config.yaml"):
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", flaky_open)
+    blob = _zip({"config.yaml": b"filters: {}\n"})
+    with pytest.raises(OSError) as exc:
+        extract_upload(blob, tmp_path / "out")
+    assert not isinstance(exc.value, ArchiveRejected)
+    assert exc.value.errno == errno.ENOSPC
+    assert not (tmp_path / "out").exists()

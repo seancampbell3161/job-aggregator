@@ -23,14 +23,25 @@ guard against a maliciously undersized compressed payload expanding past it,
 not just a best-effort one.
 
 Not everything zipfile can throw is predictable from the header, though: a
-corrupt CRC-32, or a compress_size that overruns into the next entry's data
-("Overlapped entries"), only surface when a member is actually opened and
-read. The write pass is wrapped so any such failure -- or an OS-level one,
-like a name too long for the filesystem -- is also an ArchiveRejected with
-nothing left behind, not an unhandled exception with a partial tree on
-disk."""
+corrupt CRC-32, a compress_size that overruns into the next entry's data
+("Overlapped entries"), or an unsupported zip-version feature, only surface
+once zipfile actually opens/reads a member (or, for the version case, opens
+the archive itself). The write pass is wrapped so any such failure -- or a
+filesystem one, like a path colliding with something already at the
+destination -- is also an ArchiveRejected with nothing new left behind, not
+an unhandled exception with a partial tree on disk. A genuine environment
+fault (disk full, permission denied on the destination) is deliberately
+NOT folded into that -- it isn't the upload's fault, so it is left to
+propagate as a plain OSError rather than being reported as a rejected
+archive.
+
+Cleanup only ever removes what THIS call added: a target path that already
+existed before this call touched it -- file or directory -- is never
+queued for removal, so a failure never destroys content the archive did not
+put there. See _ensure_dir/_cleanup."""
 from __future__ import annotations
 
+import errno
 import io
 import shutil
 import stat
@@ -45,13 +56,23 @@ from src.settings.transfer import export_dir
 MAX_MEMBERS = 500
 MAX_TOTAL_BYTES = 64 * 1024 * 1024   # uncompressed, across the whole archive
 MAX_RATIO = 200                      # per member, uncompressed / compressed
-MAX_NAME_LENGTH = 255                # a single member name; guards ENAMETOOLONG
+MAX_NAME_LENGTH = 255                # per PATH COMPONENT, bytes (NAME_MAX on most filesystems)
 
-# Errors zipfile (or the filesystem) can raise only once a member is actually
-# opened and read -- a corrupt CRC, a compress_size that overruns into the
-# next entry, an unsupported feature the header check below didn't already
-# name, or an OS-level failure such as a path too long for the filesystem.
-_EXTRACTION_ERRORS = (OSError, zipfile.BadZipFile, zlib.error, NotImplementedError, RuntimeError, ValueError)
+# Failures that mean the archive's own data is bad -- a corrupt CRC, a
+# compress_size that overruns into the next entry, or another format/feature
+# problem only surfacing once a member is actually opened and read.
+_ARCHIVE_FORMAT_ERRORS = (zipfile.BadZipFile, zlib.error, NotImplementedError, RuntimeError, ValueError)
+
+# OSError errnos that mean the SERVER'S environment failed, not the upload:
+# disk full, permission denied, read-only filesystem, and the like. These
+# propagate as a plain OSError instead of being reported as a rejected
+# archive, so the caller doesn't blame the user's upload for e.g. ENOSPC.
+_ENVIRONMENT_ERRNOS = {
+    errno.ENOSPC, errno.EACCES, errno.EPERM, errno.EROFS,
+    errno.EIO, errno.ENOMEM, errno.EMFILE, errno.ENFILE,
+}
+if hasattr(errno, "EDQUOT"):
+    _ENVIRONMENT_ERRNOS.add(errno.EDQUOT)
 
 
 class ArchiveRejected(Exception):
@@ -79,14 +100,20 @@ def extract_upload(data: bytes, dest: Path | str) -> None:
     validated in one pass before a second pass writes anything, so a
     rejection from that first pass never leaves a partial extraction behind
     -- and the second pass is itself wrapped so a failure zipfile only
-    raises while actually reading a member (see module docstring) cleans up
-    after itself the same way, instead of leaking a partial tree plus a
-    non-ArchiveRejected exception."""
+    raises while actually reading a member cleans up after itself the same
+    way. Cleanup never removes anything that existed before this call: a
+    target that collided with something already at ``dest`` is left alone,
+    whether this call fails or not."""
     dest = Path(dest)
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile as exc:
         raise ArchiveRejected(f"not a zip file: {exc}") from None
+    except NotImplementedError as exc:
+        # E.g. a "version needed to extract" beyond what zipfile supports --
+        # raised by ZipFile.__init__ itself (_RealGetContents), before any
+        # of the per-member checks below ever run.
+        raise ArchiveRejected(f"unsupported zip feature: {exc}") from None
 
     with archive:
         infos = archive.infolist()
@@ -108,10 +135,12 @@ def extract_upload(data: bytes, dest: Path | str) -> None:
             raise ArchiveRejected("archive has no files to restore")
 
         # Every member has been checked before anything is written.
-        created_dest = not dest.exists()
-        dest.mkdir(parents=True, exist_ok=True)
+        dest_created: list[Path] = []
+        _ensure_dir(dest, dest_created)
+        created_root = dest_created[-1] if dest_created else None
         root = dest.resolve()
         touched: list[Path] = []
+        created_dirs: list[Path] = []
         try:
             for info in infos:
                 if info.is_dir():
@@ -119,40 +148,71 @@ def extract_upload(data: bytes, dest: Path | str) -> None:
                 target = (root / info.filename).resolve()
                 if not target.is_relative_to(root):   # belt and braces after _check_member
                     raise ArchiveRejected(f"{info.filename}: escapes the destination")
-                target.parent.mkdir(parents=True, exist_ok=True)
-                # Recorded before opening/writing: open(target, "wb") alone
-                # creates a 0-byte file, and a failure can come from reading
-                # the member (e.g. a bad CRC-32, raised by src.read() as an
-                # argument to out.write()) before a single byte lands -- that
-                # half-written file must still be cleaned up on failure.
-                touched.append(target)
+                _ensure_dir(target.parent, created_dirs)
+                # Recorded ONLY when the target did not already exist, and
+                # BEFORE opening/writing it: a pre-existing path (file or
+                # directory) must never be queued for removal -- deleting it
+                # on failure would destroy content this call did not create
+                # -- and open(target, "wb") alone creates a 0-byte file, so a
+                # failure reading the member (e.g. a bad CRC-32, raised by
+                # src.read() as an argument to out.write()) before a single
+                # byte lands must still get that half-written file cleaned
+                # up.
+                if not target.exists():
+                    touched.append(target)
                 with archive.open(info) as src, open(target, "wb") as out:
                     out.write(src.read())
         except ArchiveRejected:
-            _cleanup(dest, created_dest, touched)
+            _cleanup(created_root, touched, created_dirs)
             raise
-        except _EXTRACTION_ERRORS as exc:
-            _cleanup(dest, created_dest, touched)
+        except OSError as exc:
+            _cleanup(created_root, touched, created_dirs)
+            if exc.errno in _ENVIRONMENT_ERRNOS:
+                raise   # a server-side fault, not something the upload caused
+            raise ArchiveRejected(f"{info.filename}: could not be extracted ({exc})") from exc
+        except _ARCHIVE_FORMAT_ERRORS as exc:
+            _cleanup(created_root, touched, created_dirs)
             raise ArchiveRejected(f"{info.filename}: could not be extracted ({exc})") from exc
 
 
-def _cleanup(dest: Path, created_dest: bool, touched: list[Path]) -> None:
-    """Undo a partial extraction. If this call created ``dest``, everything
-    under it is ours to remove; otherwise remove only the files this call
-    itself touched, leaving whatever ``dest`` already held untouched."""
-    if created_dest:
-        shutil.rmtree(dest, ignore_errors=True)
-    else:
-        for path in touched:
-            path.unlink(missing_ok=True)
+def _ensure_dir(path: Path, created: list[Path]) -> None:
+    """mkdir -p ``path``, recording every level that did not already exist
+    (deepest first, matching creation order reversed) so a caller can later
+    remove exactly what THIS call added -- and nothing that was already
+    there."""
+    missing = []
+    probe = path
+    while not probe.exists():
+        missing.append(probe)
+        probe = probe.parent
+    for d in reversed(missing):
+        d.mkdir()
+    created.extend(missing)
+
+
+def _cleanup(created_root: Path | None, touched: list[Path], created_dirs: list[Path]) -> None:
+    """Undo exactly what this call added. If this call created ``dest`` (or
+    any of dest's own parent directories, via mkdir(parents=True)),
+    ``created_root`` is the topmost new directory and removing it removes
+    everything under it in one shot. Otherwise, remove only the files this
+    call itself wrote and the directories it created to hold them --
+    deepest first, so a directory is only removed once everything this call
+    put inside it is gone -- leaving anything that already existed, file or
+    directory, untouched."""
+    if created_root is not None:
+        shutil.rmtree(created_root, ignore_errors=True)
+        return
+    for path in touched:
+        path.unlink(missing_ok=True)
+    for path in sorted(set(created_dirs), key=lambda p: len(p.parts), reverse=True):
+        try:
+            path.rmdir()
+        except OSError:
+            pass   # not empty (holds something this call didn't create) or already gone
 
 
 def _check_member(info: zipfile.ZipInfo) -> None:
     name = info.filename
-    if len(name) > MAX_NAME_LENGTH:
-        raise ArchiveRejected(
-            f"{name[:80]}...: member name is {len(name)} characters, "
-            f"longer than the {MAX_NAME_LENGTH}-character limit")
     if "\x00" in name:
         raise ArchiveRejected(f"{name!r}: a NUL byte is not allowed in a member name")
     if "\\" in name:
@@ -169,6 +229,18 @@ def _check_member(info: zipfile.ZipInfo) -> None:
         raise ArchiveRejected(f"{name!r}: not a usable member name")
     if ".." in parts:
         raise ArchiveRejected(f"{name}: '..' is not allowed")
+    # ENAMETOOLONG is a per-component limit (NAME_MAX on most filesystems),
+    # not a whole-path one -- PATH_MAX covers the whole path, and depends on
+    # dest's own absolute path length, which isn't something the archive
+    # controls. Checking the whole name here would falsely reject a
+    # legitimate, shallowly-nested export path (e.g.
+    # resume/templates/<pack>/<file>) just for being long in total.
+    for part in parts:
+        part_len = len(part.encode("utf-8"))
+        if part_len > MAX_NAME_LENGTH:
+            raise ArchiveRejected(
+                f"{name}: a path component is {part_len} bytes, "
+                f"longer than the {MAX_NAME_LENGTH}-byte limit")
     # external_attr's upper 16 bits are a Unix mode, but only when the
     # archive carries one at all: zipfile.writestr(str, data) -- the
     # ordinary way to add a member from bytes -- sets permission bits
