@@ -69,6 +69,24 @@ async def test_an_empty_url_is_refused():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("bad_url", ["https://[", "http://[::1", "https://[abc]x:1]"])
+async def test_a_malformed_bracket_url_is_refused_not_raised(bad_url):
+    # urlparse raises ValueError("Invalid IPv6 URL") on an unbalanced bracket
+    # instead of returning a normal ParseResult — the probe must catch that
+    # and report it, never let it 500 the page.
+    r = await probe_ntfy(bad_url)
+    assert not r.ok
+    assert "does not look like a url" in r.detail.lower()
+
+
+@pytest.mark.asyncio
+async def test_a_control_character_in_the_url_is_refused():
+    r = await probe_discord("https://discord.com/api/webhooks/1/x\x00y")
+    assert not r.ok
+    assert "does not look like a url" in r.detail.lower()
+
+
+@pytest.mark.asyncio
 async def test_llm_probe_reports_a_disabled_scorer():
     cfg = AppConfig.model_validate({"relevance": {"enabled": False}})
     r = await probe_llm(cfg, "# profile")

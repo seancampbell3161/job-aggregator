@@ -166,6 +166,33 @@ def test_unknown_probe_is_404(tmp_path, monkeypatch):
     assert r.status_code == 404
 
 
+def test_a_malformed_bracket_url_reports_instead_of_500ing(tmp_path, monkeypatch):
+    # urlparse raises ValueError("Invalid IPv6 URL") on an unbalanced
+    # bracket; the Test button must report a ProbeResult, never crash the
+    # request — driven through the route, not just probes._check_url.
+    app = _app(tmp_path, monkeypatch)
+    client = signed_in_client(app)
+    for bad_url in ("https://[", "http://[::1", "https://[abc]x:1]"):
+        r = client.post("/settings/notifications/test/ntfy",
+                        data={"secret.ntfy_topic_url": bad_url})
+        assert r.status_code == 200, bad_url
+        assert "does not look like a url" in r.text.lower()
+
+
+def test_a_bad_stored_url_reports_instead_of_500ing_on_the_fallback_path(
+    tmp_path, monkeypatch,
+):
+    """A malformed value saved earlier is picked up via the stored-secret
+    fallback (the field renders blank, so a blank Test submission falls
+    back to the stored value) — that path must not crash either."""
+    service = make_service(WEB_TEST_SETTINGS, secrets={"ntfy_topic_url": "https://["})
+    app = _app(tmp_path, monkeypatch, service)
+    r = signed_in_client(app).post(
+        "/settings/notifications/test/ntfy", data={"secret.ntfy_topic_url": ""})
+    assert r.status_code == 200
+    assert "does not look like a url" in r.text.lower()
+
+
 def test_saving_an_untouched_quiet_hours_form_twice_writes_one_version(tmp_path, monkeypatch):
     """Regression: value_at() used to render a stored time as "HH:MM:SS"
     while <input type="time"> submits "HH:MM" — they never compared equal,

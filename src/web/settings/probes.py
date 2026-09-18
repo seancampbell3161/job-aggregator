@@ -74,7 +74,17 @@ def _check_url(url: str) -> ProbeResult | None:
     stripped = url.strip()
     if not stripped:
         return ProbeResult(False, "No URL to test — fill the field first.")
-    scheme = urlparse(stripped).scheme.lower()
+    # Explicit, rather than resting on httpx rejecting it downstream: a
+    # control character (e.g. a stray NUL) is never valid in a URL.
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in stripped):
+        return ProbeResult(False, "That does not look like a URL.")
+    try:
+        scheme = urlparse(stripped).scheme.lower()
+    except ValueError:
+        # urlparse raises on a malformed bracketed host (e.g. "https://[" or
+        # "https://[abc]x:1]") instead of returning a ParseResult — a probe
+        # reports, it never 500s the page (see module docstring).
+        return ProbeResult(False, "That does not look like a URL.")
     if scheme not in ("http", "https"):
         return ProbeResult(False, f"Only http and https URLs can be tested (got {scheme or 'none'}).")
     return None
