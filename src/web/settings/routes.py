@@ -8,18 +8,41 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from src.config import Secrets
 from src.settings.documents import DOCUMENT_KINDS
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import (
     KIND_BOOL, KIND_CHIPS, KIND_MULTI_CHOICE, KIND_READ_ONLY, optional_groups, value_at,
 )
 from src.settings.help import field_help, group_intro
-from src.web.settings.forms import apply_patch, decode, errors_by_path
+from src.settings.service import canonical_doc, secret_env_var
+from src.web.settings.forms import apply_patch, decode, decode_secrets, errors_by_path
+from src.web.settings.probes import ProbeResult, probe_llm
 from src.web.settings.readiness import check
 from src.web.settings.sections import Section, SECTIONS, section_by_slug, section_fields
 
 # profile has its own page; the rest share the generic editor.
 EDITABLE_KINDS: tuple[str, ...] = tuple(k for k in DOCUMENT_KINDS if k != "profile")
+
+
+def secret_rows(service, names) -> list[dict]:
+    """{name, source, env_var, label} for each of a section's secrets — the
+    template never sees the value, only where it currently comes from."""
+    return [
+        {
+            "name": name,
+            "source": service.secret_source(name),
+            "env_var": secret_env_var(name),
+            "label": name.replace("_", " "),
+        }
+        for name in names
+    ]
+
+
+def _probe_partial(request: Request, result: ProbeResult) -> HTMLResponse:
+    return request.app.state.templates.TemplateResponse(
+        request, "_probe_result.html", {"result": result}
+    )
 
 
 def page_ctx(request: Request, section, **extra) -> dict:
@@ -31,6 +54,7 @@ def page_ctx(request: Request, section, **extra) -> dict:
         "section": section,
         "cfg": request.state.snapshot.cfg,
         "fields": section_fields(section) if section.paths else (),
+        "secrets": secret_rows(request.app.state.service, section.secrets),
         "errors": {},
         "form_errors": [],
         "saved": False,
@@ -70,6 +94,7 @@ async def save_section(request: Request, section: Section, **extra) -> HTMLRespo
 
     On any failure the page re-renders with the SUBMITTED values, so nothing
     typed is lost — hence `submitted` in the context."""
+    service = request.app.state.service
     form = await request.form()
     raw = {key: form.getlist(key) for key in form.keys()}
     specs = section_fields(section)
@@ -105,7 +130,7 @@ async def save_section(request: Request, section: Section, **extra) -> HTMLRespo
         return f"ui: {section.title}" if apply_patch(doc, patch) else None
 
     try:
-        request.app.state.service.update_settings(mutate, source="ui")
+        service.update_settings(mutate, source="ui")
     except SettingsInvalid as exc:
         by_path, form_level = errors_by_path(exc, known={s.path for s in specs})
         return render_error(by_path, form_level)
@@ -117,8 +142,18 @@ async def save_section(request: Request, section: Section, **extra) -> HTMLRespo
     except NotConfigured:
         return RedirectResponse("/setup", status_code=303)
 
+    # Secrets are not part of the settings document, so they get their own
+    # writes — and only after the settings patch above has already succeeded,
+    # so a validation failure leaves neither changed.
+    if section.secrets:
+        to_set, to_clear = decode_secrets(section.secrets, raw, service.secret_source)
+        for name, value in to_set.items():
+            service.set_secret(name, value)
+        for name in to_clear:
+            service.clear_secret(name)
+
     # Re-read so the page shows what was actually stored, not what was typed.
-    request.state.snapshot = request.app.state.service.snapshot()
+    request.state.snapshot = service.snapshot()
     return _render(request, section, saved=True, **extra)
 
 
@@ -196,6 +231,36 @@ def register_settings_routes(app: FastAPI) -> None:
         request.state.snapshot = request.app.state.service.snapshot()
         return _render(request, section, saved=True, kind=kind, kinds=EDITABLE_KINDS,
                        body=getattr(request.state.snapshot.documents, kind) or "")
+
+    @app.post("/settings/llm/test/llm", response_class=HTMLResponse)
+    async def llm_test(request: Request):
+        """Probe the values currently in the form — nothing is saved."""
+        form = await request.form()
+        raw = {k: form.getlist(k) for k in form.keys()}
+        section = section_by_slug("llm")
+        specs = section_fields(section)
+        service = request.app.state.service
+        snap = request.state.snapshot
+        try:
+            patch = decode(specs, raw)
+        except SettingsInvalid as exc:
+            return _probe_partial(request, ProbeResult(False, str(exc)))
+        doc = dict(canonical_doc(snap.cfg))
+        apply_patch(doc, patch)
+        try:
+            cfg = service.parse_settings(doc)
+        except SettingsInvalid as exc:
+            return _probe_partial(request, ProbeResult(False, str(exc)))
+        # parse_settings() drops secrets (they are never part of the settings
+        # document), so the probe re-attaches the effective ones: what's
+        # already in effect (env, else stored) for every secret this section
+        # owns, overlaid with whatever the form has typed but not yet saved.
+        to_set, _ = decode_secrets(section.secrets, raw, service.secret_source)
+        effective = {name: service.effective_secret(name) for name in section.secrets}
+        effective.update(to_set)
+        cfg = cfg.model_copy(update={"secrets": Secrets(**effective)})
+        result = await probe_llm(cfg, snap.documents.profile)
+        return _probe_partial(request, result)
 
     @app.get("/settings/{slug}", response_class=HTMLResponse)
     def section_page(request: Request, slug: str):

@@ -4,7 +4,7 @@ Every settings input is named by its dotted config path, which makes all three
 directions (render, decode, place the error) dict lookups."""
 from __future__ import annotations
 
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from src.settings.errors import SettingsInvalid
 from src.settings.fields import (
@@ -109,6 +109,31 @@ def _remove(doc: dict, parts: list[str]) -> bool:
         if parent[key] == {}:
             del parent[key]
     return True
+
+
+def decode_secrets(
+    names: Sequence[str],
+    form: Mapping[str, list[str]],
+    source_of: Callable[[str], str],
+) -> tuple[dict[str, str], list[str]]:
+    """(values to set, names to clear) from `secret.<name>` and `clear.<name>`.
+
+    A name whose source is "env" is skipped entirely: the env var wins at read
+    time, so storing a value would be invisible and misleading. A blank field
+    means "leave alone" — clearing is explicit, via the checkbox."""
+    to_set: dict[str, str] = {}
+    to_clear: list[str] = []
+    for name in names:
+        if source_of(name) == "env":
+            continue
+        if form.get(f"clear.{name}"):
+            to_clear.append(name)
+            continue
+        values = form.get(f"secret.{name}", [])
+        value = values[0].strip() if values else ""
+        if value:
+            to_set[name] = value
+    return to_set, to_clear
 
 
 def errors_by_path(
