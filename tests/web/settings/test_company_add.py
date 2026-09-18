@@ -55,13 +55,43 @@ def test_an_empty_board_is_addable_but_says_it_is_empty(tmp_path, monkeypatch):
 
 
 def test_an_unsupported_ats_points_at_the_manual_form(tmp_path, monkeypatch):
+    """Whole-branch review: the old assertion (`"/settings/rows/" in r.text`)
+    would still pass even if the href pointed at the wrong family, or even
+    if it were missing entirely and the substring only came from the
+    Companies page's own "add a board manually" family picker (Important
+    3) — that picker links `/settings/rows/sources.<family>/new` for
+    EVERY board family unconditionally, on every render. Pinning the exact
+    href for THIS family is what actually proves the unsupported card's own
+    link is correct."""
     _stub(monkeypatch, FingerprintResult(
         name="Acme", domain="acme.com", status="unsupported", family="bamboohr",
         evidence_url="https://acme.bamboohr.com"))
     r = signed_in_client(_app(tmp_path, monkeypatch)).post(
         "/settings/companies/probe", data={"target": "acme.com"})
     assert "bamboohr" in r.text
-    assert "/settings/rows/" in r.text
+    assert 'href="/settings/rows/sources.bamboohr/new"' in r.text
+
+
+def test_an_ambiguous_jsonld_probe_points_the_manual_form_at_jsonld_boards(tmp_path, monkeypatch):
+    """Minor 1 (whole-branch review): fingerprint_company's ambiguous
+    branch (multiple ATS families seen, none of them a clean single match)
+    can set family to the literal string "jsonld" itself — not just
+    icims/successfactors/talentbrew — when the first candidate it saw was a
+    jsonld match (src/fingerprint.py:468-476, `fam = supported[0][0]`).
+    _manual_row_path("jsonld") builds "sources.jsonld", which is not in
+    editable_row_paths() (the config key is sources.jsonld_boards) — a
+    404ing link. The fix routes it through _board_family first, which
+    already does exactly this "jsonld" -> "jsonld_boards" translation."""
+    _stub(monkeypatch, FingerprintResult(
+        name="Acme", domain="acme.com", status="unsupported", family="jsonld",
+        note="multiple ATS fingerprints seen: eightfold, jsonld"))
+    client = signed_in_client(_app(tmp_path, monkeypatch))
+    r = client.post("/settings/companies/probe", data={"target": "acme.com"})
+    assert 'href="/settings/rows/sources.jsonld_boards/new"' in r.text
+    assert 'href="/settings/rows/sources.jsonld/new"' not in r.text
+    # Prove the link is actually reachable, not just textually different.
+    follow = client.get("/settings/rows/sources.jsonld_boards/new")
+    assert follow.status_code == 200
 
 
 def test_a_probe_that_failed_shows_the_error_instead_of_a_blank_card(tmp_path, monkeypatch):
@@ -73,6 +103,45 @@ def test_a_probe_that_failed_shows_the_error_instead_of_a_blank_card(tmp_path, m
     assert r.status_code == 200
     assert "ConnectTimeout" in r.text
     assert "/settings/companies/add" not in r.text
+
+
+def test_a_family_less_not_found_shows_no_nonsense_card(tmp_path, monkeypatch):
+    """Important 1 (whole-branch review): fingerprint_company's chain
+    locating nothing at all (src/fingerprint.py:478) returns
+    FingerprintResult(status="not_found") with family=None, identity=None,
+    note=None -- the most common outcome for an arbitrary company domain
+    not on a supported ATS. The template's first branch used to match on
+    status alone, rendering "Acme · None" / "None" / an Add button posting
+    family="None" back to /settings/companies/add, which 400s
+    ("unknown source family"). No existing fixture in this file supplies a
+    family-less not_found: every not_found here carries both a family and
+    an identity."""
+    _stub(monkeypatch, FingerprintResult(name="Acme", domain="acme.com", status="not_found"))
+    r = signed_in_client(_app(tmp_path, monkeypatch)).post(
+        "/settings/companies/probe", data={"target": "acme.com"})
+    assert r.status_code == 200
+    assert "None" not in r.text
+    assert "/settings/companies/add" not in r.text
+    assert "couldn" in r.text.lower()
+
+
+def test_an_error_with_a_known_family_still_offers_the_manual_form(tmp_path, monkeypatch):
+    """Important 3 (whole-branch review): the spec's probe-outcome table
+    requires the manual form on BOTH "unsupported/ambiguous" and
+    "error/timeout" rows; only the unsupported branch rendered it. Today's
+    fingerprint_company never actually sets a family on an "error" result,
+    but the template must not silently drop the link if some future change
+    starts leaving one -- this pins that the else-branch (which handles
+    both "error" and a family-less "not_found") renders it whenever
+    manual_path is available, not just on the unsupported branch."""
+    _stub(monkeypatch, FingerprintResult(
+        name="Acme", domain="acme.com", status="error", family="phenom",
+        note="ConnectTimeout: timed out"))
+    r = signed_in_client(_app(tmp_path, monkeypatch)).post(
+        "/settings/companies/probe", data={"target": "acme.com"})
+    assert r.status_code == 200
+    assert "ConnectTimeout" in r.text
+    assert 'href="/settings/rows/sources.phenom/new"' in r.text
 
 
 def test_an_unsupported_result_does_not_crash_on_a_missing_identity(tmp_path, monkeypatch):

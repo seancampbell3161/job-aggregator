@@ -72,3 +72,16 @@ def test_discovery_only_slugs_are_counted_not_listed(tmp_path, monkeypatch):
 def test_no_discovery_only_nudge_when_nothing_is_pending(tmp_path, monkeypatch):
     r = signed_in_client(_app(tmp_path, monkeypatch)).get("/settings/companies")
     assert "discovered but not yet added" not in r.text
+
+
+def test_the_page_offers_a_manual_add_link_for_every_board_family(tmp_path, monkeypatch):
+    """Important 3 (whole-branch review): the spec says the manual form "is
+    the only route for phenom and avature" — their branded careers domains
+    (careers.jacobs.com, careers.fisglobal.com) aren't machine-
+    fingerprintable — but nothing on the Companies page pointed at it; an
+    operator had to already know the /settings/rows/sources.<family>/new
+    URL. Checks phenom and avature specifically (the two the spec names),
+    not just that SOME link exists."""
+    r = signed_in_client(_app(tmp_path, monkeypatch)).get("/settings/companies")
+    assert 'href="/settings/rows/sources.phenom/new"' in r.text
+    assert 'href="/settings/rows/sources.avature/new"' in r.text

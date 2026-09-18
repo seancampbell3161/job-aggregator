@@ -10,13 +10,21 @@
    itself, so a family-without-identity result (status="unsupported") can
    never trip the KeyError connector_name() raises for one.
 
+   The first branch below is gated on `board_family`, NOT status alone: a
+   family-less "not_found" (fingerprint_company's chain located nothing at
+   all — no family, no identity, no note — the most common outcome for an
+   arbitrary company domain not on a supported ATS) used to match here on
+   status alone and render a nonsense card ("Acme · None" / "None" / a Add
+   button posting family="None", which /settings/companies/add then 400s
+   on). That shape gets its own card below instead.
+
    result.domain is NEVER rendered here: for a directly-pasted ATS board URL
    it holds the ATS vendor's host, not the company's own domain (see
    fingerprint.py's probe_target) — result.name is the label to show. #}
 {% if error %}
 <p class="bad">{{ error }}</p>
 {% elif result %}
-  {% if result.status in ("matched", "not_found") %}
+  {% if board_family and result.status in ("matched", "not_found") %}
   <p>
     <strong>{{ result.name }}</strong> &middot; {{ result.family }}
     {%- if board_key_display %} <span class="muted">({{ board_key_display }})</span>{% endif %}
@@ -46,7 +54,14 @@
   <p><a href="{{ result.evidence_url }}" target="_blank" rel="noopener noreferrer">{{ result.evidence_url }}</a></p>
   {% endif %}
   <p><a href="/settings/rows/{{ manual_path }}/new">Add it manually</a></p>
+  {% elif result.status == "not_found" %}
+  {# family-less not_found: the chain ran but identified nothing at all —
+     not the same as the "unsupported" card above, which DOES know a
+     family, just not one this app can poll automatically yet. #}
+  <p class="bad">Couldn't identify a supported job board at that address.</p>
+  {% if manual_path %}<p><a href="/settings/rows/{{ manual_path }}/new">Add it manually</a></p>{% endif %}
   {% else %}
   <p class="bad">Couldn't check that target{% if result.note %}: {{ result.note }}{% endif %}</p>
+  {% if manual_path %}<p><a href="/settings/rows/{{ manual_path }}/new">Add it manually</a></p>{% endif %}
   {% endif %}
 {% endif %}

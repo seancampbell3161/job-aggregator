@@ -100,10 +100,21 @@ def _probe_partial(
         # result carries only a family, so this guard (not a template-side
         # one) is the single place that decides whether it is safe to call.
         has_identity = bool(result.family and result.identity)
-        ctx["board_family"] = _board_family(result)
+        board_family = _board_family(result)
+        ctx["board_family"] = board_family
         ctx["board_key_display"] = connector_name(result) if has_identity else None
         ctx["identity_json"] = json.dumps(result.identity) if has_identity else "{}"
-        ctx["manual_path"] = _manual_row_path(result.family) if result.family else None
+        # Through _board_family, NOT result.family raw: result.family can be
+        # the literal string "jsonld" (fingerprint_company's ambiguous
+        # branch can set fam = supported[0][0], and a jsonld match's family
+        # IS "jsonld") — _manual_row_path("jsonld") would build
+        # "sources.jsonld", which is not in editable_row_paths() (the
+        # config key is sources.jsonld_boards), 404ing the manual link.
+        # _board_family already does exactly this "jsonld" ->
+        # "jsonld_boards" translation; icims/successfactors/talentbrew
+        # (never "jsonld" themselves) pass through it unchanged, so
+        # _manual_row_path's own override for those three still applies.
+        ctx["manual_path"] = _manual_row_path(board_family) if board_family else None
     return request.app.state.templates.TemplateResponse(
         request, "_company_probe.html", ctx,
     )
@@ -174,6 +185,7 @@ def register_companies_routes(app: FastAPI) -> None:
             groups=_grouped(entries),
             status=board_status(stores),
             discovery_only=_discovery_only(stores, configured),
+            board_families=BOARD_FAMILIES,
         )
 
     @app.post("/settings/companies/probe", response_class=HTMLResponse)
