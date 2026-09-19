@@ -24,6 +24,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from src.fingerprint import (
     FingerprintResult, connector_name, gather_already_polled, normalize_target, probe_target,
 )
+from src.headless import headless_available
 from src.settings.boards import BOARD_FAMILIES, BoardEntry, board_entries, board_key
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import item_model
@@ -201,6 +202,7 @@ def register_companies_routes(app: FastAPI) -> None:
             status=board_status(stores),
             discovery_only=_discovery_only(stores, configured),
             board_families=BOARD_FAMILIES,
+            headless_ok=headless_available(),
             saved=saved,
             blocked=blocked,
         )
