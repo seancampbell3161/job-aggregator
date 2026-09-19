@@ -14,7 +14,7 @@ from src.connectors.base import Connector
 from src.filters import evaluate
 from src.models import ConnectorState, FetchResult, RawPosting, Tier
 from src.normalize import normalize
-from src.notify.base import Sink, fanout
+from src.notify.base import NotificationPayload, Sink, fanout
 from src.notify.format import format_payload
 from src.tailor.endpoint.auth import build_tailor_url
 from src.gaps import GapAnalyzer, Gaps
@@ -54,6 +54,9 @@ class RunResult:
     # fetch itself succeeded, so flipping the source's poll-health would be wrong.
     normalize_failures: list[dict] = field(default_factory=list)
     duration_ms: int = 0
+    # What a dry run WOULD have sent. Empty on a real run, which notifies
+    # instead. The wizard's preview renders these.
+    would_notify: list[NotificationPayload] = field(default_factory=list)
 
 
 async def _fetch_one(
@@ -160,6 +163,7 @@ async def run_once(
     calibrate: bool = False,
     max_concurrency: int = 40,
     rejected_store=None,
+    ignore_seen: bool = False,
 ) -> RunResult:
     result = RunResult()
     t_start = time.monotonic()
@@ -225,8 +229,15 @@ async def run_once(
 
         # Persist new state immediately so a later notify failure doesn't lose
         # the cache hint (state is independent of seen-jobs marking).
-        for name, st in new_states.items():
-            source_state.put(name, st)
+        #
+        # NOT in a dry run. These are per-connector ETag / cursor hints: a
+        # dry run that advanced them would make the next REAL cycle send
+        # If-None-Match, receive 304, and fetch nothing — while the dry run
+        # marked nothing seen, so those postings would never be alerted at
+        # all. A preview must leave no trace.
+        if not dry_run:
+            for name, st in new_states.items():
+                source_state.put(name, st)
 
         # Normalize + dedup within invocation by job_id
         seen_in_run: set[str] = set()
@@ -270,10 +281,13 @@ async def run_once(
         result.new_count = len(new_postings)
         log.info("diff_done", extra={"new": result.new_count, "total": len(normalized)})
 
-        # Filter. In calibration mode, filter the FULL normalized set (bypassing
-        # the new-since-last-seen diff) so a single run yields a usable score
-        # distribution rather than only the day's new arrivals.
-        filter_source = normalized if calibrate else new_postings
+        # Filter. calibrate and the wizard preview (ignore_seen) both bypass the
+        # new-since-last-seen diff: calibrate needs a usable score distribution
+        # from one run, and the preview must still show matches on an instance
+        # the poller has already polled (otherwise a preview run after the first
+        # real cycle shows nothing — exactly when the user most wants
+        # reassurance).
+        filter_source = normalized if (calibrate or ignore_seen) else new_postings
         matched: list[tuple] = []  # (NormalizedPosting, Decision)
         for n in filter_source:
             decision = evaluate(n, cfg.filters)
@@ -412,6 +426,7 @@ async def run_once(
                     score_low=cfg.relevance.score_low,
                     gaps=gaps.skills if gaps else None,
                 )
+                result.would_notify.append(payload)
                 log.info("would_notify", extra={"job_id": n.job_id, "title": payload.title})
             log.info(
                 "invocation_done",
