@@ -59,7 +59,11 @@ def test_scanned_pdf_says_so():
     writer.write(buf)
     with pytest.raises(ExtractionFailed) as exc:
         extract_text(buf.getvalue(), "scan.pdf")
-    assert "paste" in str(exc.value).lower()
+    # _PASTE_HINT is appended to every ExtractionFailed message in this
+    # module, so asserting on "paste" alone can't tell which code path
+    # raised — pin the MIN_CHARS-specific wording instead, since that's the
+    # path a scanned/image-only PDF is supposed to take.
+    assert "scan or an image" in str(exc.value).lower()
 
 
 def test_short_text_is_refused():
@@ -87,6 +91,14 @@ def test_corrupt_pdf_is_refused_not_raised_raw():
 def test_undecodable_bytes_are_refused():
     with pytest.raises(ExtractionFailed):
         extract_text(b"\xff\xfe\x00\x00" * 50, "r.txt")
+
+
+def test_utf16_resume_is_extracted():
+    """A Notepad "Unicode" save is UTF-16 with a BOM and a NUL byte between
+    every ASCII character. That's genuine text, not binary — it must be
+    accepted, not caught by the binary/NUL heuristic in test_undecodable_
+    bytes_are_refused."""
+    assert "Platform engineer" in extract_text(LONG.encode("utf-16"), "resume.txt")
 
 
 def test_extension_matching_ignores_case():

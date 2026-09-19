@@ -48,11 +48,24 @@ def extract_text(data: bytes, filename: str) -> str:
 
 
 def _plain(data: bytes) -> str:
+    # A genuine UTF-16 text file (e.g. a Notepad "Unicode" save) has a NUL
+    # byte in every other position for plain ASCII content, which the NUL
+    # check below would otherwise mistake for binary. Carve it out first:
+    # the BOM makes UTF-16 unambiguous to detect, and str.decode("utf-16")
+    # picks the right endianness from it.
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        try:
+            return data.decode("utf-16")
+        except UnicodeDecodeError as exc:
+            raise ExtractionFailed(
+                f"That file isn't readable as text. {_PASTE_HINT}"
+            ) from exc
+
     # latin-1 maps every byte 0-255 to a character, so it never raises — a
-    # UTF-16 file or other binary blob would otherwise sail through as
-    # "successfully decoded" mojibake. NUL bytes are the standard tell for
-    # binary content (grep -I and git both use exactly this heuristic), so
-    # catch it before decoding rather than trusting decode() to fail.
+    # binary blob would otherwise sail through as "successfully decoded"
+    # mojibake. NUL bytes are the standard tell for binary content (grep -I
+    # and git both use exactly this heuristic), so catch it before decoding
+    # rather than trusting decode() to fail.
     if b"\x00" in data:
         raise ExtractionFailed(
             f"That file isn't readable as text. {_PASTE_HINT}"
