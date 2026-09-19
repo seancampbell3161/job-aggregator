@@ -60,6 +60,20 @@ def needs_key(cfg: AppConfig, provider: str) -> bool:
     return not (provider == "ollama" and cfg.relevance.ollama_is_local)
 
 
+def missing_key(cfg: AppConfig, feature: str) -> str | None:
+    """The secret name a feature needs but lacks, or None when its key
+    requirement is satisfied. Cheap by design: constructs no client, so a
+    caller can refuse before paying for one (and before a malformed
+    ollama_host can raise out of the SDK constructor)."""
+    provider, _ = resolve(cfg, feature)
+    key_name = PROVIDER_KEYS.get(provider)
+    if key_name is None:
+        return None  # unknown provider: build_binding refuses it
+    if needs_key(cfg, provider) and not getattr(cfg.secrets, key_name):
+        return key_name
+    return None
+
+
 def build_client(cfg: AppConfig, provider: str, api_key: str) -> Any:
     """The provider's own async SDK client. Imports are local so an install
     that never uses gemini never imports google-genai."""

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from src.llm.providers import build_binding
+from src.llm.providers import build_binding, missing_key, resolve
 
 log = logging.getLogger(__name__)
 
@@ -110,10 +110,14 @@ def build_docx_importer(cfg: Any) -> DocxTemplateImporter | None:
     key required only for a non-local host, None when unavailable (the
     /builder page shows docx import as unavailable)."""
     t = cfg.tailoring
+    provider, _ = resolve(cfg, "tailoring")
+    if provider != "ollama":
+        return None
+    if missing_key(cfg, "tailoring") is not None:
+        return None
+
     binding = build_binding(cfg, feature="tailoring", timeout_seconds=t.timeout_seconds)
     if binding is None:
-        return None
-    if binding.provider != "ollama":
         return None
     # Template generation is a longer LLM call than a normal tailoring run;
     # never let a tight tailoring.timeout_seconds starve it.

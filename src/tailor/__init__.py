@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 
 from src.config import AppConfig
-from src.llm.providers import build_binding
+from src.llm.providers import build_binding, missing_key, resolve
 from src.tailor.engine import OllamaTailorEngine
 from src.tailor.models import EvidenceBank, ResumeContent
 
@@ -24,17 +24,26 @@ def build_tailor_engine(
     if not t.enabled:
         return None
 
-    binding = build_binding(cfg, feature="tailoring", timeout_seconds=t.timeout_seconds)
-    if binding is None:
-        log.warning("tailoring_disabled_at_runtime", extra={"reason": "no provider binding"})
+    provider, _ = resolve(cfg, "tailoring")
+    if provider != "ollama":  # sub-project 6 wires the other providers
+        log.warning("tailoring_unsupported_provider", extra={"provider": provider})
         return None
-    if binding.provider != "ollama":  # sub-project 6 wires the other providers
-        log.warning("tailoring_unsupported_provider", extra={"provider": binding.provider})
+
+    key = missing_key(cfg, "tailoring")
+    if key is not None:
+        log.warning("tailoring_disabled_at_runtime", extra={"reason": f"{key} not set"})
         return None
 
     if content is None or evidence is None:
         log.warning("tailoring_disabled_at_runtime",
                     extra={"reason": "resume_content or evidence document missing"})
+        return None
+
+    binding = build_binding(cfg, feature="tailoring", timeout_seconds=t.timeout_seconds)
+    if binding is None:
+        # Defensive: the provider/key checks above already confirmed this
+        # binding should succeed.
+        log.warning("tailoring_disabled_at_runtime", extra={"reason": "no provider binding"})
         return None
 
     return OllamaTailorEngine(

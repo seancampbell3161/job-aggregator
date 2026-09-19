@@ -1,6 +1,8 @@
 """The properties the port must not break."""
 import inspect
 
+import pytest
+
 from src.config import AppConfig, Secrets
 
 
@@ -64,3 +66,52 @@ def test_every_factory_routes_through_build_binding(monkeypatch):
 
     assert set(seen) == {"relevance", "gap_analysis", "coach", "tailoring"}
     assert seen.count("tailoring") == 2  # engine + docx importer share the section
+
+
+def test_relevance_scorer_with_malformed_host_and_no_profile_returns_none():
+    """Regression: build_binding constructs a real client as part of
+    answering "is this feature available?" — ollama.AsyncClient's
+    constructor raises ValueError on a malformed host (confirmed directly
+    below). A factory must refuse on its cheap checks (missing_key, then the
+    missing-document check) *before* ever calling build_binding, so a
+    malformed ollama_host on a first run with no profile saved yet degrades
+    to None instead of blowing up the whole poll cycle."""
+    from ollama import AsyncClient
+    with pytest.raises(ValueError):
+        AsyncClient(host="not a valid url :::: at all")
+
+    from src.handler import _build_relevance_scorer
+    cfg = AppConfig(
+        relevance={"enabled": True, "provider": "ollama", "model": "m",
+                   "ollama_host": "not a valid url :::: at all"},
+        secrets=Secrets(),
+    )
+    # ollama_is_local("not a valid url :::: at all") is True (no "ollama.com"
+    # substring), so no key is required here — the only thing standing
+    # between this config and a raised ValueError is the profile_text=None
+    # check running before build_binding does.
+    assert _build_relevance_scorer(cfg, None) is None
+
+
+def test_tailor_engine_refuses_unsupported_provider_before_checking_its_key(caplog):
+    """Regression: a non-Ollama provider must be refused for being
+    unsupported (tailoring_unsupported_provider), not for lacking a key it
+    could never use anyway (tailoring_disabled_at_runtime) — advising the
+    user to add a key that cannot help is actively misleading."""
+    from src.tailor import build_tailor_engine
+    from src.tailor.models import EvidenceBank, ResumeContent
+
+    cfg = AppConfig(
+        tailoring={"enabled": True, "provider": "anthropic"},
+        secrets=Secrets(),  # no anthropic_api_key
+    )
+    with caplog.at_level("WARNING", logger="src.tailor"):
+        result = build_tailor_engine(
+            cfg,
+            ResumeContent(name="A", contact={}, skills=[], experiences=[]),
+            EvidenceBank(),
+        )
+    assert result is None
+    events = [r.message for r in caplog.records]
+    assert "tailoring_unsupported_provider" in events
+    assert "tailoring_disabled_at_runtime" not in events

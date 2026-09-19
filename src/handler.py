@@ -16,7 +16,7 @@ from src.connectors.base import build_connectors
 from src.digest import format_gap_digest, send_gap_digest, tally_gaps
 from src.discovery import DiscoveryConfig, make_yc_oss_fetcher, run_board_discovery, run_discovery, run_vc_discovery
 from src.fingerprint import DEFAULT_SEEDS, EU_SEEDS, load_seeds
-from src.llm.providers import build_binding
+from src.llm.providers import build_binding, missing_key, resolve
 from src.poll_health import recover_suppressed
 from src.logging_setup import configure_logging
 from src.notify.base import Sink
@@ -77,13 +77,11 @@ def _build_relevance_scorer(
     if not cfg.relevance.enabled:
         return None
 
-    binding = build_binding(
-        cfg, feature="relevance", timeout_seconds=cfg.relevance.timeout_seconds
-    )
-    if binding is None:
+    key = missing_key(cfg, "relevance")
+    if key is not None:
         log.warning(
             "relevance_disabled_at_runtime",
-            extra={"reason": "no provider binding", "provider": cfg.relevance.provider},
+            extra={"reason": f"{key} not set", "provider": cfg.relevance.provider},
         )
         return None
 
@@ -91,6 +89,19 @@ def _build_relevance_scorer(
         # Soft-fail symmetric with a missing API key: no profile document means
         # nothing to grade against, so relevance is off for this run.
         log.warning("relevance_disabled_at_runtime", extra={"reason": "profile document missing"})
+        return None
+
+    binding = build_binding(
+        cfg, feature="relevance", timeout_seconds=cfg.relevance.timeout_seconds
+    )
+    if binding is None:
+        # Defensive: missing_key already confirmed the key requirement is
+        # satisfied, so this is only reachable for a provider Pydantic's
+        # Literal should have already rejected.
+        log.warning(
+            "relevance_disabled_at_runtime",
+            extra={"reason": "no provider binding", "provider": cfg.relevance.provider},
+        )
         return None
 
     common = dict(
@@ -113,15 +124,27 @@ def _build_gap_analyzer(cfg: AppConfig, resume_text: str | None) -> GapAnalyzer 
     if not cfg.gap_analysis.enabled:
         return None
 
-    binding = build_binding(
-        cfg, feature="gap_analysis", timeout_seconds=cfg.gap_analysis.timeout_seconds
-    )
-    if binding is None:
-        log.warning("gap_analysis_disabled_at_runtime", extra={"reason": "no provider binding"})
+    provider, _ = resolve(cfg, "gap_analysis")
+    key = missing_key(cfg, "gap_analysis")
+    if key is not None:
+        log.warning(
+            "gap_analysis_disabled_at_runtime",
+            extra={"reason": f"{key} not set", "provider": provider},
+        )
         return None
 
     if resume_text is None:
         log.warning("gap_analysis_disabled_at_runtime", extra={"reason": "resume document missing"})
+        return None
+
+    binding = build_binding(
+        cfg, feature="gap_analysis", timeout_seconds=cfg.gap_analysis.timeout_seconds
+    )
+    if binding is None:
+        # Defensive: missing_key already confirmed the key requirement is
+        # satisfied, so this is only reachable for a provider Pydantic's
+        # Literal should have already rejected.
+        log.warning("gap_analysis_disabled_at_runtime", extra={"reason": "no provider binding"})
         return None
 
     common = dict(
@@ -146,8 +169,20 @@ def _build_coach(cfg: AppConfig) -> CoachEngine | None:
     if not cfg.coach.enabled:
         return None
 
+    provider, _ = resolve(cfg, "coach")
+    key = missing_key(cfg, "coach")
+    if key is not None:
+        log.warning(
+            "coach_disabled_at_runtime",
+            extra={"reason": f"{key} not set", "provider": provider},
+        )
+        return None
+
     binding = build_binding(cfg, feature="coach", timeout_seconds=cfg.coach.timeout_seconds)
     if binding is None:
+        # Defensive: missing_key already confirmed the key requirement is
+        # satisfied, so this is only reachable for a provider Pydantic's
+        # Literal should have already rejected.
         log.warning("coach_disabled_at_runtime", extra={"reason": "no provider binding"})
         return None
 
