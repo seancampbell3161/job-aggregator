@@ -12,7 +12,7 @@ from typing import Callable, Iterable
 
 from src.config import AppConfig, SLUG_SOURCE_FAMILIES
 from src.settings.documents import Documents
-from src.web.settings.readiness import check, _STRUCTURED_FAMILIES
+from src.web.settings.readiness import check, STRUCTURED_FAMILIES
 
 
 @dataclass(frozen=True)
@@ -73,7 +73,7 @@ def _companies_done(ctx: StepContext) -> bool:
     this one ("have you chosen where to look?") are different questions, and
     a default-on background feed is not a choice the user made."""
     sources = ctx.cfg.sources
-    for family in (*SLUG_SOURCE_FAMILIES, *_STRUCTURED_FAMILIES):
+    for family in (*SLUG_SOURCE_FAMILIES, *STRUCTURED_FAMILIES):
         if getattr(sources, family, None):
             return True
     return ctx.cfg.discovery.enabled

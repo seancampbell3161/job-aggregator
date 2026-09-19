@@ -11,7 +11,7 @@ from src.config import AppConfig, SLUG_SOURCE_FAMILIES
 # The single source of truth, shared with every LLM factory.
 from src.llm.providers import PROVIDER_KEYS as _PROVIDER_KEYS
 
-_STRUCTURED_FAMILIES = (
+STRUCTURED_FAMILIES = (
     "workday", "oraclecloud", "eightfold", "jsonld_boards", "phenom", "taleo", "avature",
 )
 _AGGREGATORS = ("hn_who_is_hiring", "remotive", "remoteok", "hiringcafe", "adzuna")
@@ -25,7 +25,7 @@ class Warning:
 
 
 def _has_sources(cfg: AppConfig) -> bool:
-    for family in (*SLUG_SOURCE_FAMILIES, *_STRUCTURED_FAMILIES):
+    for family in (*SLUG_SOURCE_FAMILIES, *STRUCTURED_FAMILIES):
         if getattr(cfg.sources, family, None):
             return True
     return any(getattr(cfg.sources, name).enabled for name in _AGGREGATORS)

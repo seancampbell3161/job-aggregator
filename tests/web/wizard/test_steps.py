@@ -55,6 +55,16 @@ def test_local_ollama_completes_the_llm_step_without_a_key():
     assert next_step(_ctx(cfg), skipped=set()).slug == "resume"
 
 
+def test_llm_step_is_incomplete_when_enabled_without_a_key():
+    """Scoring on but unkeyed: readiness raises llm_no_key, and the step must
+    stay incomplete. Without this, _llm_done could drop its code check and no
+    test would notice."""
+    cfg = AppConfig(relevance={"enabled": True, "provider": "anthropic"})
+    ctx = _ctx(cfg)  # no secrets, so anthropic_api_key is unset
+    assert "llm_no_key" in ctx.codes
+    assert next_step(ctx, skipped=set()).slug == "llm"
+
+
 def test_skipping_advances_past_a_step():
     assert next_step(_ctx(), skipped={"llm"}).slug == "resume"
 
@@ -131,6 +141,28 @@ def test_step_states_marks_done_skipped_and_current():
 def test_a_skipped_step_is_not_also_current():
     states = step_states(_ctx(), skipped={"llm"})
     assert not any(s.skipped and s.current for s in states)
+
+
+def test_step_states_done_flag_is_accurate():
+    """StepState.done must reflect actual completion. Without this, done could
+    be hardcoded and no test would notice; Task 6's progress rail renders it."""
+    cfg = AppConfig(
+        filters={"titles": ["x"], "max_age_days": 2},
+        sources={"greenhouse": ["stripe"]},
+        secrets=Secrets(ntfy_topic_url="https://ntfy.sh/t"),
+    )
+    ctx = _ctx(cfg, documents=Documents(resume_text="r", profile="# Me"),
+               secrets={"ntfy_topic_url"})
+    states = step_states(ctx, skipped=set())
+    by_slug = {s.step.slug: s for s in states}
+    # At this point: llm (incomplete), resume (complete), review (complete),
+    # companies (complete), notifications (complete), preview (incomplete)
+    assert by_slug["llm"].done is False
+    assert by_slug["resume"].done is True
+    assert by_slug["review"].done is True
+    assert by_slug["companies"].done is True
+    assert by_slug["notifications"].done is True
+    assert by_slug["preview"].done is False
 
 
 def test_step_by_slug():
