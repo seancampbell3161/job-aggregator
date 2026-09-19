@@ -69,8 +69,16 @@ def main(argv: list[str] | None = None) -> int:
     content = snap.documents.content()
     engine = build_tailor_engine(snap.cfg, content, snap.documents.evidence_bank())
     if engine is None:
-        print("tailoring unavailable (disabled, missing Ollama key, or missing "
-              "resume_content/evidence documents)", file=sys.stderr)
+        # Kept in step with build_tailor_engine's actual refusals
+        # (src/tailor/__init__.py): tailoring is switched off, the configured
+        # provider has no API key, or there is no resume_content document.
+        # Any provider works, and an absent evidence bank degrades to an
+        # empty one rather than refusing.
+        print("tailoring unavailable: it is switched off (tailoring.enabled), "
+              "the configured LLM provider has no API key, or there is no "
+              "resume_content document — write one, or draft it from your "
+              "résumé at /settings/documents/draft. An evidence bank is "
+              "optional.", file=sys.stderr)
         return 1
 
     jd_text = Path(args.jd).read_text()

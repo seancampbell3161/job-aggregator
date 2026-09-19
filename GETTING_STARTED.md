@@ -691,10 +691,14 @@ filters (`filters.location`, `filters.comp_floor_usd`), the remaining
 eligibility answers (work authorization, sponsorship, relocation, start
 date) are left blank for you to fill in, and every EEO field is blank by
 construction — there is no code path by which it could be populated from
-model output. Fill in the blanks on **Settings → Documents**.
+model output. Fill in the blanks on **Settings → Documents** — including
+Desired salary, which comes out empty when you have no `comp_floor_usd` set,
+and is worth replacing with the figure you'd actually quote even when you do:
+`comp_floor_usd` is the floor below which you don't want to hear about a job,
+not a number to put on an application.
 
-**Hand-written path:** still works, and some questions (EEO answers, a
-specific "desired salary") you'll want to fill in by hand regardless.
+**Hand-written path:** still works, and the EEO answers you'll want to fill
+in by hand regardless.
 `resume/facts.example.yaml` ships as a template — copy it to
 `resume/facts.yaml`, fill it in, and re-import (or paste/edit the YAML
 directly at `/settings/documents?kind=kit_facts`) — `/kit` shows it on the
