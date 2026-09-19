@@ -282,6 +282,17 @@ class GapAnalysisConfig(BaseModel):
     digest_window_days: int = Field(default=30, ge=1)
 
 
+class ResumeDraftConfig(BaseModel):
+    """The first-run wizard's résumé -> profile + filters drafting.
+
+    No `enabled` flag on purpose: drafting is offered when a provider binding
+    can be built and falls back to hand-filled forms when it cannot, so there
+    is nothing for a flag to switch off."""
+    provider: Literal["anthropic", "gemini", "ollama"] | None = None
+    model: str | None = None
+    timeout_seconds: int = 60
+
+
 class TailoringConfig(BaseModel):
     enabled: bool = False
     # provider/model default to the relevance values when None (see build_tailor_engine)
@@ -508,6 +519,7 @@ class AppConfig(BaseModel):
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
     relevance: RelevanceConfig = Field(default_factory=RelevanceConfig)
     gap_analysis: GapAnalysisConfig = Field(default_factory=GapAnalysisConfig)
+    resume_draft: ResumeDraftConfig = Field(default_factory=ResumeDraftConfig)
     tailoring: TailoringConfig = Field(default_factory=TailoringConfig)
     board: BoardConfig = Field(default_factory=BoardConfig)
     audit: AuditConfig = Field(default_factory=AuditConfig)

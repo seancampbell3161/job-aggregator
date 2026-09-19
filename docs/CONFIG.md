@@ -208,6 +208,16 @@ Optional résumé-gap flags on matched postings, plus a weekly skills digest
 | `gap_analysis.max_skills_per_job` | `6` | Cap on gap skills extracted per matched job. |
 | `gap_analysis.digest_window_days` | `30` | Window the weekly digest aggregates over. |
 
+## resume_draft
+
+The first-run wizard's résumé-to-profile drafting engine. Drafting is offered when a provider binding can be built and falls back to hand-filled forms when it cannot.
+
+| Flag | Default | What it does / when to touch it |
+|---|---|---|
+| `resume_draft.provider` | `null` | LLM provider; `null` falls back to the `relevance` values. |
+| `resume_draft.model` | `null` | Model; `null` falls back to `relevance.model`. |
+| `resume_draft.timeout_seconds` | `60` | Résumé analysis and drafting timeout. |
+
 ## tailoring
 
 The tailored-résumé engine behind `/tailor` deep links and the local CLI.
