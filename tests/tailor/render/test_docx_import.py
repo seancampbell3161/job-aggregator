@@ -95,7 +95,7 @@ def _ollama_binding(text: str, *, timeout_seconds: int = 5) -> LlmBinding:
 
 @requires_weasyprint
 async def test_importer_strips_fences_and_returns_template():
-    imp = DocxTemplateImporter(binding=_ollama_binding(GOOD), timeout_seconds=5)
+    imp = DocxTemplateImporter(binding=_ollama_binding(GOOD))
     text, ex = await imp.to_template(make_docx())
     assert text.startswith("<!DOCTYPE html>")
     assert "{{ doc.name }}" in text
@@ -104,12 +104,11 @@ async def test_importer_strips_fences_and_returns_template():
 
 @requires_weasyprint
 async def test_importer_rejects_output_without_doc_refs():
-    imp = DocxTemplateImporter(binding=_ollama_binding("<html>static</html>"), timeout_seconds=5)
+    imp = DocxTemplateImporter(binding=_ollama_binding("<html>static</html>"))
     with pytest.raises(RuntimeError):
         await imp.to_template(make_docx())
 
 
-@pytest.mark.asyncio
 async def test_the_importer_runs_on_anthropic(monkeypatch):
     class _FakeAnthropic:
         def __init__(self):
@@ -124,7 +123,6 @@ async def test_the_importer_runs_on_anthropic(monkeypatch):
     importer = DocxTemplateImporter(
         binding=LlmBinding(provider="anthropic", model="m", client=client,
                            timeout_seconds=120),
-        timeout_seconds=120,
     )
     monkeypatch.setattr("src.tailor.render.docx_import.extract_docx",
                         lambda data: type("E", (), {"html": "<p>x</p>", "fonts": [],
@@ -149,13 +147,13 @@ def test_build_docx_importer_floors_short_tailoring_timeout():
     starve it; the importer's timeout floors at 120s."""
     imp = build_docx_importer(_cfg(tailoring_timeout=60))
     assert imp is not None
-    assert imp._timeout == 120
+    assert imp._binding.timeout_seconds == 120
 
 
 def test_build_docx_importer_respects_longer_tailoring_timeout():
     imp = build_docx_importer(_cfg(tailoring_timeout=180))
     assert imp is not None
-    assert imp._timeout == 180
+    assert imp._binding.timeout_seconds == 180
 
 
 def test_build_docx_importer_uses_a_local_host_without_a_key(monkeypatch):

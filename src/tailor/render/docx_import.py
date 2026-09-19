@@ -88,9 +88,8 @@ class DocxTemplateImporter:
     """One text completion; raises RuntimeError on failure (the upload route
     turns that into an inline error). The LLM never runs at render time."""
 
-    def __init__(self, *, binding: LlmBinding, timeout_seconds: int) -> None:
+    def __init__(self, *, binding: LlmBinding) -> None:
         self._binding = binding
-        self._timeout = timeout_seconds
 
     async def to_template(self, data: bytes) -> tuple[str, DocxExtract]:
         ex = extract_docx(data)
@@ -120,6 +119,4 @@ def build_docx_importer(cfg: Any) -> DocxTemplateImporter | None:
     # Template generation is a longer call than a normal tailoring run; never
     # let a tight tailoring.timeout_seconds starve it.
     timeout = max(binding.timeout_seconds, 120)
-    return DocxTemplateImporter(
-        binding=replace(binding, timeout_seconds=timeout), timeout_seconds=timeout,
-    )
+    return DocxTemplateImporter(binding=replace(binding, timeout_seconds=timeout))
