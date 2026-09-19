@@ -7,6 +7,8 @@ failure. NOT HTMX partials — the settings shell wraps fields in an outer
 already does: probe results and the preview poll."""
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -262,6 +264,8 @@ def render_step(request: Request, step, **extra) -> HTMLResponse:
         extra = {**resume_extra(request), **extra}
     elif step.slug == "review":
         extra = {**review_extra(request), **extra}
+    elif step.slug == "preview":
+        extra = {"preview": request.app.state.stores.wizard.get("preview"), **extra}
     return request.app.state.templates.TemplateResponse(
         request, TEMPLATES[step.slug],
         wizard_ctx(request, step, paths=paths, secrets=secrets, **extra)
@@ -489,12 +493,36 @@ def register_wizard_routes(app: FastAPI) -> None:
         request.app.state.stores.wizard.delete("draft")
         return RedirectResponse("/wizard", status_code=303)
 
+    @app.post("/wizard/preview/start")
+    async def wizard_preview_start(request: Request):
+        from src.web.wizard.preview import run_preview
+        # Written synchronously, before the background task is even
+        # scheduled, so the very next request (the page's first poll, or a
+        # test asserting on it) is guaranteed to see "running" rather than
+        # racing the event loop for a chance to run the task's first line.
+        request.app.state.stores.wizard.put("preview", {"status": "running"})
+        # Fire and forget: the page polls /wizard/preview/status. Keep a
+        # reference so the task is not garbage-collected mid-run.
+        task = asyncio.create_task(run_preview(request.app))
+        request.app.state.preview_task = task
+        return RedirectResponse("/wizard/preview", status_code=303)
+
+    @app.get("/wizard/preview/status", response_class=HTMLResponse)
+    def wizard_preview_status(request: Request):
+        return request.app.state.templates.TemplateResponse(
+            request, "_wizard_preview_result.html",
+            {"preview": request.app.state.stores.wizard.get("preview")},
+        )
+
     # Declared before /wizard/{slug} — Starlette matches in registration
     # order, and the parameterised route would otherwise swallow /wizard/done
     # (slug="done"), the same ordering constraint documented at the top of
     # src/web/settings/routes.py. /wizard/review and its POST siblings above
     # are declared here for the same reason: /wizard/{slug} would otherwise
-    # swallow GET /wizard/review too.
+    # swallow GET /wizard/review too. The two preview routes just above don't
+    # actually need this: {slug} is a single path segment (no "/"), so it can
+    # never match "preview/start" or "preview/status" regardless of order —
+    # they're grouped here for readability, not correctness.
     @app.get("/wizard/{slug}", response_class=HTMLResponse)
     def wizard_step(request: Request, slug: str):
         step = step_by_slug(slug)

@@ -1,1 +1,15 @@
 {% extends "wizard_base.html" %}
+{% block step %}
+<section class="panel">
+  <h2>See what would arrive</h2>
+  <p>A one-off, read-only look at real postings on your configured boards,
+    scored against your profile and filters — up to 5 boards, up to a minute.
+    Nothing is delivered and nothing is marked as seen, so your first real
+    alert batch is still waiting for you after this.</p>
+  <form method="post" action="/wizard/preview/start">
+    <button type="submit" class="btn primary">Run the preview</button>
+  </form>
+</section>
+{% include "_wizard_preview_result.html" %}
+<p><a class="btn" href="/wizard">Finish</a></p>
+{% endblock %}
