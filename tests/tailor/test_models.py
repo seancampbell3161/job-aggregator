@@ -40,6 +40,18 @@ def test_tailorresult_fallback_is_marked_and_empty():
     assert "unavailable" in r.cover_letter.lower()
 
 
+def test_fallback_without_a_reason_keeps_the_retry_wording():
+    assert "Retry shortly" in TailorResult.fallback().cover_letter
+
+
+def test_fallback_with_a_reason_names_it_instead_of_advising_a_retry():
+    """A max_tokens rejection is permanent for that model. Telling the user to
+    retry sends them round a loop that cannot succeed."""
+    result = TailorResult.fallback(reason="BadRequestError: max_tokens: 16384 > 8192")
+    assert "8192" in result.cover_letter
+    assert "Retry shortly" not in result.cover_letter
+
+
 def test_project_has_bullets_and_subtitle():
     from src.tailor.models import Project, Bullet
     p = Project(id="proj-rc", name="Foo", subtitle="Go + React", dates="2024 – Present",

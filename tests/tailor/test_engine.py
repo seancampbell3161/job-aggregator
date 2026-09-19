@@ -213,6 +213,29 @@ async def test_engine_runs_on_gemini():
     assert r.is_fallback is False
 
 
+@pytest.mark.asyncio
+async def test_a_provider_rejection_reaches_the_user_facing_text():
+    """Anthropic models carry their own max_tokens ceilings, some far below
+    the engine's fixed 16384 (see _TAILOR_NUM_PREDICT) — a real, permanent
+    failure mode now that non-Ollama providers reach the engine. The fallback
+    cover letter must name it rather than advise a retry that cannot help."""
+    class _Rejects:
+        def __init__(self):
+            self.messages = self
+
+        async def create(self, **kwargs):
+            raise RuntimeError("max_tokens: 16384 > 8192")
+
+    engine = TailorEngine(
+        binding=LlmBinding(provider="anthropic", model="m", client=_Rejects(),
+                           timeout_seconds=60),
+        content=_content(), evidence=_evidence(),
+    )
+    result = await engine.tailor(job_id="j", jd_text="Go role")
+    assert result.is_fallback is True
+    assert "16384" in result.cover_letter
+
+
 def test_the_schema_names_the_ids_the_grounding_guards_check():
     """The guards key on source_bullet_id, experience_id, and project_id. A
     schema that omitted any of them would let a forced-tool provider return

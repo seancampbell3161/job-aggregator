@@ -241,7 +241,12 @@ class TailorEngine:
                 extra={"job_id": job_id, "provider": self._binding.provider,
                        "error": str(exc), "error_type": type(exc).__name__},
             )
-            return TailorResult.fallback()
+            # Named, not just logged: a provider's own max_tokens ceiling
+            # (see the module-level _TAILOR_NUM_PREDICT comment) is a
+            # permanent misconfiguration, not a transient failure, and the
+            # generic "Retry shortly" fallback text would send the user
+            # around a loop that cannot succeed.
+            return TailorResult.fallback(reason=f"{type(exc).__name__}: {exc}")
 
         return parse_tailor_result(obj, content=self._content,
                                    evidence=self._evidence, job_id=job_id)
