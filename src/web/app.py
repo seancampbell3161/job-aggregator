@@ -152,6 +152,9 @@ def create_app(
     from src.web.settings import register_settings_routes
     register_settings_routes(app)
 
+    from src.web.wizard import register_wizard_routes
+    register_wizard_routes(app)
+
     from src.web.tailor import register_tailor_routes
 
     register_tailor_routes(app)
@@ -224,6 +227,19 @@ def _register_setup_gate(app: FastAPI) -> None:
         if request.state.snapshot is None:
             service.save_settings({}, source="ui", note="started from defaults")
         return RedirectResponse("/settings/filters", status_code=303)
+
+    @app.post("/setup/wizard")
+    def setup_wizard(request: Request):
+        """Start guided setup.
+
+        Writes the same defaults-only version setup_start writes, with a
+        different source, BEFORE the first wizard page — which is what keeps
+        /wizard/* out of SETUP_EXEMPT_PREFIXES: by the time the redirect
+        lands, the instance is set up. Idempotent, like setup_start."""
+        service = request.app.state.service
+        if request.state.snapshot is None:
+            service.save_settings({}, source="wizard", note="started guided setup")
+        return RedirectResponse("/wizard", status_code=303)
 
     @app.post("/setup/restore")
     async def setup_restore(request: Request, archive: UploadFile | None = None):

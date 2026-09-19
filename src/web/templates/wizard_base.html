@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<nav class="wizard-rail">
+  <ol>
+    {% for s in steps %}
+    <li class="{{ 'current' if s.current else ('done' if s.done else '') }}{{ ' skipped' if s.skipped else '' }}">
+      {{ s.step.title }}{% if s.skipped %} <span class="muted">(skipped)</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+</nav>
+{% if step %}
+<h1>{{ step.title }}</h1>
+<p class="muted">{{ step.blurb }}</p>
+{% endif %}
+{% for msg in form_errors %}<p class="bad">{{ msg }}</p>{% endfor %}
+{% block step %}{% endblock %}
+{% if step %}
+<form method="post" action="/wizard/{{ step.slug }}/skip" class="wizard-skip">
+  <button type="submit" class="btn">Skip this step</button>
+</form>
+{% endif %}
+{% endblock %}
