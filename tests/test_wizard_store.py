@@ -30,9 +30,11 @@ def test_put_overwrites():
 def test_delete_is_idempotent():
     s = _store()
     s.put("draft", {"a": 1})
+    s.put("other", {"b": 2})
     s.delete("draft")
     s.delete("draft")
     assert s.get("draft") is None
+    assert s.get("other") == {"b": 2}  # second key survives
 
 
 def test_skip_and_unskip():
@@ -49,6 +51,7 @@ def test_skipping_twice_does_not_duplicate():
     s = _store()
     s.skip("llm")
     s.skip("llm")
+    assert s.get("skipped") == ["llm"]  # raw storage, not skipped()
     assert s.skipped() == {"llm"}
 
 
@@ -62,7 +65,6 @@ def test_unreadable_value_reads_as_none():
 
 
 def test_stores_exposes_the_wizard_store():
-    import sqlite3
     from tests.sqlite_helpers import sqlite_stores
     stores = sqlite_stores(connect(":memory:"))
     assert isinstance(stores.wizard, SqliteWizardStore)

@@ -8,8 +8,6 @@ import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
-log = logging.getLogger(__name__)
-
 from src.models import ConnectorState, NormalizedPosting
 from src.sanitize import sanitize_description
 from src.state import (
@@ -24,6 +22,8 @@ from src.state import (
     posting_display_fields,
 )
 from src.tailor.endpoint.jd import PostingJD
+
+log = logging.getLogger(__name__)
 
 
 def _now_ts() -> int:
