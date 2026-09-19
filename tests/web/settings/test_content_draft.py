@@ -1,9 +1,11 @@
 """The drafting page: a background task, a polled status, and a confirm gate
 in front of an existing document."""
+import hashlib
 import json
+import time
 
 from src.web.app import create_app
-from src.web.settings.content_draft import apply_edits
+from src.web.settings.content_draft import NO_DOCUMENT, apply_edits
 from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import WEB_TEST_SETTINGS, make_service
 
@@ -73,7 +75,13 @@ def test_starting_records_running_before_the_task_can_run(tmp_path, monkeypatch)
     monkeypatch.setattr("src.web.settings.content_draft.run_content_draft", fake_run)
     monkeypatch.setattr("src.web.settings.content_draft.asyncio.create_task", spying_create_task)
     signed_in_client(app).post("/settings/documents/draft")
-    assert seen_at_schedule_time == [{"status": "running"}]
+    assert len(seen_at_schedule_time) == 1
+    seen = seen_at_schedule_time[0]
+    assert seen["status"] == "running"
+    # started_at has to be on this synchronous write too, not only on the
+    # task's own: a process that dies between the two would otherwise leave
+    # an unstamped record, which is the state _current has to age out.
+    assert isinstance(seen["started_at"], float)
 
 
 def test_an_existing_document_needs_confirmation_and_starts_no_task(tmp_path, monkeypatch):
@@ -466,3 +474,332 @@ def test_a_kit_facts_scaffold_failure_does_not_block_the_resume_save(tmp_path, m
     snap = app.state.service.snapshot()
     assert snap.documents.resume_content is not None
     assert snap.documents.kit_facts is None
+
+
+# --- M1: a stale draft must not silently replace a newer document ---
+
+HAND_WRITTEN = """{"name": "Dana", "skills": [], "experiences": [
+  {"id": "h1", "company": "Hand", "role": "Written",
+   "bullets": [{"id": "h1-b1", "text": "typed by the user"}]}]}"""
+
+SAVE_FORM = {"text.acme-b1": "first", "text.acme-b2": "second", "skills": "Go"}
+
+
+def _digest(text):
+    """Computed here rather than imported, so a change to how the route
+    stamps a draft has to be a deliberate change to this test too."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _drafted_against(app, digest, document=None):
+    """An ok draft record carrying the resume_content digest it was made
+    against — exactly what run_content_draft stamps in production."""
+    app.state.stores.wizard.put("content_draft", {
+        "status": "ok", "document": document or DRAFTED,
+        "contact": {"email": "s@e.com", "github": "https://github.com/sc"},
+        "content_digest": digest,
+    })
+    return app
+
+
+def _hand_write(app, body):
+    """The page's own "Edit as JSON instead" escape hatch: the user leaves the
+    review form open in one tab and writes resume_content by hand in another.
+    That link is the shortest route into the state M1 describes."""
+    app.state.service.save_document("resume_content", body, source="ui")
+
+
+def test_a_draft_will_not_silently_replace_a_document_written_since(tmp_path, monkeypatch):
+    """M1. The start POST's confirm gate cannot cover a document written
+    after the draft was made, and this page links straight to the editor that
+    writes one. Saving the stale review used to 303 and replace the
+    hand-written document with no warning at all."""
+    app = _drafted_against(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}),
+                           NO_DOCUMENT)
+    _hand_write(app, HAND_WRITTEN)
+    r = signed_in_client(app).post("/settings/documents/draft/save", data=SAVE_FORM,
+                                   follow_redirects=False)
+    assert r.status_code == 200
+    assert "has changed since" in r.text
+    assert 'name="overwrite"' in r.text
+    # The assertion that carries the requirement: the user's own work survives.
+    assert app.state.service.snapshot().documents.resume_content == HAND_WRITTEN
+
+
+def test_the_refused_save_keeps_the_users_edits_on_the_redisplayed_form(tmp_path, monkeypatch):
+    """The refusal re-renders the edited document, not the stored draft: the
+    typed text is valid input held back for an unrelated reason, so losing it
+    would trade one silent data loss for a smaller one.
+
+    follow_redirects=False and the 200 matter as much as the string does.
+    Mutation testing caught this asserting nothing: with the gate removed the
+    save succeeded, the client followed the 303 to the documents page, and
+    "EDITED CO" was there — in the document that had just been written over
+    the user's own. The status code is what distinguishes "your edit came
+    back on the form" from "your edit was saved on top of someone's work"."""
+    app = _drafted_against(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}),
+                           NO_DOCUMENT)
+    _hand_write(app, HAND_WRITTEN)
+    r = signed_in_client(app).post("/settings/documents/draft/save", data={
+        **SAVE_FORM, "company.acme": "EDITED CO"}, follow_redirects=False)
+    assert r.status_code == 200
+    assert "EDITED CO" in r.text
+    assert app.state.service.snapshot().documents.resume_content == HAND_WRITTEN
+
+
+def test_ticking_replace_it_lets_the_stale_draft_save(tmp_path, monkeypatch):
+    """The gate is an opt-in, not a wall — same shape as the start gate and
+    the settings import guard."""
+    app = _drafted_against(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}),
+                           NO_DOCUMENT)
+    _hand_write(app, HAND_WRITTEN)
+    r = signed_in_client(app).post("/settings/documents/draft/save",
+                                   data={**SAVE_FORM, "overwrite": "1"},
+                                   follow_redirects=False)
+    assert r.status_code == 303
+    saved = app.state.service.snapshot().documents.resume_content
+    assert "acme-b1" in saved
+    assert "typed by the user" not in saved
+
+
+def test_a_draft_stamped_against_the_document_in_effect_needs_no_second_confirm(
+        tmp_path, monkeypatch):
+    """The overwhelmingly common case: the user ticked "Replace it" on the
+    start gate and nothing has touched the document since. A second
+    confirmation here would train them to tick past it without reading."""
+    app = _app(tmp_path, monkeypatch, documents={"resume_text": "CV",
+                                                 "resume_content": CONTENT_JSON})
+    _drafted_against(app, _digest(CONTENT_JSON))
+    r = signed_in_client(app).post("/settings/documents/draft/save", data=SAVE_FORM,
+                                   follow_redirects=False)
+    assert r.status_code == 303
+    assert "acme-b1" in app.state.service.snapshot().documents.resume_content
+
+
+def test_an_unstamped_draft_with_no_document_in_effect_saves_normally(tmp_path, monkeypatch):
+    """A record written before the stamp existed (an in-flight draft across
+    an upgrade) must not demand a confirmation naming a document the user
+    does not have. The gate asks "would this replace something?", not "has
+    the digest moved?"."""
+    app = _ready(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}))
+    assert "content_digest" not in app.state.stores.wizard.get("content_draft")
+    r = signed_in_client(app).post("/settings/documents/draft/save", data=SAVE_FORM,
+                                   follow_redirects=False)
+    assert r.status_code == 303
+
+
+async def test_the_task_stamps_the_record_with_the_document_it_drafted_against(
+        tmp_path, monkeypatch):
+    """Where the stamp comes from. Taken at the START of the call, so a
+    document hand-written during the minute-plus generation is caught too."""
+    from src.resume_intake.content_draft import ContentDraft
+    from src.web.settings.content_draft import run_content_draft
+
+    app = _app(tmp_path, monkeypatch, documents={"resume_text": "CV",
+                                                 "resume_content": CONTENT_JSON})
+
+    async def ok(cfg, *, resume_text):
+        return ContentDraft(document=DRAFTED, contact={})
+
+    monkeypatch.setattr("src.web.settings.content_draft.draft_content", ok)
+    record = await run_content_draft(app)
+    assert record["content_digest"] == _digest(CONTENT_JSON)
+    assert record["started_at"] > 0
+    stored = app.state.stores.wizard.get("content_draft")
+    assert stored["content_digest"] == _digest(CONTENT_JSON)
+
+
+# --- M2: a running record that never finishes must not brick the feature ---
+
+def _running(app, age_seconds=0.0):
+    app.state.stores.wizard.put("content_draft", {
+        "status": "running", "started_at": time.time() - age_seconds})
+    return app
+
+
+def test_a_fresh_running_draft_still_polls(tmp_path, monkeypatch):
+    app = _running(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}))
+    body = signed_in_client(app).get("/settings/documents/draft/status").text
+    assert 'hx-trigger="load delay:2s"' in body
+    assert "never finished" not in body
+
+
+def test_a_running_draft_past_the_bound_becomes_a_recoverable_error(tmp_path, monkeypatch):
+    """M2. A process exit during the call (docker restart, --build, reload)
+    left a "running" record that nothing would ever replace, and the running
+    branch rendered a poll with no form and no button — so both entry points
+    led to a page that polls forever, recoverable only by editing the
+    wizard_ui table by hand."""
+    app = _running(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}),
+                   age_seconds=3600)
+    body = signed_in_client(app).get("/settings/documents/draft").text
+    assert "never finished" in body
+    assert "Try again" in body
+    assert 'hx-trigger="load delay:2s"' not in body
+    assert app.state.service.snapshot().documents.resume_content is None
+
+
+def test_a_running_record_with_no_timestamp_is_recoverable_too(tmp_path, monkeypatch):
+    """An unstamped record was written before this check existed, which is
+    precisely the stuck state it recovers — so it must age out rather than
+    read as brand new and poll forever."""
+    app = _app(tmp_path, monkeypatch, documents={"resume_text": "CV"})
+    app.state.stores.wizard.put("content_draft", {"status": "running"})
+    assert "never finished" in signed_in_client(app).get("/settings/documents/draft").text
+
+
+def test_the_staleness_check_presents_without_rewriting_the_record(tmp_path, monkeypatch):
+    """A GET must not write, and a task that somehow is still alive still
+    owns the key — it has to be able to land its real result on it."""
+    app = _running(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}),
+                   age_seconds=3600)
+    signed_in_client(app).get("/settings/documents/draft")
+    assert app.state.stores.wizard.get("content_draft")["status"] == "running"
+
+
+def test_the_staleness_bound_never_undercuts_the_drafting_calls_own_timeout():
+    """A bound below the call's effective timeout would declare a live draft
+    dead and invite the user to start a second one racing the first. The call
+    floors its timeout at MIN_TIMEOUT_SECONDS and otherwise honours the
+    setting, so the bound has to track both — not a bare constant."""
+    from src.config import AppConfig
+    from src.resume_intake.content_draft import MIN_TIMEOUT_SECONDS
+    from src.web.settings.content_draft import _stale_after_seconds
+
+    cfg = AppConfig()
+    assert _stale_after_seconds(cfg) > MIN_TIMEOUT_SECONDS
+    patient = cfg.model_copy(update={
+        "resume_draft": cfg.resume_draft.model_copy(update={"timeout_seconds": 900})})
+    assert _stale_after_seconds(patient) > 900
+
+
+def test_the_running_page_offers_a_way_out(tmp_path, monkeypatch):
+    """The running branch had no form and no button at all."""
+    app = _running(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}))
+    body = signed_in_client(app).get("/settings/documents/draft/status").text
+    assert 'action="/settings/documents/draft/discard"' in body
+    # The poll has to swap the button away together with the message. With the
+    # hx attributes on the paragraph rather than the wrapper, an outerHTML
+    # swap would leave a stale Start-over button beside the review form —
+    # and with no wrapper at all there is no "</div>" to find, which fails
+    # this the same way.
+    assert body.index("draft/discard") < body.index("</div>")
+
+
+def test_discarding_clears_the_draft_and_writes_nothing(tmp_path, monkeypatch):
+    app = _ready(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}))
+    r = signed_in_client(app).post("/settings/documents/draft/discard",
+                                   follow_redirects=False)
+    assert r.status_code == 303
+    assert app.state.stores.wizard.get("content_draft") is None
+    assert app.state.service.snapshot().documents.resume_content is None
+
+
+def test_the_review_form_offers_start_over_outside_the_save_form(tmp_path, monkeypatch):
+    """The ok branch was a one-way door: save this draft, or go hand-edit
+    JSON. The discard form has to sit outside the save form — HTML has no
+    nested forms, and a nested one would post nothing."""
+    app = _ready(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}))
+    body = signed_in_client(app).get("/settings/documents/draft/status").text
+    assert 'action="/settings/documents/draft/discard"' in body
+    assert body.index("</form>") < body.index("draft/discard")
+
+
+# --- the error branch's retry, and saving into a running draft ---
+
+def test_the_retry_after_an_error_does_not_carry_the_overwrite_opt_in(tmp_path, monkeypatch):
+    """It shipped overwrite=1 as a hidden field, so one error bypassed the
+    confirm gate for the rest of that record's life — and would bypass M1's
+    save-time gate in exactly the same way."""
+    app = _app(tmp_path, monkeypatch, documents={"resume_text": "CV"})
+    app.state.stores.wizard.put("content_draft", {"status": "error", "error": "boom"})
+    body = signed_in_client(app).get("/settings/documents/draft/status").text
+    assert "Try again" in body
+    assert 'name="overwrite"' not in body
+
+
+def test_saving_while_a_newer_draft_runs_explains_instead_of_dumping_json(tmp_path, monkeypatch):
+    """It returned a raw {"detail": "no draft to save"} 409, which loses the
+    page along with the typed edits. The edits cannot be kept — the draft
+    they were edits to is gone — but the reason can be said out loud."""
+    app = _running(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}))
+    r = signed_in_client(app).post("/settings/documents/draft/save", data=SAVE_FORM)
+    assert r.status_code == 409
+    assert "no longer the current one" in r.text
+    assert "no draft to save" not in r.text
+
+
+# --- blanking the fields an entry is named by ---
+
+def test_apply_edits_drops_an_entry_whose_company_and_role_are_both_blanked():
+    """assign_ids drops a drafted entry with neither; the review form has to
+    agree, or blanking both writes a nameless role with real bullets under an
+    empty heading. parse_content accepts two empty strings."""
+    out = apply_edits(DRAFTED, {"text.acme-b1": ["kept"], "company.acme": [""],
+                                "role.acme": [""], "skills": ["Go"]})
+    assert out["experiences"] == []
+
+
+def test_blanking_only_one_of_company_and_role_keeps_the_entry():
+    """A contractor with no company name, or a role the user cannot recall,
+    is still a real entry. Only losing both makes it nameless."""
+    out = apply_edits(DRAFTED, {"text.acme-b1": ["kept"], "company.acme": [""],
+                                "role.acme": ["Staff"], "skills": ["Go"]})
+    assert [e["role"] for e in out["experiences"]] == ["Staff"]
+    assert out["experiences"][0]["company"] == ""
+
+
+def test_apply_edits_drops_a_project_whose_name_is_blanked():
+    """A project's name is the only heading it has, and assign_ids requires
+    one."""
+    out = apply_edits(WITH_PROJECT, {"text.acme-b1": ["kept"], "text.proj1-b1": ["built"],
+                                     "name.proj1": [""], "skills": ["Go"]})
+    assert out["projects"] == []
+    assert [e["id"] for e in out["experiences"]] == ["acme"]
+
+
+def test_saving_a_blanked_company_and_role_writes_no_nameless_entry(tmp_path, monkeypatch):
+    app = _ready(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}), TWO_ROLES)
+    r = signed_in_client(app).post("/settings/documents/draft/save", data={
+        "company.acme": "", "role.acme": "", "text.acme-b1": "first",
+        "text.beta-b1": "shipped x", "skills": "Go",
+    }, follow_redirects=False)
+    assert r.status_code == 303
+    saved = json.loads(app.state.service.snapshot().documents.resume_content)
+    assert [e["id"] for e in saved["experiences"]] == ["beta"]
+
+
+# --- what the review gate shows ---
+
+TRANSCRIBED_CONTACT = {
+    **DRAFTED,
+    "name": "Dana Example",
+    "contact": {"email": "dana@example.com", "phone": "+1 555 0100",
+                "location": "", "github": "https://github.com/dana",
+                "linkedin": "", "website": ""},
+    "education": [], "volunteer": [],
+}
+
+
+def test_the_review_page_shows_the_name_and_contact_it_transcribed(tmp_path, monkeypatch):
+    """Both ship: the contact block becomes the rendered PDF's header, and
+    the apply kit's Links/Email/Phone — what the autofill bookmarklet types
+    into application forms — are scaffolded from it. A page that says "this
+    is what your résumé says, correct it now" cannot hide how an employer
+    reaches the user.
+
+    This document has no education and no volunteer entries, which is what
+    used to hide the whole panel."""
+    app = _ready(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}),
+                 TRANSCRIBED_CONTACT)
+    body = signed_in_client(app).get("/settings/documents/draft/status").text
+    assert "Dana Example" in body
+    assert "dana@example.com" in body
+    assert "+1 555 0100" in body
+    assert "https://github.com/dana" in body
+    # Read-only, per the spec's reasoning: a URL the model copied is a string
+    # it transcribed, not a claim it made, so it needs showing rather than
+    # approving — and the save route never has to trust a contact field.
+    assert 'value="dana@example.com"' not in body
+    # A blank field is omitted, not rendered as a bare label.
+    assert "LinkedIn" not in body

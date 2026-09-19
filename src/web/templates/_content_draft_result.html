@@ -15,17 +15,32 @@
   <button type="submit" class="btn primary">Draft anyway</button>
 </form>
 {% elif draft.status == 'running' %}
-<p class="muted" hx-get="/settings/documents/draft/status"
-   hx-trigger="load delay:2s" hx-target="this" hx-swap="outerHTML">
-  Reading your résumé…</p>
+{# The poll attributes sit on the wrapper, not on the paragraph, so the
+   outerHTML swap replaces the Start-over form along with the message. On the
+   paragraph they would leave a second, stale Start-over button beside
+   whatever came back — including beside the review form. #}
+<div hx-get="/settings/documents/draft/status"
+     hx-trigger="load delay:2s" hx-target="this" hx-swap="outerHTML">
+  <p class="muted">Reading your résumé…</p>
+  <form method="post" action="/settings/documents/draft/discard">
+    <button type="submit" class="btn">Start over</button>
+    <span class="muted">Nothing has been written to your résumé data.</span>
+  </form>
+</div>
 {% elif draft.status == 'error' %}
 <p class="warn">{{ draft.error }}</p>
 <p>
   <a class="btn" href="/settings/documents?kind=resume_content">Edit as JSON instead</a>
 </p>
+{# No hidden overwrite=1 on this retry. It used to ride along on every one,
+   which bypassed the start gate for the rest of that record's life — and
+   would bypass the save-time gate the same way. A retry goes through the
+   gate like any other start. #}
 <form method="post" action="/settings/documents/draft">
-  <input type="hidden" name="overwrite" value="1">
   <button type="submit" class="btn">Try again</button>
+</form>
+<form method="post" action="/settings/documents/draft/discard">
+  <button type="submit" class="btn">Start over</button>
 </form>
 {% else %}
 <form method="post" action="/settings/documents/draft/save">
@@ -69,22 +84,53 @@
     <legend>Skills</legend>
     {{ w.chips('skills', draft.document.skills | map(attribute='name') | list) }}
   </fieldset>
-  {% if draft.document.education or draft.document.volunteer %}
+  {# Unconditional, unlike the education/volunteer-only panel this grew out
+     of: a drafted document always carries a name and a contact block, and
+     both ship. The contact block becomes the header of every résumé rendered
+     from this document, and the apply kit's Links/Email/Phone — what the
+     autofill bookmarklet types into application forms — are scaffolded from
+     it. A page that says "this is what your résumé says, correct it now"
+     must not hide how an employer would reach you.
+
+     Read-only on purpose: a URL the model copied out of the résumé is a
+     string it transcribed, not a claim it made, so it does not need the same
+     approval a rewritten bullet does. Showing it is what was missing. #}
   <section class="panel">
     <h3>Also read</h3>
+    {% set contact = draft.document.contact or {} %}
     <ul>
-      {% for ed in draft.document.education %}
+      <li>Name: {{ draft.document.name }}</li>
+      {% for label, key in [('Email', 'email'), ('Phone', 'phone'),
+                            ('Location', 'location'), ('GitHub', 'github'),
+                            ('LinkedIn', 'linkedin'), ('Website', 'website')] %}
+      {% if contact.get(key) %}<li>{{ label }}: {{ contact.get(key) }}</li>{% endif %}
+      {% endfor %}
+      {% for ed in draft.document.education or [] %}
       <li>{{ ed.degree }}, {{ ed.institution }} {{ ed.dates }}</li>
       {% endfor %}
-      {% for v in draft.document.volunteer %}
+      {% for v in draft.document.volunteer or [] %}
       <li>{{ v.role }}, {{ v.org }} {{ v.dates }}</li>
       {% endfor %}
     </ul>
     <p class="muted">Edit these in the JSON editor — they have no ids to
       address them by here.</p>
   </section>
+  {% if confirm_replace %}
+  <p class="warn">Your <code>resume_content</code> document has changed since
+    this draft was made — edited as JSON, restored from a backup, or written
+    by another draft. Saving this review replaces it.</p>
+  <label class="check">
+    <input type="checkbox" name="overwrite" value="1" required> Replace it
+  </label>
   {% endif %}
   <button type="submit" class="btn primary">Save résumé data</button>
   <a class="btn" href="/settings/documents?kind=resume_content">Edit as JSON instead</a>
+</form>
+{# Outside the save form, because HTML has no nested forms. Without it the
+   review was a one-way door: save this draft, or go hand-edit JSON. #}
+<form method="post" action="/settings/documents/draft/discard">
+  <button type="submit" class="btn">Start over</button>
+  <span class="muted">Throws this draft away and offers a fresh one. Nothing
+    is written to your résumé data either way.</span>
 </form>
 {% endif %}

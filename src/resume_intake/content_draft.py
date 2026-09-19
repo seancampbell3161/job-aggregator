@@ -40,7 +40,12 @@ _MAX_OUTPUT_TOKENS = 16384
 # docx importer floors its own call at 120 for the same reason
 # (src/tailor/render/docx_import.py:121); this one answers with far more
 # tokens than a docx template, hence the higher floor.
-_MIN_TIMEOUT_SECONDS = 180
+#
+# Public because the drafting page's own "this run is never going to finish"
+# bound is derived from it (src/web/settings/content_draft.py): that bound has
+# to sit above whatever timeout this call actually runs with, or the page
+# declares a live draft dead and invites a second one to race it.
+MIN_TIMEOUT_SECONDS = 180
 
 _DIGIT = re.compile(r"\d")
 
@@ -307,7 +312,7 @@ async def draft_content(cfg: AppConfig, *, resume_text: str) -> ContentDraft:
 
     binding = build_binding(
         cfg, feature="resume_draft",
-        timeout_seconds=max(cfg.resume_draft.timeout_seconds, _MIN_TIMEOUT_SECONDS),
+        timeout_seconds=max(cfg.resume_draft.timeout_seconds, MIN_TIMEOUT_SECONDS),
     )
     if binding is None:
         raise DraftFailed(
