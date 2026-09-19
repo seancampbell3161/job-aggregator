@@ -94,3 +94,39 @@ def test_container_drops_privileges():
     assert "ENTRYPOINT" in text
     entrypoint = (REPO / "docker-entrypoint.sh").read_text()
     assert "setpriv" in entrypoint
+
+
+def _override() -> dict:
+    return yaml.safe_load((REPO / "docker-compose.override.yml").read_text())
+
+
+IMAGE = "ghcr.io/seancampbell3161/job-aggregator:latest"
+
+
+def test_default_compose_pulls_the_published_image():
+    services = _compose()["services"]
+    for name in ("poller", "web"):
+        assert services[name]["image"] == IMAGE, name
+        # A downloaded-on-its-own file has no build context to build from.
+        assert "build" not in services[name], name
+
+
+def test_override_builds_locally_under_its_own_image_name():
+    """Compose auto-loads this file, so a clone builds its working tree. The
+    distinct image name is load-bearing: tagging a local build as the published
+    name would shadow the real image and make `docker compose -f
+    docker-compose.yml up` silently run locally built code."""
+    services = _override()["services"]
+    for name in ("poller", "web"):
+        assert services[name]["build"] == ".", name
+        assert services[name]["image"] == "job-aggregator-dev:latest", name
+        assert services[name]["image"] != IMAGE, name
+
+
+def test_web_is_healthchecked_on_the_liveness_path():
+    from src.web.app import HEALTH_PATH
+
+    web = _compose()["services"]["web"]
+    assert HEALTH_PATH in " ".join(web["healthcheck"]["test"])
+    # The poller has no HTTP surface, so it must not claim one.
+    assert "healthcheck" not in _compose()["services"]["poller"]

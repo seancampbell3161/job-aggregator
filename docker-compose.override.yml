@@ -1,0 +1,23 @@
+# Local development. Compose auto-loads this file from the working directory,
+# so a CLONE builds its own working tree while a bare downloaded
+# docker-compose.yml pulls the published image. Same `docker compose up -d`
+# either way.
+#
+# This file is tracked on purpose — it is what makes the two audiences share
+# one command. To run the real published image from inside a clone, bypass it:
+#   docker compose -f docker-compose.yml up -d
+services:
+  poller:
+    build: .
+    # A distinct name, so a local build never shadows the published tag.
+    image: job-aggregator-dev:latest
+  web:
+    build: .
+    image: job-aggregator-dev:latest
+
+# Working on an Avature board? That tier needs a browser the default image does
+# not carry. Add `target: headless` under both `build:` keys above — written as
+#   build:
+#     context: .
+#     target: headless
+# — and rebuild. Everything else works the same on the slim image.
