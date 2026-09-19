@@ -7,7 +7,6 @@ on:
 permissions:
   contents: read
   packages: write
-  id-token: write
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
@@ -65,6 +64,11 @@ jobs:
           # ENTRYPOINT, so it starts as the image's user (root, by design — the
           # entrypoint needs root to chown /data before dropping privileges).
           test "$(docker exec ja awk '/^Uid:/{print $2}' /proc/1/status)" = "1000"
+          # /data itself, not just the file inside it: this is what proves the
+          # entrypoint's recursive chown of a pre-existing root-owned mount
+          # actually ran, rather than the file merely being created by a
+          # process that was already unprivileged.
+          test "$(docker exec ja stat -c %u /data)" = "1000"
           test "$(docker exec ja stat -c %u /data/job_aggregator.db)" = "1000"
           docker rm -f ja
       - name: Container logs on failure
@@ -96,16 +100,30 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.variant }}-${{ matrix.arch }}
           provenance: true
           sbom: true
+          # docker buildx imagetools create (the merge job) does not consume
+          # metadata-action's `labels` output, so these have to land on the
+          # per-arch image here, at the only point that actually pushes it.
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=Job aggregator — ${{ matrix.variant }} image
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.ref_name }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export the digest
         run: |
+          set -euo pipefail
           mkdir -p /tmp/digests
           # The digest output is "sha256:<hex>", but actions/upload-artifact
           # rejects ':' in an uploaded file's path (not just the artifact
           # name) — so the colon becomes a hyphen here and is restored when
           # the merge job rebuilds the "name@sha256:<hex>" reference.
           digest="${{ steps.push.outputs.digest }}"
+          # An empty digest would otherwise write a file ending "-sha256-"
+          # that upload-artifact accepts silently, surfacing only much later
+          # as an invalid image reference in the merge job.
+          test -n "$digest"
           touch "/tmp/digests/${{ matrix.variant }}-${{ matrix.arch }}-sha256-${digest#sha256:}"
       - uses: actions/upload-artifact@v4
         with:
@@ -117,6 +135,10 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     strategy:
+      # Without this, a transient failure on one variant's merge cancels the
+      # other's in-flight run, leaving a release with (say) slim tags
+      # published and headless tags missing.
+      fail-fast: false
       matrix:
         include:
           - variant: slim
@@ -145,22 +167,31 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE }}
-          # The headless variant carries the suffix on every tag, including
-          # `latest` -> `headless`.
+          # metadata-action appends flavor.suffix to every generated tag,
+          # including the literal `latest` (that's what onlatest=true buys
+          # here) — so the headless variant's `latest` publishes as
+          # `latest-headless`, not a bare `headless`. There's no code path in
+          # the action that produces the latter from a flavor suffix.
           flavor: ${{ matrix.flavor }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=dispatch-${{ github.sha }},enable=${{ github.event_name == 'workflow_dispatch' }}
-          labels: |
-            org.opencontainers.image.description=Job aggregator — ${{ matrix.variant }} image
 
       - name: Create the manifest list
         run: |
           set -euo pipefail
           cd /tmp/digests
+          # DOCKER_METADATA_OUTPUT_JSON (set by the metadata-action step
+          # above) rather than splicing ${{ steps.meta.outputs.json }} into a
+          # single-quoted shell string: that JSON embeds the repo description
+          # fetched from the GitHub API, and a description containing an
+          # apostrophe would break this line at release time. Assigning to a
+          # variable first also means `set -e` catches a `jq` failure, which
+          # it would not if the substitution sat directly in argument position.
+          tags=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON")
           docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< '${{ steps.meta.outputs.json }}') \
+            $tags \
             $(for f in ${{ matrix.variant }}-*; do echo "${{ env.IMAGE }}@sha256:${f##*-sha256-}"; done)
 
       - name: Show what was published
