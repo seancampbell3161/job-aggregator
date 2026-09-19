@@ -1,6 +1,32 @@
 {% extends "wizard_base.html" %}
 {% import "_settings_macros.html" as w %}
 {% block step %}
+<section class="panel recipes">
+  <h3>Start from a recipe</h3>
+  <p class="muted">Fills the fields below. Change anything you like afterwards —
+  nothing is saved until you press Save and continue.</p>
+  <div class="recipe-choices">
+    {% for p in presets %}
+    <div class="recipe-choice">
+      <button type="button" class="btn recipe-btn" data-recipe="{{ p.key }}"
+              data-values='{{ p.values | tojson }}'>{{ p.label }}</button>
+      <span class="muted recipe-summary">{{ p.summary }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% for p in presets %}
+  <div class="recipe-panel" id="recipe-{{ p.key }}"
+       {% if p.key != open_recipe %}hidden{% endif %}>
+    <p><strong>{{ p.label }}</strong> — {{ p.cost }}</p>
+    <ol>
+      {% for s in p.steps %}<li>{{ s }}</li>{% endfor %}
+    </ol>
+    {% if p.commands %}<pre class="recipe-commands">{% for c in p.commands %}{{ c }}{% if not loop.last %}
+{% endif %}{% endfor %}</pre>{% endif %}
+  </div>
+  {% endfor %}
+</section>
+
 <form method="post" action="/wizard/llm">
   {% for spec in fields %}{{ w.field(spec, prefilled_shown(submitted, cfg, spec, prefill), errors) }}{% endfor %}
   {% for s in secrets %}{{ w.secret_field(s, errors, {}, "") }}{% endfor %}
@@ -11,4 +37,21 @@
   <div id="probe-llm"></div>
   <button type="submit" class="btn primary">Save and continue</button>
 </form>
+<script>
+// A recipe fills the form and opens its own instructions. It writes nothing to
+// the server: these are the same inputs the user could type into by hand, so
+// the save that follows is the ordinary one.
+document.querySelectorAll(".recipe-btn").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    var values = JSON.parse(btn.dataset.values);
+    Object.keys(values).forEach(function (path) {
+      var el = document.querySelector('[name="' + CSS.escape(path) + '"]');
+      if (el) { el.value = values[path]; }
+    });
+    document.querySelectorAll(".recipe-panel").forEach(function (panel) {
+      panel.hidden = panel.id !== "recipe-" + btn.dataset.recipe;
+    });
+  });
+});
+</script>
 {% endblock %}
