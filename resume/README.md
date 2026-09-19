@@ -1,29 +1,40 @@
 # Résumé tailoring artifacts
 
-Personal data — `content.json` and `evidence.json` are **gitignored**. Use the
-committed examples / regen script to (re)create them. Import them with
-`python -m src.settings import DIR` (they're read from `DIR/resume/content.json`
-and `DIR/resume/evidence.json`); the app uses the imported copies.
+Personal data — `content.json` and `evidence.json` are **gitignored**. You can
+hand-write them from the committed examples / regen script, or, once a résumé
+document is uploaded, draft `content.json` from it on the web app's
+`/settings/documents/draft` page: it reads your résumé, shows every bullet as
+editable text, and saves nothing until you confirm it. To import files from
+disk instead, use `python -m src.settings import DIR` (they're read from
+`DIR/resume/content.json` and `DIR/resume/evidence.json`); the app uses the
+imported copies.
 
 ## Enable the feature
 Tailoring ships **disabled** (`tailoring.enabled: false`). Once your real
-`resume/content.json` + `resume/evidence.json` exist, set `tailoring.enabled:
-true` in `config.yaml` and import the directory — the web app and CLI pick it
-up live.
+`content.json` exists — hand-written, imported, or drafted — set
+`tailoring.enabled: true` in `config.yaml` (or the equivalent settings page)
+and it picks up live. `evidence.json` is optional; see below.
 
 ## `content.json` — structured résumé
 Shape: see `content.example.json` (the authoritative schema is the dataclasses
 in `src/tailor/models.py`). The top-level keys are `name`, `contact`, `skills`,
 `experiences`, `projects` (note the plural `experiences`). Every item in
 `experiences[]` and every bullet needs a **stable `id`** (the tailoring output
-references selections by id). Tag bullets by stack/domain and flag
-`metric_bearing`. `evidence_refs` link a bullet to Jira tickets in the evidence
-bank.
+references selections by id) — the `/settings/documents/draft` page assigns
+these for you. Tag bullets by stack/domain and flag `metric_bearing`.
+`evidence_refs` link a bullet to Jira tickets in the evidence bank, if you keep
+one.
 
-## `evidence.json` — pre-digested Jira evidence bank
+## `evidence.json` — optional pre-digested Jira evidence bank
+This file is **optional**, not just nominally so: with no evidence bank,
+tailoring still runs, and the prompt drops its citation requirement for the
+rule that it must never introduce a number that isn't already in the bullet
+being rewritten. Keep the bank only if you want the model citing specific Jira
+tickets for the metrics it claims.
+
 Shape: `{ "projects": [ { "key", "summary", "metrics": [{claim, ticket_refs}],
-"achievements": [{text, ticket_refs}] } ] }`. It is the citation layer — every
-metric the model claims must cite a `ticket_ref` from here.
+"achievements": [{text, ticket_refs}] } ] }`. It is the citation layer — when
+present, every metric the model claims must cite a `ticket_ref` from here.
 
 Regenerate the skeleton (achievements grouped by epic) from a Jira CSV export:
 

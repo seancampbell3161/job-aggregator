@@ -130,3 +130,12 @@ def test_wizard_is_not_setup_exempt(tmp_path, monkeypatch):
     from src.web.app import _setup_exempt
     assert _setup_exempt("/wizard") is False
     assert _setup_exempt("/wizard/llm") is False
+
+
+def test_the_done_page_offers_tailoring_as_an_optional_next_step(tmp_path, monkeypatch):
+    """The wizard stays six steps; tailoring is offered after it, not inside
+    it — it needs a cloud LLM and the render extra, which a newcomer may not
+    have on day one."""
+    r = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/done")
+    assert "/settings/documents/draft" in r.text
+    assert "tailored résumés" in r.text.lower()
