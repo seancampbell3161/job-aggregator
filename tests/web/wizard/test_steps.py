@@ -3,7 +3,7 @@ of truth for what is configured, so the wizard and the Overview page cannot
 disagree."""
 import pytest
 
-from src.config import AppConfig, AggregatorConfig, Secrets
+from src.config import AppConfig, Secrets
 from src.settings.documents import Documents
 from src.web.wizard.steps import (
     WIZARD_STEPS, build_context, next_step, step_by_slug, step_states,
@@ -12,25 +12,10 @@ from src.web.wizard.steps import (
 ALL_SLUGS = ["llm", "resume", "review", "companies", "notifications", "preview"]
 
 
-def _disable_default_aggregators(cfg: AppConfig) -> AppConfig:
-    """Disable the default aggregators for test isolation. Tests that want to
-    test with aggregators enabled can pass explicit source config."""
-    return cfg.model_copy(update={
-        "sources": cfg.sources.model_copy(update={
-            "hn_who_is_hiring": AggregatorConfig(enabled=False),
-            "remotive": AggregatorConfig(enabled=False),
-            "remoteok": AggregatorConfig(enabled=False),
-        })
-    })
-
-
 def _ctx(cfg=None, *, documents=None, secrets=(), preview_done=False):
     source = lambda name: "stored" if name in secrets else "unset"  # noqa: E731
-    if cfg is None:
-        cfg = AppConfig()
-    cfg = _disable_default_aggregators(cfg)
     return build_context(
-        cfg,
+        cfg or AppConfig(),
         documents or Documents(),
         source,
         preview_done=preview_done,
@@ -158,3 +143,11 @@ def test_every_step_is_reachable_by_skipping_its_predecessors(slug):
     """No step can be stranded behind one that cannot be skipped."""
     index = ALL_SLUGS.index(slug)
     assert next_step(_ctx(), skipped=set(ALL_SLUGS[:index])).slug == slug
+
+
+def test_companies_step_is_incomplete_on_a_fresh_install():
+    """Three aggregators ship enabled, so readiness's nothing_polled never
+    fires here — the wizard must still ask which boards to poll."""
+    ctx = _ctx()  # plain AppConfig(), nothing disabled
+    assert "nothing_polled" not in ctx.codes
+    assert next_step(ctx, skipped={"llm", "resume", "review"}).slug == "companies"

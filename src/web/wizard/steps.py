@@ -10,9 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Iterable
 
-from src.config import AppConfig
+from src.config import AppConfig, SLUG_SOURCE_FAMILIES
 from src.settings.documents import Documents
-from src.web.settings.readiness import check
+from src.web.settings.readiness import check, _STRUCTURED_FAMILIES
 
 
 @dataclass(frozen=True)
@@ -63,6 +63,22 @@ def _review_done(ctx: StepContext) -> bool:
     )
 
 
+def _companies_done(ctx: StepContext) -> bool:
+    """At least one company board the user chose, or discovery turned on.
+
+    Deliberately NOT readiness's `nothing_polled`: three aggregator feeds
+    (hn_who_is_hiring, remotive, remoteok) ship enabled, so that code never
+    fires on a fresh install and this step would be skipped before the user
+    was ever asked. Overview's question ("is anything polled at all?") and
+    this one ("have you chosen where to look?") are different questions, and
+    a default-on background feed is not a choice the user made."""
+    sources = ctx.cfg.sources
+    for family in (*SLUG_SOURCE_FAMILIES, *_STRUCTURED_FAMILIES):
+        if getattr(sources, family, None):
+            return True
+    return ctx.cfg.discovery.enabled
+
+
 WIZARD_STEPS: tuple[WizardStep, ...] = (
     WizardStep(
         "llm", "Connect an LLM",
@@ -85,7 +101,7 @@ WIZARD_STEPS: tuple[WizardStep, ...] = (
     WizardStep(
         "companies", "Where to look",
         "The job boards to poll.",
-        lambda ctx: "nothing_polled" not in ctx.codes,
+        _companies_done,
     ),
     WizardStep(
         "notifications", "How to reach you",
