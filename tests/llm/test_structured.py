@@ -140,3 +140,42 @@ async def test_provider_errors_propagate():
 
     with pytest.raises(RuntimeError):
         await complete_json(_binding("anthropic", _Boom()), system="s", user="u", schema=SCHEMA)
+
+
+@pytest.mark.asyncio
+async def test_anthropic_gets_the_output_budget():
+    client = _FakeAnthropic(EXPECTED)
+    await complete_json(_binding("anthropic", client), system="s", user="u",
+                        schema=SCHEMA, max_output_tokens=16384)
+    assert client.kwargs["max_tokens"] == 16384
+
+
+@pytest.mark.asyncio
+async def test_gemini_gets_the_output_budget():
+    client = _FakeGemini(json.dumps(EXPECTED))
+    await complete_json(_binding("gemini", client), system="s", user="u",
+                        schema=SCHEMA, max_output_tokens=16384)
+    cfg = client.kwargs["config"]
+    as_dict = cfg if isinstance(cfg, dict) else vars(cfg)
+    assert as_dict["max_output_tokens"] == 16384
+
+
+@pytest.mark.asyncio
+async def test_ollama_gets_the_budget_and_runs_deterministically():
+    """The two call sites being ported onto this seam both set temperature 0
+    and think=False; gpt-oss otherwise spends output budget reasoning."""
+    client = _FakeOllama(json.dumps(EXPECTED))
+    await complete_json(_binding("ollama", client), system="s", user="u",
+                        schema=SCHEMA, max_output_tokens=16384)
+    assert client.kwargs["options"]["num_predict"] == 16384
+    assert client.kwargs["options"]["temperature"] == 0
+    assert client.kwargs["think"] is False
+
+
+@pytest.mark.asyncio
+async def test_the_default_budget_is_what_existing_callers_already_had():
+    """resume_draft calls complete_json with no budget. It must keep 4096 —
+    a smaller default would quietly shorten a shipped feature's output."""
+    client = _FakeAnthropic(EXPECTED)
+    await complete_json(_binding("anthropic", client), system="s", user="u", schema=SCHEMA)
+    assert client.kwargs["max_tokens"] == 4096
