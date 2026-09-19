@@ -1,0 +1,31 @@
+{% if draft is none %}
+<form method="post" action="/settings/documents/draft">
+  <p>Draft your structured résumé (<code>resume_content</code>) from the
+    résumé you have already uploaded. Nothing is saved until you review it.</p>
+  <button type="submit" class="btn primary">Draft from my résumé</button>
+</form>
+{% elif draft.status == 'confirm' %}
+<form method="post" action="/settings/documents/draft">
+  <p class="warn">You already have a <code>resume_content</code> document.
+    Saving the review below would replace it.</p>
+  <label class="check">
+    <input type="checkbox" name="overwrite" value="1" required> Replace it
+  </label>
+  <button type="submit" class="btn primary">Draft anyway</button>
+</form>
+{% elif draft.status == 'running' %}
+<p class="muted" hx-get="/settings/documents/draft/status"
+   hx-trigger="load delay:2s" hx-target="this" hx-swap="outerHTML">
+  Reading your résumé…</p>
+{% elif draft.status == 'error' %}
+<p class="warn">{{ draft.error }}</p>
+<p>
+  <a class="btn" href="/settings/documents?kind=resume_content">Edit as JSON instead</a>
+</p>
+<form method="post" action="/settings/documents/draft">
+  <input type="hidden" name="overwrite" value="1">
+  <button type="submit" class="btn">Try again</button>
+</form>
+{% else %}
+<p class="muted">Draft ready.</p>
+{% endif %}

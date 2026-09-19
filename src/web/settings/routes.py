@@ -14,7 +14,23 @@ register_backup_routes(app) are also called early, right after
 register_row_routes, for that exact reason: /settings/companies,
 /settings/history, and /settings/backup are each a single path segment, so
 unlike the row routes they would genuinely be swallowed by /settings/{slug}
-if that catch-all were declared first.
+if that catch-all were declared first. register_content_draft_routes(app) is
+registered alongside them for consistency, though its own paths
+(/settings/documents/draft and .../draft/status) are three segments deep and
+could not be swallowed by the catch-all regardless of ordering.
+
+register_content_draft_routes is imported lazily, inside
+register_settings_routes below, rather than at module level like its
+siblings: src/web/settings/content_draft.py imports draft_content/NO_RESUME
+from src.resume_intake.content_draft, which imports
+src.resume_intake.draft, which itself imports src.web.settings.forms — and
+that import is what first triggers this package's own __init__ (`from
+src.web.settings.routes import register_settings_routes`). A module-level
+import here would close that loop back onto this same module while it is
+still mid-import, the same class of cycle shell.py's docstring records for
+companies.py's now-removed reach into routes.py. src/web/app.py's own
+`from src.web.settings import register_settings_routes` (inside create_app,
+not at module level) uses the identical trick for the same reason.
 
 page_ctx/render_section/secret_rows live in shell.py (Ruling R10) — this
 module still uses them constantly, but so does every leaf settings route
@@ -187,10 +203,14 @@ async def save_section(request: Request, section: Section, **extra) -> HTMLRespo
 
 
 def register_settings_routes(app: FastAPI) -> None:
+    # Lazy: see the module docstring for the circular-import chain this dodges.
+    from src.web.settings.content_draft import register_content_draft_routes
+
     register_row_routes(app)
     register_companies_routes(app)
     register_history_routes(app)
     register_backup_routes(app)
+    register_content_draft_routes(app)
 
     env = app.state.templates.env
     env.globals["field_help"] = field_help
