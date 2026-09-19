@@ -67,6 +67,33 @@ def test_redraft_calls_the_llm_again(tmp_path, monkeypatch):
     assert len(calls) == 2
 
 
+def test_draft_again_is_offered_before_a_profile_is_saved(tmp_path, monkeypatch):
+    app = _app(tmp_path, monkeypatch)
+    _drafts(monkeypatch, DRAFT)
+    r = signed_in_client(app).get("/wizard/review")
+    assert "Draft again" in r.text
+
+
+def test_draft_again_is_hidden_once_a_profile_is_saved(tmp_path, monkeypatch):
+    """Minor (whole-branch review): _ensure_draft() stops drafting once a
+    profile document exists (the config is the current truth from then on),
+    so the button used to render unconditionally and do nothing once
+    clicked. It must not appear once there is nothing left for it to do."""
+    app = _app(tmp_path, monkeypatch)
+    _drafts(monkeypatch, DRAFT)
+    client = signed_in_client(app)
+    client.get("/wizard/review")
+    client.post("/wizard/review", data={
+        "profile": "## Quick summary\nSaved already.",
+        "filters.titles": ["platform engineer"],
+        "filters.max_age_days": "2",
+        "filters.location.allowed_countries": ["US"],
+        "filters.location.remote_policy": "allowed_countries",
+    })
+    r = client.get("/wizard/review")
+    assert "Draft again" not in r.text
+
+
 def test_approving_writes_profile_and_filters_together(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
     _drafts(monkeypatch, DRAFT)
@@ -178,6 +205,47 @@ def test_an_empty_profile_is_rejected(tmp_path, monkeypatch):
     r = client.post("/wizard/review", data={"profile": "   ", "filters.titles": ["a"]})
     assert r.status_code == 200
     assert app.state.service.snapshot().documents.profile is None
+
+
+def test_blank_titles_leave_the_step_incomplete_and_explain_why(tmp_path, monkeypatch):
+    """Important 2 (whole-branch review): save_step's sibling here always
+    303s to /wizard, which re-picks the first incomplete step -- so a save
+    that IS valid (an empty title list is a valid, if useless, config; decode
+    and validate_document both pass, and the profile document really is
+    written) but leaves review incomplete used to silently re-serve this
+    page with no explanation, even though readiness.check() already has the
+    exact text (no_titles) to explain it. Follow the redirect the way a
+    browser would -- a bare status/location check on the POST can't see
+    whether the warning text ever reached the page that's actually shown."""
+    app = _app(tmp_path, monkeypatch, documents={})
+    client = signed_in_client(app)
+    # /wizard always routes to the first INCOMPLETE, unskipped step -- llm
+    # and resume must be out of the way first, or the redirect below lands
+    # back on one of those instead of review, and ?attempted=review never
+    # matches what /wizard actually recomputes.
+    client.post("/wizard/llm/skip")
+    client.post("/wizard/resume/skip")
+    r = client.post("/wizard/review", data={
+        "profile": "## Quick summary\nSomething.",
+        "filters.titles": [""],
+        "filters.max_age_days": "3",
+    })
+    assert r.status_code == 200
+    assert str(r.url).endswith("/wizard/review?attempted=1")
+    assert "no job titles are set" in r.text.lower()
+    # This is not the decode/validate_document failure path -- the save DID
+    # happen, the step is just still incomplete.
+    assert app.state.service.snapshot().documents.profile is not None
+
+
+def test_a_first_unattempted_visit_to_review_shows_no_warning(tmp_path, monkeypatch):
+    """Keep it honest: an instance that's already incomplete for reasons
+    unrelated to this visit (no résumé, so no draft, nothing posted yet)
+    gets no warning on a plain first GET."""
+    app = _app(tmp_path, monkeypatch, documents={})
+    r = signed_in_client(app).get("/wizard/review")
+    assert r.status_code == 200
+    assert "no job titles are set" not in r.text.lower()
 
 
 def test_approving_clears_the_draft_so_a_revisit_shows_what_was_saved(tmp_path, monkeypatch):

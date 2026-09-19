@@ -13,7 +13,8 @@
     </div>
     <div class="field">
       <label class="field-label" for="i-pasted">…or paste it here</label>
-      <textarea id="i-pasted" name="pasted" rows="12" placeholder="Paste your résumé text…"></textarea>
+      <textarea id="i-pasted" name="pasted" rows="12"
+                placeholder="Paste your résumé text…">{{ (vals.get('pasted') or [''])[0] }}</textarea>
     </div>
   </section>
 

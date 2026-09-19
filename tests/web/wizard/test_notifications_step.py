@@ -93,6 +93,34 @@ def test_suggested_topic_used_consistently_for_input_and_qr(tmp_path, monkeypatc
     assert "https://ntfy.sh/job-alerts-fixed-for-test" in r.text
 
 
+def test_suggested_topic_is_stable_across_two_gets(tmp_path, monkeypatch):
+    """Two GETs of /wizard/notifications, both before anything is saved, must
+    show the SAME suggested topic. A user can scan the QR with their phone
+    and then have the page re-render for any unrelated reason (a second tab,
+    a retry, htmx settling) before ever pressing Save — a fresh suggestion on
+    that second render would silently point future alerts at a topic the
+    phone was never subscribed to, and ntfy.sh has no way to notice or warn
+    about that: the topic itself IS the credential.
+
+    suggest_topic() is stubbed to hand out two DISTINCT, recognisable values
+    in a row, so this proves the second GET reuses the cached suggestion
+    rather than merely getting lucky — with the real CSPRNG-backed
+    suggest_topic(), two independent draws practically never collide, so an
+    un-stubbed version of this test would rarely fail even on the broken
+    (regenerate-every-GET) behaviour."""
+    topics = iter(["https://ntfy.sh/job-alerts-first-draw", "https://ntfy.sh/job-alerts-second-draw"])
+    monkeypatch.setattr("src.web.wizard.routes.suggest_topic", lambda: next(topics))
+    app = _app(tmp_path, monkeypatch)
+    client = signed_in_client(app)
+
+    first = client.get("/wizard/notifications").text
+    second = client.get("/wizard/notifications").text
+
+    assert "job-alerts-first-draw" in first
+    assert "job-alerts-first-draw" in second
+    assert "job-alerts-second-draw" not in second
+
+
 def test_stored_topic_is_not_regenerated_on_next_get(tmp_path, monkeypatch):
     """Once a topic is saved, a later GET must not call suggest_topic() again —
     doing so would silently swap in a topic the user never subscribed their
@@ -110,6 +138,31 @@ def test_stored_topic_is_not_regenerated_on_next_get(tmp_path, monkeypatch):
     r = client.get("/wizard/notifications")
     assert r.status_code == 200
     assert "stored" in r.text.lower()
+
+
+def test_saving_neither_sink_leaves_the_step_incomplete_and_explains_why(tmp_path, monkeypatch):
+    """Same class of bug as the LLM and review steps: a "Save and continue"
+    that submits neither secret leaves the step incomplete (no_sink), and
+    used to silently re-serve this page with no explanation. Skip llm,
+    resume, review and companies first so /wizard actually lands back on
+    notifications, matching what ?attempted=notifications requires."""
+    app = _app(tmp_path, monkeypatch)
+    client = signed_in_client(app)
+    for slug in ("llm", "resume", "review", "companies"):
+        client.post(f"/wizard/{slug}/skip")
+    r = client.post("/wizard/notifications", data={})
+    assert r.status_code == 200
+    assert str(r.url).endswith("/wizard/notifications?attempted=1")
+    assert "never delivered anywhere" in r.text.lower()
+
+
+def test_a_first_unattempted_visit_shows_no_no_sink_warning(tmp_path, monkeypatch):
+    """Keep it honest: nothing posted yet, so no warning on a plain first GET
+    even though the instance has no sink configured."""
+    app = _app(tmp_path, monkeypatch)
+    r = signed_in_client(app).get("/wizard/notifications")
+    assert r.status_code == 200
+    assert "never delivered anywhere" not in r.text.lower()
 
 
 def test_saving_stores_the_topic_secret(tmp_path, monkeypatch):

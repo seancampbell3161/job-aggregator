@@ -26,7 +26,7 @@
         <td>{{ m.company }}</td>
         <td>{{ m.location }}</td>
         <td>{{ m.score if m.score is not none else "—" }}</td>
-        <td><a href="{{ m.apply_url }}" target="_blank" rel="noopener">Apply</a></td>
+        <td><a href="{{ m.apply_url }}" target="_blank" rel="noopener noreferrer">Apply</a></td>
       </tr>
       {% endfor %}
     </tbody>

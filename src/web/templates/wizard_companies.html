@@ -6,6 +6,11 @@
     until you confirm.</p>
   <form hx-post="/settings/companies/probe" hx-target="#probe-result" hx-swap="innerHTML">
     <input type="text" name="target" placeholder="Paste a careers page URL or domain">
+    {# Carried through the probe result into "Add this board" below, so
+       confirming a board during setup returns to the wizard instead of
+       stranding the user on the standalone settings page (which has no
+       route back into the wizard on its own). #}
+    <input type="hidden" name="next" value="/wizard">
     <button type="submit" class="btn small">Check</button>
   </form>
   <div id="probe-result"></div>
@@ -20,5 +25,16 @@
 
 <p><a href="/settings/companies">Full companies page</a> — structured boards
   (Workday, Oracle Cloud and the rest), removal, and health.</p>
+{% if step_done %}
 <p><a class="btn primary" href="/wizard">Continue</a></p>
+{% else %}
+{# A board was neither added here nor already configured, so this step is
+   still incomplete: /wizard would just route straight back to this same
+   page (next_step() re-picks the first incomplete, unskipped step). Post an
+   explicit skip instead of linking to /wizard, so Continue actually
+   advances rather than silently re-serving itself. #}
+<form method="post" action="/wizard/companies/skip">
+  <button type="submit" class="btn primary">Continue</button>
+</form>
+{% endif %}
 {% endblock %}

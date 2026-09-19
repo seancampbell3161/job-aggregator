@@ -20,18 +20,5 @@
   <button type="submit" class="btn">Skip this step</button>
 </form>
 {% endif %}
-<script>
-  // Mirrors settings_base.html's addChip — chip lists need no JS to work
-  // (blank inputs are dropped on save), this just saves a round trip when
-  // adding several at once. Wizard pages extend base.html directly rather
-  // than settings_base.html, so this can't be inherited from there.
-  function addChip(btn) {
-    var box = btn.previousElementSibling;
-    var last = box.lastElementChild;
-    var copy = last.cloneNode();
-    copy.value = '';
-    box.appendChild(copy);
-    copy.focus();
-  }
-</script>
+{# addChip() lives in base.html now — shared with settings_base.html. #}
 {% endblock %}

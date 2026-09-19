@@ -11,5 +11,14 @@
   </form>
 </section>
 {% include "_wizard_preview_result.html" %}
+{% if step_done %}
 <p><a class="btn" href="/wizard">Finish</a></p>
+{% else %}
+{# No preview has finished (ok or error) yet, so /wizard would just route
+   straight back here -- same loop as the companies step's Continue. Post an
+   explicit skip so Finish actually leaves the wizard. #}
+<form method="post" action="/wizard/preview/skip">
+  <button type="submit" class="btn">Finish</button>
+</form>
+{% endif %}
 {% endblock %}

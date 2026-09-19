@@ -27,7 +27,17 @@
   </section>
 
   <p>
-    <button type="submit" formaction="/wizard/review/redraft" class="btn">Draft again</button>
+    {% if not saved_profile %}
+    {# Once a profile document is saved, _ensure_draft() stops drafting
+       altogether (the config is the truth from then on) -- this button
+       would submit and redirect with no visible effect, so it only renders
+       before that first save. The confirm() guards the one real effect it
+       DOES have pre-save: redrafting deletes the cached draft and re-runs
+       it from the résumé/answers, discarding whatever has been typed into
+       the profile or filters above with no other warning. #}
+    <button type="submit" formaction="/wizard/review/redraft" class="btn"
+            onclick="return confirm('Discard your edits and draft again from your résumé?')">Draft again</button>
+    {% endif %}
     <button type="submit" class="btn primary">Save and continue</button>
   </p>
 </form>

@@ -65,6 +65,21 @@ def test_a_scan_re_renders_with_the_paste_hint(tmp_path, monkeypatch):
     assert app.state.service.snapshot().documents.resume_text is None
 
 
+def test_a_short_paste_is_echoed_back_on_the_error_rerender(tmp_path, monkeypatch):
+    """Minor (whole-branch review): save_step's own stated contract is
+    "nothing typed is lost" on a failed save. The interview answers already
+    survived a re-render (test_a_scan_re_renders_with_the_paste_hint above);
+    the pasted résumé text itself did not, because the textarea never echoed
+    `submitted` -- a paste under 200 characters (too short to extract from)
+    used to simply vanish."""
+    app = _app(tmp_path, monkeypatch)
+    short = "Too short to extract from."
+    r = signed_in_client(app).post("/wizard/resume", data={**ANSWERS, "pasted": short})
+    assert r.status_code == 200
+    assert short in r.text
+    assert app.state.service.snapshot().documents.resume_text is None
+
+
 def test_no_resume_at_all_re_renders(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
     r = signed_in_client(app).post("/wizard/resume", data=ANSWERS)

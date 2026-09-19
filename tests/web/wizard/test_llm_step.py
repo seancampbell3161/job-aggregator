@@ -26,7 +26,11 @@ def test_saves_provider_and_key_then_advances(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
     r = signed_in_client(app).post("/wizard/llm", data=FORM, follow_redirects=False)
     assert r.status_code == 303
-    assert r.headers["location"] == "/wizard"
+    # ?attempted=llm rides along so /wizard can show step_warnings() if this
+    # save somehow left the step incomplete — see wizard_root. Here it does
+    # not (the step completes), so following the redirect lands elsewhere;
+    # that's covered by test_the_version_is_sourced_to_the_wizard below.
+    assert r.headers["location"] == "/wizard?attempted=llm"
     cfg = app.state.service.snapshot().cfg
     assert cfg.relevance.enabled is True
     assert cfg.relevance.provider == "anthropic"
@@ -70,6 +74,36 @@ def test_resubmitting_unchanged_values_writes_no_new_version(tmp_path, monkeypat
     r = client.post("/wizard/llm", data=FORM, follow_redirects=False)
     assert r.status_code == 303
     assert len(app.state.service.versions(None)) == before
+
+
+def test_a_blank_key_leaves_the_step_incomplete_and_explains_why(tmp_path, monkeypatch):
+    """Important 2 (whole-branch review): save_step always 303s to /wizard,
+    which re-picks the first incomplete step -- so enabling scoring with no
+    key used to land the user right back on /wizard/llm with no message,
+    even though readiness.check() already produces the exact text
+    (llm_no_key) to explain it. Follow the redirect the way a browser would
+    -- a bare status/location check on the POST can't see whether the
+    warning ever reached the page that's actually shown."""
+    app = _app(tmp_path, monkeypatch)
+    incomplete = {**FORM, "secret.anthropic_api_key": ""}
+    r = signed_in_client(app).post("/wizard/llm", data=incomplete)
+    assert r.status_code == 200
+    assert str(r.url).endswith("/wizard/llm?attempted=1")
+    assert "no api key is set" in r.text.lower()
+    # Not the decode/validation failure path -- provider and enabled DID save.
+    assert app.state.service.snapshot().cfg.relevance.enabled is True
+
+
+def test_a_first_unattempted_visit_shows_no_warning(tmp_path, monkeypatch):
+    """Keep it honest: an instance that's already incomplete for reasons
+    unrelated to this visit (pre-existing config, nothing posted yet) gets
+    no warning on a plain first GET."""
+    service = make_service({"relevance": {"enabled": True, "provider": "anthropic",
+                                          "score_high": 7, "score_low": 4}})
+    app = _app(tmp_path, monkeypatch, service)
+    r = signed_in_client(app).get("/wizard/llm")
+    assert r.status_code == 200
+    assert "no api key is set" not in r.text.lower()
 
 
 def test_test_button_runs_the_real_probe(tmp_path, monkeypatch):

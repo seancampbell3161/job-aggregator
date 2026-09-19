@@ -36,6 +36,43 @@ def test_step_offers_a_start_button(tmp_path, monkeypatch):
     assert "/wizard/preview/start" in r.text
 
 
+# --- Finish must not loop: previewing is the last step, and nothing about
+# visiting this page (unlike every other step) requires the user to act on
+# it before leaving. Before a preview has actually finished (ok or error),
+# preview.complete() is False, so a plain `href="/wizard"` link would just
+# route straight back here (next_step() re-picks the first incomplete,
+# unskipped step) -- the exact loop this file's docstring exists to catch.
+# Finish must instead post a skip, the same escape hatch the companies step
+# uses for the identical problem. ---
+
+def test_finish_posts_a_skip_before_a_preview_has_run(tmp_path, monkeypatch):
+    r = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/preview")
+    assert "Finish</button>" in r.text
+    assert 'href="/wizard">Finish' not in r.text
+
+
+def test_finish_links_straight_to_wizard_once_a_preview_has_run(tmp_path, monkeypatch):
+    app = _app(tmp_path, monkeypatch)
+    app.state.stores.wizard.put("preview", {"status": "ok", "matches": [],
+                                            "fetched": 3, "matched": 0})
+    r = signed_in_client(app).get("/wizard/preview")
+    assert 'href="/wizard">Finish' in r.text
+    assert "Finish</button>" not in r.text
+
+
+def test_finish_button_actually_advances_past_an_unfinished_preview(tmp_path, monkeypatch):
+    """Not just that the button LOOKS like a skip form (the test above) --
+    posting to it, the way a browser submitting that form would, must
+    actually leave the wizard. Every other step is already complete (or
+    skipped) by _app(), so once preview is skipped too there is nothing
+    left to ask."""
+    app = _app(tmp_path, monkeypatch)
+    client = signed_in_client(app)
+    client.post("/wizard/preview/skip")
+    assert client.get("/wizard", follow_redirects=False
+                      ).headers["location"] == "/wizard/done"
+
+
 def test_starting_records_a_running_status(tmp_path, monkeypatch):
     """POST /wizard/preview/start schedules a REAL background task
     (asyncio.create_task) that TestClient's persistent event loop can and

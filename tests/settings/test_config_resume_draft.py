@@ -1,5 +1,5 @@
 """The résumé-drafting feature's own provider/model/timeout overrides."""
-from src.config import AppConfig
+from src.config import AppConfig, ResumeDraftConfig
 
 
 def test_defaults_fall_back_to_relevance():
@@ -23,7 +23,7 @@ def test_timeout_default():
 
 def test_there_is_no_enabled_flag():
     """Drafting degrades to manual forms; it is not switched off."""
-    assert "enabled" not in AppConfig().resume_draft.model_fields
+    assert "enabled" not in ResumeDraftConfig.model_fields
 
 
 def test_every_new_path_is_claimed_by_a_section():

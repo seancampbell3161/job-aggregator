@@ -49,6 +49,37 @@ def test_step_completes_once_a_board_exists(tmp_path, monkeypatch):
     assert client.get("/wizard", follow_redirects=False).headers["location"] == "/wizard/notifications"
 
 
+# --- Important 1 (whole-branch review): Continue must not loop. Before any
+# board is configured and discovery is off, this step is still incomplete,
+# so a plain `href="/wizard"` link would just route right back here
+# (next_step() re-picks the first incomplete, unskipped step) — a user who
+# adds nothing and clicks Continue would silently land back on the same
+# page. Continue must instead post a skip. ---
+
+def test_continue_posts_a_skip_when_no_board_is_configured(tmp_path, monkeypatch):
+    r = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/companies")
+    assert "Continue</button>" in r.text
+    assert 'href="/wizard">Continue' not in r.text
+
+
+def test_continue_links_straight_to_wizard_once_a_board_exists(tmp_path, monkeypatch):
+    service = make_service({**WEB_TEST_SETTINGS, "sources": {"greenhouse": ["stripe"]}})
+    r = signed_in_client(_app(tmp_path, monkeypatch, service)).get("/wizard/companies")
+    assert 'href="/wizard">Continue' in r.text
+    assert "Continue</button>" not in r.text
+
+
+def test_continue_button_actually_advances_past_an_empty_companies_step(tmp_path, monkeypatch):
+    """Not just that it LOOKS like a skip form -- posting to it, as a
+    browser submitting that form would, must actually move the wizard on."""
+    app = _app(tmp_path, monkeypatch)
+    client = signed_in_client(app)
+    for slug in ("llm", "resume", "review"):
+        client.post(f"/wizard/{slug}/skip")
+    client.post("/wizard/companies/skip")
+    assert client.get("/wizard", follow_redirects=False).headers["location"] == "/wizard/notifications"
+
+
 # --- Mutation-catching: a wrong hx-post target or wrong form field name is
 # invisible to the assertions above (a substring match on "/settings/companies"
 # or "target" passes even if the actual <form> attribute is spelled

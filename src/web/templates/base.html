@@ -24,6 +24,18 @@
     document.addEventListener('change', function (e) {
       if (e.target && e.target.name === 'ids') updateBulkCount();
     });
+    // Chip lists (settings_base.html and wizard_base.html both use this,
+    // via the `w.chips` macro) need no JS to work -- blank inputs are
+    // dropped on save -- this just saves a round trip when adding several
+    // at once. Defined once here so neither page needs its own copy.
+    function addChip(btn) {
+      var box = btn.previousElementSibling;
+      var last = box.lastElementChild;
+      var copy = last.cloneNode();
+      copy.value = '';
+      box.appendChild(copy);
+      copy.focus();
+    }
   </script>
 </head>
 <body>

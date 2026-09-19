@@ -20,10 +20,11 @@ from src.settings.documents import validate_document
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import field_map, value_at
 from src.settings.service import canonical_doc
-from src.web.settings.backup import MAX_UPLOAD_BYTES
+from src.web.settings.backup import MAX_UPLOAD_BYTES, _read_bounded
 from src.web.settings.forms import apply_patch, decode, decode_secrets, errors_by_path
 from src.web.settings.probes import ProbeResult, probe_discord, probe_llm, probe_ntfy
-from src.web.settings.routes import shown
+from src.web.settings.readiness import check
+from src.web.settings.routes import _probe_partial, shown
 from src.web.settings.sections import section_by_slug
 from src.web.settings.shell import secret_rows
 from src.web.wizard.ntfy_topic import suggest_topic, topic_qr_svg
@@ -46,7 +47,9 @@ LLM_PATHS = (
     "relevance.enabled", "relevance.provider", "relevance.model",
     "relevance.ollama_host", "relevance.timeout_seconds",
 )
-LLM_SECRETS = ("anthropic_api_key", "google_api_key", "ollama_api_key")
+# Identical to settings' own "llm" section secrets — derived from it (like
+# FILTER_PATHS below) rather than hand-kept as a second copy that could drift.
+LLM_SECRETS = section_by_slug("llm").secrets
 
 FILTER_PATHS = tuple(section_by_slug("filters").paths)
 
@@ -96,9 +99,16 @@ def current_context(request: Request):
 
 def wizard_ctx(request: Request, step, *, paths: tuple[str, ...] = (),
                secrets: tuple[str, ...] = (), **extra) -> dict:
+    states = step_states(current_context(request), request.app.state.stores.wizard.skipped())
     ctx = {
         "step": step,
-        "steps": step_states(current_context(request), request.app.state.stores.wizard.skipped()),
+        "steps": states,
+        # Whether THIS render's own step is done, for a step page's own
+        # Continue/Finish control: linking straight to /wizard only advances
+        # when the step is actually complete (next_step() would otherwise
+        # just route right back to it) — see wizard_companies.html and
+        # wizard_preview.html.
+        "step_done": bool(step) and any(s.step.slug == step.slug and s.done for s in states),
         "cfg": request.state.snapshot.cfg,
         "fields": tuple(field_map()[p] for p in paths),
         "secrets": secret_rows(request.app.state.service, secrets),
@@ -144,21 +154,36 @@ def resume_extra(request: Request) -> dict:
 def notifications_extra(request: Request) -> dict:
     """The notifications step's own context: probe_targets (for
     secret_field's Test buttons, same shape settings pages use) always, and a
-    freshly generated suggested_topic/suggested_qr ONLY when ntfy_topic_url is
-    currently unset.
+    suggested_topic/suggested_qr ONLY when ntfy_topic_url is currently unset.
 
     That gate matters: suggest_topic() is random, and re-suggesting on every
     render would silently swap out a topic the user may already have scanned
     into the ntfy app on their phone. Once the topic is saved,
     service.secret_source(...) reads "stored" (or "env"), the gate closes,
     and the template falls back to secret_field's ordinary stored-source
-    notice instead of a suggestion. suggest_topic() is called at most once
-    here, and its result is reused for both the pre-filled input and the QR
-    (topic_qr_svg(topic)) — never called twice, so the two can never
-    disagree."""
+    notice instead of a suggestion.
+
+    The suggestion itself is generated at most ONCE per install (not once per
+    GET — a fresh one per GET is exactly the bug this guards against: a user
+    can scan the QR, the page can re-render for any unrelated reason, and a
+    second suggest_topic() call would hand them a topic their phone never
+    subscribed to, with no error to say so — on ntfy.sh the topic itself IS
+    the credential, so that failure is silent and total). It is cached in the
+    wizard_ui store (keyed "suggested_ntfy_topic") and reused across every GET
+    until the secret is actually set, at which point wizard_notifications_save
+    below clears the cache — there's nothing left to suggest once a topic is
+    stored, and a later revisit after clearing that secret should get a fresh
+    one rather than resurrecting whatever was suggested and never used the
+    first time around. Its result is reused for both the pre-filled input and
+    the QR (topic_qr_svg(topic)) — never called twice per render either, so
+    the two can never disagree."""
     extra: dict = {"probe_targets": _wizard_probe_targets()}
     if request.app.state.service.secret_source("ntfy_topic_url") == "unset":
-        topic = suggest_topic()
+        store = request.app.state.stores.wizard
+        topic = store.get("suggested_ntfy_topic")
+        if topic is None:
+            topic = suggest_topic()
+            store.put("suggested_ntfy_topic", topic)
         extra["suggested_topic"] = topic
         extra["suggested_qr"] = topic_qr_svg(topic)
     return extra
@@ -272,10 +297,37 @@ def render_step(request: Request, step, **extra) -> HTMLResponse:
     )
 
 
-def _probe_partial(request: Request, result: ProbeResult) -> HTMLResponse:
-    return request.app.state.templates.TemplateResponse(
-        request, "_probe_result.html", {"result": result}
+# A step's slug -> the readiness codes (readiness.check()'s own Warning.code)
+# that explain why it can still be incomplete after a save. Hand-kept rather
+# than derived from Warning.fix_slug: that field names the SETTINGS section a
+# warning links to (e.g. "filters" for no_titles), which does not always
+# match the WIZARD step slug -- "review" covers both the profile and the
+# filters together. A step absent here (companies, resume, preview) has no
+# single check() code that maps onto its own completion test, so it never
+# gets a warning through this path.
+STEP_WARNING_CODES: dict[str, tuple[str, ...]] = {
+    "llm": ("llm_no_key",),
+    "review": ("no_titles", "no_max_age"),
+    "notifications": ("no_sink",),
+}
+
+
+def step_warnings(request: Request, step) -> list[str]:
+    """The unmet readiness warning(s) that explain why `step` is still
+    incomplete, reusing check()'s own message text rather than a second copy
+    of it. Callers only ask for this right after a save (see wizard_root's
+    `attempted` handling below) -- a step's first, unattempted arrival never
+    calls this, so a warning never appears before the user has tried
+    anything."""
+    codes = STEP_WARNING_CODES.get(step.slug, ())
+    if not codes:
+        return []
+    snap = request.state.snapshot
+    warnings = check(
+        snap.cfg, has_profile=bool(snap.documents.profile),
+        secret_source=request.app.state.service.secret_source,
     )
+    return [w.message for w in warnings if w.code in codes]
 
 
 def save_step(request: Request, step, paths, secrets, form_raw) -> HTMLResponse | RedirectResponse:
@@ -322,7 +374,11 @@ def save_step(request: Request, step, paths, secrets, form_raw) -> HTMLResponse 
         for name in to_clear:
             service.clear_secret(name)
 
-    return RedirectResponse("/wizard", status_code=303)
+    # `attempted` names the step just saved; wizard_root below only keeps it
+    # (as ?attempted=1 on the step page) when /wizard still lands back on
+    # this same step — i.e. the save did not actually finish it — so that
+    # page can show step_warnings() instead of silently re-serving itself.
+    return RedirectResponse(f"/wizard?attempted={step.slug}", status_code=303)
 
 
 def register_wizard_routes(app: FastAPI) -> None:
@@ -331,11 +387,20 @@ def register_wizard_routes(app: FastAPI) -> None:
     @app.get("/wizard")
     def wizard_root(request: Request):
         """Always the entry point: recomputes where the user actually is, so a
-        bookmarked /wizard resumes rather than restarting."""
+        bookmarked /wizard resumes rather than restarting.
+
+        `attempted`, when present, names the step a save handler just tried
+        to complete (see save_step / wizard_review_save). It is forwarded to
+        the step page as ?attempted=1 ONLY when this still lands back on
+        that same step — i.e. the save did not finish it — so the step's own
+        page can explain why instead of silently re-serving itself. Landing
+        anywhere else (a different step, or done) drops it: that step was
+        never attempted, so it gets no warning on this, its first arrival."""
         step = next_step(current_context(request), request.app.state.stores.wizard.skipped())
-        return RedirectResponse(
-            "/wizard/done" if step is None else f"/wizard/{step.slug}", status_code=303
-        )
+        if step is None:
+            return RedirectResponse("/wizard/done", status_code=303)
+        suffix = "?attempted=1" if request.query_params.get("attempted") == step.slug else ""
+        return RedirectResponse(f"/wizard/{step.slug}{suffix}", status_code=303)
 
     @app.get("/wizard/done", response_class=HTMLResponse)
     def wizard_done(request: Request):
@@ -387,8 +452,15 @@ def register_wizard_routes(app: FastAPI) -> None:
         pasted = (form.get("pasted") or "").strip()
         try:
             if upload is not None and getattr(upload, "filename", ""):
-                data = await upload.read()
-                if len(data) > MAX_UPLOAD_BYTES:
+                # _read_bounded (src/web/settings/backup.py) reads in chunks
+                # and stops the moment the running total passes the limit,
+                # rather than upload.read() with no size — which would
+                # buffer the whole body, however large, before anything
+                # gets a chance to check it. Same MAX_UPLOAD_BYTES backup
+                # uploads are bounded to; a résumé is never remotely close
+                # to it, so the shared limit costs nothing here.
+                data, oversized = await _read_bounded(upload, MAX_UPLOAD_BYTES)
+                if oversized:
                     raise ExtractionFailed("That file is too large.")
                 text = extract_text(data, upload.filename)
             elif pasted:
@@ -414,7 +486,15 @@ def register_wizard_routes(app: FastAPI) -> None:
     async def wizard_notifications_save(request: Request):
         form = await request.form()
         raw = {k: form.getlist(k) for k in form.keys()}
-        return save_step(request, step_by_slug("notifications"), (), NOTIFY_SECRETS, raw)
+        response = save_step(request, step_by_slug("notifications"), (), NOTIFY_SECRETS, raw)
+        # Once a topic is actually stored, notifications_extra's gate closes
+        # for good on its own (it only reads the cache while secret_source
+        # says "unset") — this is just hygiene, so a suggestion nobody used
+        # doesn't sit in wizard_ui forever, the same reasoning the review
+        # step's draft delete uses above.
+        if request.app.state.service.secret_source("ntfy_topic_url") != "unset":
+            request.app.state.stores.wizard.delete("suggested_ntfy_topic")
+        return response
 
     @app.post("/wizard/notifications/test/{probe}")
     async def wizard_notifications_test(request: Request, probe: str):
@@ -438,10 +518,15 @@ def register_wizard_routes(app: FastAPI) -> None:
 
     @app.get("/wizard/review", response_class=HTMLResponse)
     async def wizard_review(request: Request):
+        step = step_by_slug("review")
         draft, error = await _ensure_draft(request)
+        attempted_warnings = (
+            step_warnings(request, step)
+            if request.query_params.get("attempted") == "1" else []
+        )
         return render_step(
-            request, step_by_slug("review"), draft=draft,
-            form_errors=[error] if error else [],
+            request, step, draft=draft,
+            form_errors=([error] if error else []) + attempted_warnings,
         )
 
     @app.post("/wizard/review/redraft")
@@ -491,7 +576,7 @@ def register_wizard_routes(app: FastAPI) -> None:
         # delete is just hygiene, so a stale draft blob doesn't sit in
         # wizard_ui forever.
         request.app.state.stores.wizard.delete("draft")
-        return RedirectResponse("/wizard", status_code=303)
+        return RedirectResponse(f"/wizard?attempted={step.slug}", status_code=303)
 
     @app.post("/wizard/preview/start")
     async def wizard_preview_start(request: Request):
@@ -528,7 +613,11 @@ def register_wizard_routes(app: FastAPI) -> None:
         step = step_by_slug(slug)
         if step is None:
             raise HTTPException(status_code=404)
-        return render_step(request, step)
+        warnings = (
+            step_warnings(request, step)
+            if request.query_params.get("attempted") == "1" else []
+        )
+        return render_step(request, step, form_errors=warnings)
 
     @app.post("/wizard/{slug}/skip")
     def wizard_skip(request: Request, slug: str):
