@@ -5,6 +5,10 @@ tuned to *your* preferences — no clone required. For what the app is and how
 it works internally, see the [README](README.md). When something breaks, see
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
+The short version: `docker compose up -d` → open the UI → create a password →
+**Start guided setup** → follow the six skippable steps. Everything below
+fills in the details, including the doors that skip the wizard.
+
 Everything persists in `./data`; $0 infra; LLM cost depends on provider.
 
 ---
@@ -12,7 +16,7 @@ Everything persists in `./data`; $0 infra; LLM cost depends on provider.
 ## Contents
 
 1. [Start it](#1-start-it) — one file, one command, no clone
-2. [Configure it](#2-configure-it) — filters, your profile, LLM provider, companies, notifications (full flag reference: [docs/CONFIG.md](docs/CONFIG.md))
+2. [Configure it](#2-configure-it) — the guided setup wizard, or filters, your profile, LLM provider, companies, notifications by hand (full flag reference: [docs/CONFIG.md](docs/CONFIG.md))
 3. [Run it with Docker Compose](#run-it-with-docker-compose) — upgrading, pinning, the headless image, local Ollama, running from a clone
 4. [Operating it](#operating-it)
 5. [Optional extras](#optional-extras) — mobile tailored-résumé loop, rejection audit & ops alerts, board automation, headless connector, auto board discovery, aggregator candidate mining, apply kit
@@ -63,29 +67,74 @@ in ([§2](#2-configure-it)).
 
 ## 2. Configure it
 
-After the password, **/setup** offers three ways in:
+After the password, **/setup** offers four ways in:
 
-- **Start from defaults** — an empty settings version, then straight into
-  Settings.
+- **Start guided setup** — the recommended path for a first install. Six
+  skippable steps, each a standalone page: **LLM** (connect and test a
+  provider), **Résumé** (upload a PDF/DOCX or paste it, plus a short
+  six-question interview covering what a résumé can't say — target titles,
+  level, IC vs. management, location, employment type, comp floor),
+  **Review** (an LLM drafts `profile.md` and the hard filters from your
+  résumé and answers, or — without an LLM — the form is pre-filled from the
+  interview instead; you edit and approve them like any other setting),
+  **Companies** (add a board by pasting its careers URL), **Notifications**
+  (a generated ntfy topic with a QR code to scan, plus a real test send),
+  and **Preview** (a bounded, read-only poll showing what would match right
+  now — it delivers nothing and marks nothing as seen). Everything works
+  without an LLM; nothing is polled or delivered until titles, a company
+  board, and a notification sink all exist.
+- **Start from defaults** — skip the wizard: an empty settings version,
+  then straight into Settings.
 - **Restore from a backup** — upload the `.zip` file **Settings → Backup**
   on an existing instance produced.
-- **Or import existing files** — a `config.yaml` (plus `profile.md`/
-  `resume.md`) the same way a clone would; the page shows the exact command
-  for this one.
+- **Import existing files** — a `config.yaml` (plus `profile.md`/
+  `resume.md`) from another install, or hand-authored; see
+  [Existing installs & config.yaml](#existing-installs--configyaml) below.
 
 Whichever you pick, **Settings → Overview** then lists what's still missing
 before alerts can arrive.
 
-From there, everything is in the web UI under **Settings** — filters, your
-relevance profile, LLM provider and key, companies, notification sinks,
-schedules. There is no `config.yaml` to author before you start; settings
-live in the app database and are versioned, so **Settings → History** shows
-every change and restores any of them. `config.yaml` import still works, for
-bulk edits or scripting — the full import/export/versioning mechanics, and
-every flag's default, are in [docs/CONFIG.md](docs/CONFIG.md). The rest of
-this section is the narrative version: what each setting means and why.
+### Existing installs & config.yaml
 
-Worth doing before the first full cycle:
+Already running job-aggregator elsewhere, or prefer to hand-author config
+instead of clicking through Settings? A `config.yaml` (plus `profile.md`/
+`resume.md`) still imports — from **/setup → Import existing files** on a
+fresh install, or anytime after:
+
+```bash
+docker compose run --rm -v "$PWD:/import:ro" web python -m src.settings import /import
+# without Docker: python -m src.settings import .
+```
+
+Start a fresh `config.yaml` from the template — both files are gitignored,
+so `git pull` never touches them:
+
+```bash
+cp config.example.yaml config.yaml
+cp profile.example.md profile.md          # optional
+```
+
+Secrets (ntfy topic, Discord webhook, API keys) can stay in `.env`, or be
+copied into the database:
+
+```bash
+docker compose run --rm web python -m src.settings import-env-secrets
+docker compose run --rm -it web python -m src.settings set-secret ntfy_topic_url
+```
+
+Once imported, everything is editable from **Settings** exactly as if you'd
+typed it there — settings live in the app database and are versioned, so
+**Settings → History** shows every change and restores any of them.
+`config.yaml` stays useful afterwards only for bulk edits or scripting. Full
+import/export/versioning mechanics (including how a stale import refuses
+rather than silently dropping changes) and every flag's default are in
+[docs/CONFIG.md](docs/CONFIG.md).
+
+The rest of this section is the narrative version of each setting — what it
+means and why — whichever door you came in through.
+
+Worth doing before the first full cycle (the guided setup walks you through
+all of this; skip ahead to a section below if you're configuring by hand):
 
 - **Settings → Filters** (2a, below) — titles, seniority, locations,
   employment types.
@@ -111,9 +160,6 @@ everything that passes your filters notifies **unscored**.
 | **Ollama, fully local** | none — runs on your box | $0 (needs `--profile ollama`, [§3](#run-it-with-docker-compose)) |
 
 Companies are 2d, résumé gap analysis is 2f — both below.
-
-Restoring from an existing install instead? **Settings → Backup** takes the
-ZIP that **Settings → Backup** on the old instance produced.
 
 ### 2a. Hard filters (Settings → Filters)
 
@@ -559,6 +605,10 @@ pytest                        # ~40 s; PDF tests skip if WeasyPrint's native lib
 python -m src.settings import .              # loads config.yaml + profile.md into ./data/job_aggregator.db
 JOB_AGG_OLLAMA_API_KEY=ol-... JOB_AGG_OLLAMA_HOST=https://ollama.com python -m src.handler --tier ats --dry-run
 ```
+
+The `web` extra also pulls in `pypdf` (PDF résumé text extraction) and
+`segno` (the notifications step's inline QR code) — both power the guided
+setup wizard; the published Docker image already has them.
 
 `relevance.ollama_host` defaults to `http://ollama:11434`, which only resolves
 inside Docker Compose. For hosted Ollama Cloud, set
