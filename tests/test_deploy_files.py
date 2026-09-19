@@ -94,6 +94,17 @@ def test_dockerfile_does_not_ship_personal_resume_files():
     assert "COPY resume/" not in _dockerfile()
 
 
+def test_base_image_precreates_data_for_an_unmounted_run():
+    """With no -v and no named volume, /data never exists; the entrypoint only
+    chowns it when present, then drops to UID 1000, and create_app()'s
+    os.makedirs('/data') then raises a raw PermissionError as that
+    unprivileged user (src/sqlite_db.py). The base stage must create /data
+    owned by the app user so a bare `docker run <image>` still boots."""
+    base, _, _ = _dockerfile().partition("FROM base AS headless")
+    assert "mkdir -p /data" in base
+    assert "chown 1000:1000 /data" in base
+
+
 def test_container_drops_privileges():
     text = _dockerfile()
     assert "docker-entrypoint.sh" in text

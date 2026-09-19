@@ -18,6 +18,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # The app runs unprivileged; docker-entrypoint.sh hands off to this user.
 RUN groupadd --gid 1000 app && useradd --uid 1000 --gid 1000 --no-create-home app
 
+# Pre-create /data owned by that user: docker-entrypoint.sh only chowns /data
+# when it already exists, so a bare `docker run` with no volume at all would
+# otherwise leave create_app() calling os.makedirs("/data") as UID 1000 and
+# crashing with a raw PermissionError. A bind mount shadows this directory
+# (the entrypoint still chowns it if the host side is root-owned); a named
+# volume inherits this ownership on first use; left unmounted, the container
+# now runs with ephemeral-but-working storage instead of crashing.
+RUN mkdir -p /data && chown 1000:1000 /data
+
 WORKDIR /app
 
 # Install deps first for layer caching.
