@@ -5,6 +5,73 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-09-19
+
+v0.13.0 shipped the guided setup; running it as a stranger would is what found
+this. Three faults sat on the one screen a new install cannot skip: the wizard
+threw away the answers you had just typed, the button that tests your LLM could
+never pass, and the provider, model and host it left you with did not agree with
+each other. All three are fixed, and the last one is now a choice you make
+rather than a coupling you were expected to already know.
+
+### Added
+
+- **Ready-made LLM recipes** (#17) on the wizard's LLM step: local Ollama,
+  Ollama Cloud, Anthropic, Gemini. Each fills provider, model, host and timeout
+  as one coherent set, and shows what that route costs and what it needs — where
+  to register and where the key comes from, or, for the local route, the two
+  commands that start the bundled Ollama and pull the model. Clicking saves
+  nothing; every field stays editable. The recipes are data, so a typo'd
+  provider or a renamed config path fails CI rather than shipping a button that
+  fills the form with rubbish, and their key URLs are checked against
+  `GETTING_STARTED.md` so the two cannot drift apart.
+
+### Fixed
+
+- **The wizard no longer discards your interview answers** (#15). A draft was
+  treated as authoritative the moment its profile parsed, even when every filter
+  it proposed had been dropped as unusable — which is what a smaller local model
+  does on every run. The review step then fell through to stock defaults, so the
+  eight questions you had just answered bought you seniority you never picked,
+  no cities, and an employment type you never ticked left unblocked. Answers are
+  now the floor and the draft refines them path by path.
+- **Test scoring works during setup** (#16). It passed your saved profile to the
+  scorer, and the profile is written two steps later — so on a first run the
+  button could not pass however correct your provider, model and key were. It
+  now scores a built-in sample when you have no profile yet, which is what it
+  was always meant to answer: can I reach this provider? Failures also name the
+  one thing that is actually wrong instead of listing all three possibilities,
+  and no longer demand an API key for a local Ollama, which needs none.
+
+### Changed
+
+- `relevance.provider` now defaults to `ollama` and `relevance.model` to
+  `llama3.1:8b` (#16, #17) — the only provider that needs no API key, and the
+  model the fully-local recipe in `GETTING_STARTED.md` already tells you to
+  pull, so the shipped defaults agree with each other and with the default
+  `ollama_host`. Scoring itself still ships **off**; the wizard pre-ticks the
+  box rather than enabling it behind your back.
+
+### Upgrading
+
+Only if you enabled scoring **without naming a provider**. Settings are stored
+sparsely — whatever you never set follows the shipped default — so an install
+that set `relevance.enabled: true` and an API key but left `relevance.provider`
+alone was silently on Anthropic and will now follow the new default to Ollama.
+Scoring fails open, so the symptom is postings arriving unscored rather than an
+error.
+
+You are unaffected if you started from `config.example.yaml` (it pins both), or
+set the provider in **Settings → LLM** or the wizard — both write every field in
+the section.
+
+To check, open **Settings → LLM** and read the Provider dropdown: it shows the
+value in effect. If it says `ollama` and you meant Anthropic or Gemini, put it
+back and save — saving pins every field in the section, so no later default can
+move it again. (Don't try to tell from `python -m src.settings export`: it
+writes non-default values only, so a provider that matches the current default
+is omitted whether you set it or not.)
+
 ## [0.13.0] - 2026-09-19
 
 The guided release. v0.12.0 made every setting editable in a browser; it did not
@@ -1418,6 +1485,7 @@ entries below are kept for the record. From 0.12.0 on, the usual
 compare/vP.R.E..vX.Y.Z links resume (see RELEASING.md).
 -->
 
+[0.14.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.13.0..v0.14.0
 [0.13.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.12.0..v0.13.0
 [0.12.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.11.0..v0.12.0
 [0.11.0]: https://github.com/seancampbell3161/job-aggregator/releases/tag/v0.11.0
