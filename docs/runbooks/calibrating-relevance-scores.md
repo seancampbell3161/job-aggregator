@@ -13,7 +13,7 @@ calibrating, as a deliberate separate deploy.
 
 Store the Ollama API key: `docker compose run --rm -it web python -m src.settings
 set-secret ollama_api_key` (or `JOB_AGG_OLLAMA_API_KEY` in `.env` +
-`docker compose up -d --force-recreate`).
+`docker compose up -d`, which recreates the container to pick it up).
 
 Point the app at hosted Ollama Cloud: `relevance.ollama_host` defaults to
 `http://ollama:11434`, the opt-in local Ollama service, which only resolves inside
