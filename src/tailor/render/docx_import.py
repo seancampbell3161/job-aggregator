@@ -5,16 +5,16 @@ user previews and accepts — the LLM never runs at render time."""
 
 from __future__ import annotations
 
-import asyncio
 import io
 import logging
 import re
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from src.llm.providers import build_binding, missing_key, resolve
+from src.llm.providers import LlmBinding, build_binding, missing_key
+from src.llm.structured import complete_text
 
 log = logging.getLogger(__name__)
 
@@ -59,15 +59,21 @@ def extract_docx(data: bytes) -> DocxExtract:
     return DocxExtract(html=html, fonts=fonts, hints=hints)
 
 
-def build_import_prompt(ex: DocxExtract) -> str:
+def build_import_prompt(ex: DocxExtract) -> tuple[str, str]:
+    """(system, user). The rules and the RenderDoc contract are instructions;
+    the converted source document is data out of a file the user uploaded, so
+    it goes in the user turn where the provider treats it as content."""
     font_files = ", ".join(name for name, _ in ex.fonts) or "(none — use a websafe stack)"
-    return (
-        f"Convert this résumé document into a Jinja2 HTML template.\n\n"
-        f"{RENDERDOC_CONTRACT}\n\n{_RULES}\n\n"
+    system = (
+        "Convert a résumé document into a Jinja2 HTML template.\n\n"
+        f"{RENDERDOC_CONTRACT}\n\n{_RULES}"
+    )
+    user = (
         f"Available font files (already in the pack's fonts/ dir): {font_files}\n"
         f"Style hints from the document: {ex.hints}\n\n"
         f"SOURCE DOCUMENT (converted to rough HTML):\n{ex.html}"
     )
+    return system, user
 
 
 def strip_code_fences(text: str) -> str:
@@ -75,51 +81,45 @@ def strip_code_fences(text: str) -> str:
     return (m.group(1) if m else text).strip()
 
 
-class DocxTemplateImporter:
-    """One chat call, tailoring-engine style; raises RuntimeError on failure
-    (the upload route turns that into an inline error)."""
+_IMPORT_NUM_PREDICT = 16384  # a whole HTML file, same order as a tailoring run
 
-    def __init__(self, *, client: Any, model: str, timeout_seconds: int) -> None:
-        self._client = client
-        self._model = model
+
+class DocxTemplateImporter:
+    """One text completion; raises RuntimeError on failure (the upload route
+    turns that into an inline error). The LLM never runs at render time."""
+
+    def __init__(self, *, binding: LlmBinding, timeout_seconds: int) -> None:
+        self._binding = binding
         self._timeout = timeout_seconds
 
     async def to_template(self, data: bytes) -> tuple[str, DocxExtract]:
         ex = extract_docx(data)
+        system, user = build_import_prompt(ex)
         try:
-            resp = await asyncio.wait_for(
-                self._client.chat(
-                    model=self._model,
-                    messages=[{"role": "user", "content": build_import_prompt(ex)}],
-                    think=False,
-                    options={"temperature": 0, "num_predict": 16384},
-                ),
-                timeout=self._timeout,
+            raw = await complete_text(
+                self._binding, system=system, user=user,
+                max_output_tokens=_IMPORT_NUM_PREDICT,
             )
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"import LLM call failed: {type(exc).__name__}: {exc}") from exc
-        from src.tailor.engine import _ollama_response_text
-        text = strip_code_fences(_ollama_response_text(resp))
+        text = strip_code_fences(raw or "")
         if "doc." not in text or "<html" not in text.lower():
             raise RuntimeError("import LLM returned something that isn't a doc-driven HTML template")
         return text, ex
 
 
 def build_docx_importer(cfg: Any) -> DocxTemplateImporter | None:
-    """Mirrors build_tailor_engine: ollama-only, host from relevance.ollama_host,
-    key required only for a non-local host, None when unavailable (the
-    /builder page shows docx import as unavailable)."""
+    """None when the tailoring feature has no usable provider binding — the
+    /builder page then shows docx import as unavailable."""
     t = cfg.tailoring
-    provider, _ = resolve(cfg, "tailoring")
-    if provider != "ollama":
-        return None
     if missing_key(cfg, "tailoring") is not None:
         return None
-
     binding = build_binding(cfg, feature="tailoring", timeout_seconds=t.timeout_seconds)
     if binding is None:
         return None
-    # Template generation is a longer LLM call than a normal tailoring run;
-    # never let a tight tailoring.timeout_seconds starve it.
-    return DocxTemplateImporter(client=binding.client, model=binding.model,
-                                timeout_seconds=max(binding.timeout_seconds, 120))
+    # Template generation is a longer call than a normal tailoring run; never
+    # let a tight tailoring.timeout_seconds starve it.
+    timeout = max(binding.timeout_seconds, 120)
+    return DocxTemplateImporter(
+        binding=replace(binding, timeout_seconds=timeout), timeout_seconds=timeout,
+    )
