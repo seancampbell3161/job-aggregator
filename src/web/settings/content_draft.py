@@ -206,9 +206,9 @@ def register_content_draft_routes(app: FastAPI) -> None:
         raw = {k: form.getlist(k) for k in form.keys()}
         document = apply_edits(record["document"], raw)
         service = request.app.state.service
-        # Re-render on any refusal below uses this edited document, not the
-        # stored draft, so the user's typed text and drop choices survive —
-        # reverting to the stored draft here would silently discard them.
+        # Used below for the SettingsInvalid re-render: the user's typed
+        # text is valid input the validator rejected for some other reason,
+        # and it must survive the redisplay rather than silently reverting.
         edited_record = {**record, "document": document}
 
         # apply_edits already drops any entry left with no bullets, so an
@@ -216,7 +216,15 @@ def register_content_draft_routes(app: FastAPI) -> None:
         # either kind) is left to save. A projects-only or experience-only
         # result is fine — that's a real résumé, not an empty one.
         if not document.get("experiences") and not document.get("projects"):
-            return _render(request, draft=edited_record, form_errors=[
+            # Re-render from the STORED record here, not edited_record: the
+            # edited document has zero entries by construction (that's what
+            # triggered this refusal), so rendering it would show a form
+            # with no bullet fields at all — nothing the user could act on
+            # to fix it. There is no salvageable edit to preserve, since the
+            # dropped bullets are themselves the thing being refused;
+            # restoring the stored draft brings every bullet back so the
+            # user can choose differently in place.
+            return _render(request, draft=record, form_errors=[
                 "Every bullet was dropped or blank, so there would be nothing "
                 "to tailor. Keep at least one, or edit the document as JSON."])
 

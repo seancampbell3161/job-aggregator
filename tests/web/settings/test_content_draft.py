@@ -363,6 +363,25 @@ def test_dropping_every_bullet_is_refused_and_the_draft_survives(tmp_path, monke
     assert app.state.stores.wizard.get("content_draft")["status"] == "ok"
 
 
+def test_a_nothing_left_refusal_re_renders_a_form_the_user_can_act_on(tmp_path, monkeypatch):
+    """apply_edits drops an entry left with no bullets, so the edited
+    document behind this refusal has zero experiences and zero projects by
+    construction. Re-rendering THAT document (as SettingsInvalid correctly
+    does) would show a page with no bullet fields at all — a dead end, since
+    the dropped bullets are the very thing the message says to keep at
+    least one of. The re-render must come from the stored draft instead, so
+    every bullet comes back un-dropped and the user has something to act
+    on in place, not just a message and a Save button."""
+    app = _ready(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}))
+    r = signed_in_client(app).post("/settings/documents/draft/save", data={
+        "drop.acme-b1": "1", "drop.acme-b2": "1", "skills": "Go",
+    })
+    assert r.status_code == 200
+    assert "nothing to tailor" in r.text
+    assert 'name="text.acme-b1"' in r.text
+    assert 'name="drop.acme-b2"' in r.text
+
+
 TWO_ROLES = {
     **DRAFTED,
     "experiences": [
