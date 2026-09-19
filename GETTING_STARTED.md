@@ -1,8 +1,8 @@
 # Getting Started
 
-This guide takes you from a fresh checkout to receiving job alerts that are
-tuned to *your* preferences. For what the app is and how it works internally,
-see the [README](README.md). When something breaks, see
+This guide takes you from nothing installed to receiving job alerts that are
+tuned to *your* preferences — no clone required. For what the app is and how
+it works internally, see the [README](README.md). When something breaks, see
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 Everything persists in `./data`; $0 infra; LLM cost depends on provider.
@@ -11,114 +11,113 @@ Everything persists in `./data`; $0 infra; LLM cost depends on provider.
 
 ## Contents
 
-1. [Things you need](#1-things-you-need) — ntfy, Discord, an LLM key
-2. [Tailor it to your job preferences](#2-tailor-it-to-your-job-preferences) — the part that makes it yours (full flag reference: [docs/CONFIG.md](docs/CONFIG.md))
-3. [Run it with Docker Compose](#run-it-with-docker-compose)
+1. [Start it](#1-start-it) — one file, one command, no clone
+2. [Configure it](#2-configure-it) — filters, your profile, LLM provider, companies, notifications (full flag reference: [docs/CONFIG.md](docs/CONFIG.md))
+3. [Run it with Docker Compose](#run-it-with-docker-compose) — upgrading, pinning, the headless image, local Ollama, running from a clone
 4. [Operating it](#operating-it)
 5. [Optional extras](#optional-extras) — mobile tailored-résumé loop, rejection audit & ops alerts, board automation, headless connector, auto board discovery, aggregator candidate mining, apply kit
 
 ---
 
-## 1. Things you need
+## 1. Start it
 
-Notifications and (optional) scoring work the same way no matter what else you
-configure, so set these up first.
+You need Docker with Compose **v2.24 or newer** (`docker compose version`) —
+Docker Desktop on macOS/Windows, or Docker Engine + the compose plugin on
+Linux. Nothing else: no clone, no Python, no files to write. Everything else
+— Python, SQLite, WeasyPrint — lives inside the image.
 
-### An ntfy topic (phone push — required)
+```bash
+mkdir job-aggregator && cd job-aggregator
+curl -O https://raw.githubusercontent.com/seancampbell3161/job-aggregator/main/docker-compose.yml
+docker compose up -d
+```
 
-1. Pick a **hard-to-guess** topic string — anyone who knows the URL can post to
-   it. Example: `https://ntfy.sh/<your-random-topic>`.
-2. Install the **ntfy** app (iOS App Store / Google Play) and add that topic.
-3. Smoke-test it — your phone should buzz:
-   ```bash
-   curl -d "test" https://ntfy.sh/<your-random-topic>
-   ```
+Open <http://localhost:8000>. The first visitor sets the admin password, so do
+this now rather than later — on a shared network, whoever gets there first
+claims it. To set it before the port is even reachable:
 
-### A Discord webhook (required)
+```bash
+docker compose run --rm -it web python -m src.settings set-password
+```
 
-In the Discord channel you want alerts in:
-**Edit channel → Integrations → Webhooks → New Webhook → Copy Webhook URL**.
-It looks like `https://discord.com/api/webhooks/123/abc...`.
+> [!WARNING]
+> **Keep it off the public internet.** The UI is served over plain HTTP, so
+> the password and everything it shows — your résumé, your applications, your
+> apply-kit answers — cross the network unencrypted. That's fine on your home
+> network, not fine on shared or public Wi-Fi. To reach it away from home use
+> [Tailscale](#reach-it-from-your-phone-anywhere-tailscale) (already
+> encrypted) rather than port-forwarding. To restrict it to this machine
+> only, publish `127.0.0.1:8000:8000` in `docker-compose.yml` instead of
+> `8000:8000`. Behind an HTTPS reverse proxy, set `FORWARDED_ALLOW_IPS` (see
+> `.env.example`).
 
-### An LLM API key (optional but recommended)
+Each browser stays signed in for 30 days of use; sign in again from a new
+device or after that.
 
-The LLM scores each posting that clears your hard filters against `profile.md`
-(0–10) so only good matches notify. Without a key the pipeline still runs —
-everything that passes the filters notifies, **unscored**. Pick one provider
-(you set which one in `config.yaml` — see
-[§2](#2-tailor-it-to-your-job-preferences)):
-
-| Provider | `relevance.provider` | Get a key | Cost |
-|---|---|---|---|
-| **Anthropic** (Claude Haiku) | `anthropic` | [console.anthropic.com](https://console.anthropic.com/) | Per-token; a few $/day while clearing a backlog, pennies/day at steady state |
-| **Google Gemini** | `gemini` | [aistudio.google.com](https://aistudio.google.com) (no card) | Free tier (~1,500 req/day) |
-| **Ollama Cloud** | `ollama` | [ollama.com/settings/keys](https://ollama.com/settings/keys) | Flat monthly subscription (GPU-time, not per token) |
-| **Ollama, fully local** | `ollama` | none — runs on your box | $0 (local only) |
+Everything persists in **`./data`**, next to the compose file — settings,
+secrets, jobs, generated résumés, template packs — created on first boot.
+Back it up by copying that folder, or from **Settings → Backup** once you're
+in ([§2](#2-configure-it)).
 
 ---
 
-## 2. Tailor it to your job preferences
+## 2. Configure it
 
-This is what turns a generic scraper into *your* job alert. Two inputs do almost
-all the work: your **settings** — `config.yaml` (hard filters + sources +
-thresholds) — and your **profile** — `profile.md` (the prose the LLM grades each
-posting against).
+After the password, **/setup** offers three ways in: **Start from defaults**
+— a blank slate; **Settings → Overview** then lists what's still missing
+before alerts can arrive — restoring a backup `.zip` from an existing
+instance, or importing a `config.yaml` (plus `profile.md`/`resume.md`) the
+same way a clone would; the page itself shows the exact command for each.
 
-The app keeps both in its database; the files are how you edit them. Start from
-the tracked templates — your copies are gitignored, so `git pull` never
-conflicts with them:
+From there, everything is in the web UI under **Settings** — filters, your
+relevance profile, LLM provider and key, companies, notification sinks,
+schedules. There is no `config.yaml` to author before you start; settings
+live in the app database and are versioned, so **Settings → History** shows
+every change and restores any of them. `config.yaml` import still works, for
+bulk edits or scripting — the full import/export/versioning mechanics, and
+every flag's default, are in [docs/CONFIG.md](docs/CONFIG.md). The rest of
+this section is the narrative version: what each setting means and why.
 
-```sh
-cp config.example.yaml config.yaml
-cp profile.example.md profile.md
-```
+Worth doing before the first full cycle:
 
-> **Applying changes.** Import the directory holding your files. Changes apply
-> live in the poller and web UI — no restart:
->
-> ```sh
-> docker compose run --rm -v "$PWD:/import:ro" web python -m src.settings import /import
-> ```
->
-> Every import is a new settings version: `python -m src.settings history` lists
-> them, `restore ID` rolls back, and `export DIR` writes the current settings
-> back to files. Import replaces the settings document but only adds documents:
-> a file missing from the directory leaves that document as it was. (Tip:
-> `alias settings='docker compose run --rm -v "$PWD:/import:ro" web python -m src.settings'`,
-> then `settings import /import`, `settings status`, …)
->
-> **After a change made outside your files** — `add-source`, `restore`, or a
-> `--merge` / `seed_companies.py` script ([§2d](#2d-add-or-remove-companies-configyaml--sources)) —
-> the database holds settings your files don't. Before you next edit, export
-> the settings in effect, bring those changes into your files, then import:
->
-> ```sh
-> docker compose run --rm web python -m src.settings export /data/export   # lands in ./data/export/
-> ```
->
-> The export holds non-default values only and none of your comments, so copy
-> the changes across rather than the whole file — and import your own files, not
-> the export: an import is only checked for changes since the last import, so
-> importing the export and later an older copy of your files would drop those
-> changes silently. Until your files catch up, an import that would undo one of
-> those changes refuses to run, naming each setting it would undo — including
-> settings put back to their defaults, which the export leaves out (nothing is
-> written). A value your file changes to something new imports normally. To undo
-> one of those changes on purpose, import once with it, then again without it —
-> or use `--force`, which overwrites everything.
+- **Settings → Filters** (2a, below) — titles, seniority, locations,
+  employment types.
+- **Settings → Profile** (2b) — the single biggest lever on match quality.
+- **Settings → Notifications** — an ntfy topic and/or a Discord webhook.
+  Without a sink the app still scores and stores matches; it just cannot tell
+  you.
+  - **ntfy**: pick a **hard-to-guess** topic string (anyone who knows it can
+    post to it), e.g. `https://ntfy.sh/<your-random-topic>`, and install the
+    ntfy app (iOS/Android) with that topic added.
+  - **Discord**: in the channel you want alerts in, **Edit Channel →
+    Integrations → Webhooks → New Webhook → Copy Webhook URL**.
 
-Every settings flag — including the ones this guide doesn't narrate — is
-catalogued with its default in **[docs/CONFIG.md](docs/CONFIG.md)**.
+Optional but recommended: an LLM key (2c, below) scores each posting (0–10)
+so only good matches notify. Without one the pipeline still runs —
+everything that passes your filters notifies **unscored**.
 
-### 2a. Hard filters (`config.yaml` → `filters`)
+| Provider | Get a key | Cost |
+|---|---|---|
+| **Anthropic** (Claude Haiku) | [console.anthropic.com](https://console.anthropic.com/) | Per-token; a few $/day while clearing a backlog, pennies/day at steady state |
+| **Google Gemini** | [aistudio.google.com](https://aistudio.google.com) (no card) | Free tier (~1,500 req/day) |
+| **Ollama Cloud** | [ollama.com/settings/keys](https://ollama.com/settings/keys) | Flat monthly subscription (GPU-time, not per token) |
+| **Ollama, fully local** | none — runs on your box | $0 (needs `--profile ollama`, [§3](#run-it-with-docker-compose)) |
+
+Companies are 2d, résumé gap analysis is 2f — both below.
+
+Restoring from an existing install instead? **Settings → Backup** takes the
+ZIP that **Settings → Backup** on the old instance produced.
+
+### 2a. Hard filters (Settings → Filters)
 
 A posting must pass **every** filter (or be `UNKNOWN` on filters that allow it)
-before it ever reaches the LLM scorer.
+before it ever reaches the LLM scorer. Set these in **Settings → Filters**; a
+`config.yaml` with the same shape imports too, for bulk edits:
 
 ```yaml
 filters:
-  titles:            # word-boundary regex alternation; case-insensitive
-  - software engineer
+  titles:            # exact phrase, case-insensitive, on word boundaries
+  - software engineer  # (no regex syntax)
   - backend engineer
   - product engineer
   seniority_allow:   # subset of: junior, mid, senior, staff
@@ -141,13 +140,14 @@ filters:
 
 > **The #1 "why do I see zero matches?" cause is `max_age_days`.** It's a
 > "new in the last N days" firehose, not a market search — adding a company only
-> surfaces its *future* postings. While testing, set `max_age_days: null` to see
-> the existing backlog, then put it back.
+> surfaces its *future* postings. While testing, clear it (`null`) in
+> **Settings → Filters** to see the existing backlog, then put it back.
 
-### 2b. Your relevance profile (`profile.md`)
+### 2b. Your relevance profile (Settings → Profile)
 
-This is the most important file for match quality. The LLM grades each surviving
-posting against it on a 0–10 scale, then compares to two thresholds:
+This is the single biggest lever on match quality. The LLM grades each
+surviving posting against it on a 0–10 scale, then compares to two
+thresholds:
 
 ```yaml
 relevance:
@@ -159,31 +159,33 @@ relevance:
   timeout_seconds: 10            # per-call timeout; on exceed the posting fails open (unscored)
 ```
 
-Write `profile.md` as if you're briefing a recruiter. Be explicit about:
+Write it as if you're briefing a recruiter. Be explicit about:
 
 - **Strong fit (8–10)** — what makes you say "I'd love to interview here."
 - **Mild fit (5–7)** — interesting but not exciting; the LLM should land these mid-scale.
 - **Weak fit / not interested (1–3)** — hard dealbreakers (geography, title, comp, industry).
 
-`profile.example.md` — the template you copied — is a worked example; the *shape*
-matters more than the exact text. The LLM reliably picks up plainly-stated signals like "IC only,
+`profile.example.md` in the repo is a worked example you can paste into
+**Settings → Profile** as a starting point; the *shape* matters more than the
+exact text. The LLM reliably picks up plainly-stated signals like "IC only,
 no management track" or "US-based only, no visa transfer."
 
-Targeting a non-US market? Set `location.allowed_countries` accordingly and
-update the geography rule in `profile.md` to match — the LLM profile is not
-derived from config and will keep down-scoring what the gate now passes. See
-`docs/examples/eu-config.md` for a full worked example.
+Targeting a non-US market? Set `location.allowed_countries` in **Settings →
+Filters** accordingly and update the geography rule in **Settings → Profile**
+to match — the LLM profile isn't derived from your filters and will keep
+down-scoring what the gate now passes. See `docs/examples/eu-config.md` for a
+full worked example.
 
-You can iterate on `profile.md` without deploying — run a
+You can iterate on your profile without deploying — run a
 [local dry-run](#local-dry-run-tuning-your-profile-without-deploying) and watch
 the `would_notify` log lines (each includes the score and rationale).
 
 ### 2c. Pick your LLM provider — and re-calibrate after switching
 
-Switch providers with one `config.yaml` line plus the matching key
-([§1](#an-llm-api-key-optional-but-recommended)). All three are fail-open: if the
-LLM errors or times out, the posting goes through **unscored** rather than being
-dropped.
+Switch providers in **Settings → LLM** (or with one `config.yaml` line,
+imported) plus a matching key — see [§2](#2-configure-it) above for where to
+get one. All three are fail-open: if the LLM errors or times out, the posting
+goes through **unscored** rather than being dropped.
 
 ```yaml
 relevance:
@@ -209,9 +211,14 @@ workflow: [`docs/runbooks/calibrating-relevance-scores.md`](docs/runbooks/calibr
 > pick a model sized to your RAM — `llama3.1:8b`, `qwen2.5:7b`, or
 > `gpt-oss:20b` — and re-calibrate, since local models score differently.
 
-### 2d. Add or remove companies (`config.yaml` → `sources`)
+### 2d. Add or remove companies (Settings → Companies)
 
-The "slug" is the path component on the company's careers URL:
+The sixteen company-board families (Greenhouse, Lever, Workday, Oracle Cloud,
+and the rest) are managed at **Settings → Companies** — paste a company's
+careers URL (or a bare domain) and it fingerprints the ATS, shows what it
+found, and adds it on confirmation. The `add-source` CLI and a `config.yaml`
+import still work too, for scripting or bulk edits; the "slug" they need is
+the path component on the company's careers URL:
 
 | ATS | URL shape | slug |
 |---|---|---|
@@ -228,7 +235,8 @@ The "slug" is the path component on the company's careers URL:
 
 ```bash
 docker compose run --rm web python -m src.settings add-source greenhouse stripe
-# Structured boards (Workday, Oracle Cloud, …) go in config.yaml, then re-import:
+# Structured boards (Workday, Oracle Cloud, …) are easier pasted into Settings
+# → Companies, or go in a config.yaml you import:
 #   sources:
 #     workday:
 #     - tenant: microsoft
@@ -236,12 +244,12 @@ docker compose run --rm web python -m src.settings add-source greenhouse stripe
 #       site: External
 ```
 
-`add-source` and the `--merge` / `seed_companies.py` scripts below save straight
-to the database, so `config.yaml` falls behind. Export and bring the new
-entries into your file before you next edit and import — see
-[Applying changes](#2-tailor-it-to-your-job-preferences). An import from a stale
-file refuses rather than dropping them — once the file lists them it imports
-normally; `import --force` overwrites them on purpose.
+`add-source`, discovery, and the scripts below all save straight to the
+database. If you also keep a `config.yaml` for bulk edits, see
+[docs/CONFIG.md](docs/CONFIG.md) for how imports and database-only changes
+stay in sync — an import from a stale file refuses rather than dropping
+changes it doesn't know about, naming each one; `import --force` overwrites
+them on purpose.
 
 `scripts/discover_enterprise.py` auto-detects **iCIMS** boards (scraped via
 their static in_iframe listings + each job's schema.org JSON-LD) and merges
@@ -263,8 +271,10 @@ docker compose start poller web
 ```
 
 **SuccessFactors and TalentBrew** boards use the same connector but live on
-branded careers domains that aren't machine-derivable, so add them by hand
-under `sources.jsonld_boards`:
+branded careers domains that aren't machine-derivable. Pasting the URL into
+**Settings → Companies** identifies them; if it can't save the entry
+directly, finish it under `sources.jsonld_boards` via **Settings →
+Advanced** or a `config.yaml` import:
 
 ```yaml
 sources:
@@ -276,19 +286,20 @@ sources:
 `scripts/discover_enterprise.py` also auto-detects **Eightfold.ai** boards
 (native JSON API — pcsx/apply_v2 flavors probed automatically, the required
 `domain=` param scraped from each careers page). Matched tenants merge into
-`sources.eightfold`; review the dry-run report, then `--merge` — matched
-boards are saved into your settings and apply live.
+`sources.eightfold`; review the dry-run report, then `--merge` — or paste a
+board's URL directly into **Settings → Companies**.
 
 `scripts/discover_enterprise.py` also auto-detects **modern Oracle Taleo**
 career sections (the `searchjobs` REST API). It probes and verifies each
 `{tenant}.taleo.net/careersection/{section}` — legacy-template and
 migrated-off tenants fail the verify and stay `unsupported`, so only working
 modern boards merge into `sources.taleo`. Multi-section tenants surface their
-primary section; add the rest by hand.
+primary section; add the rest the same way.
 
 **Phenom People** career sites (e.g. FIS, GE HealthCare, RTX) are polled via
 their static sitemap + per-job schema.org JSON-LD. Their branded careers
-domains aren't machine-derivable, so add each by hand under `sources.phenom`:
+domains aren't machine-derivable, so add each in **Settings → Companies** by
+pasting the careers URL, or under `sources.phenom`:
 
 ```yaml
 sources:
@@ -301,13 +312,13 @@ The connector fetches per-job detail only for jobs modified since the last
 cycle (a lastmod watermark), so steady-state polling is cheap; the first
 cycle sweeps jobs modified within the last 3 days.
 
-**Oracle Recruiting Cloud** boards (`sources.oraclecloud`) are hand-added as
-`{tenant, region, site}` triples (e.g. `{tenant: egug, ...}` for American
-Express). **Avature** boards are JS-gated and polled on the headless tier — see
+**Oracle Recruiting Cloud** boards (`sources.oraclecloud`) take a `{tenant,
+region, site}` triple (e.g. `{tenant: egug, ...}` for American Express).
+**Avature** boards are JS-gated and polled on the headless tier — see
 [Avature / headless connector](#avature--headless-connector-optional) below.
 
-Remove a company by deleting its slug. Already-seen rows are harmless and
-self-expire. The daily `discovery` tier keeps adding healthy yc-oss slugs on its
+Remove a company from **Settings → Companies**, or by deleting its slug from
+`config.yaml`. Already-seen rows are harmless and self-expire. The daily `discovery` tier keeps adding healthy yc-oss slugs on its
 own — and, hands-off, fingerprints the enterprise seed list and starts polling
 whatever it can classify (see
 [Automated board discovery](#automated-board-discovery-optional)). To bulk-add a
@@ -329,43 +340,27 @@ claimed, so the retry treadmill never crowds out fresh candidates. No knobs to
 set; it's how the crawl works. Watch `discovery_probe_phase_done` (`ok`,
 `board_ok`, `no_match`) and `discovery_exhausted_drain_done` on the daily run.
 
-### 2e. Toggle aggregator sources, quiet hours, cadence
-
-```yaml
-sources:
-  hn_who_is_hiring: { enabled: true }   # monthly thread; cheap, high-noise
-  remotive:         { enabled: true }
-  remoteok:         { enabled: true }
-  hiringcafe:       { enabled: false }  # non-functional (blocked upstream) — leave off
-  adzuna:                               # off-ATS inventory (small cos, staffing)
-    enabled: false                      # needs JOB_AGG_ADZUNA_APP_ID/_APP_KEY —
-    countries: [us]                     #   free key: developer.adzuna.com
-    queries: [staff software engineer]  # required when enabled; flags: docs/CONFIG.md
-
-quiet_hours:                            # affects ntfy only (Discord fires 24/7)
-  timezone: America/Los_Angeles
-  start: '23:00'
-  end: '07:00'
-
-schedules:                              # drives the poller cadence
-  ats_minutes: 10
-  slow_minutes: 15
-  discovery_hours: 24
-```
-
-Put these in `config.yaml` and re-import.
+Aggregator toggles (`hn_who_is_hiring`, `remotive`, `remoteok`, `adzuna`, …)
+live under **Settings → Advanced**; quiet hours are under **Settings →
+Notifications**, cadence under **Settings → Schedules**. All three also
+accept a `config.yaml` import — see [docs/CONFIG.md](docs/CONFIG.md) for the
+full shape.
 
 ### 2f. Résumé gap flags (optional, off by default)
 
-When `gap_analysis.enabled: true`, every posting that survives filtering *and*
+When `gap_analysis.enabled` is on, every posting that survives filtering *and*
 scoring gets a second LLM pass listing the hard skills the role wants but your
 résumé doesn't show — surfaced as a Discord "Stretch areas" field and rolled into
 a weekly digest. The résumé only annotates; it never affects the relevance score,
 so recall is unchanged.
 
+Paste your résumé into **Settings → Documents**, then flip
+`gap_analysis.enabled` on in **Settings → Advanced** (or set it in a
+`config.yaml` you import — the same directory's `resume.md` is picked up
+too):
+
 ```bash
 cp resume.md.example resume.md        # then fill in your real experience
-# set gap_analysis.enabled: true in config.yaml, then re-import (resume.md is picked up too)
 ```
 
 `resume.md` is gitignored PII. No new key is needed — it reuses your
@@ -375,115 +370,83 @@ cp resume.md.example resume.md        # then fill in your real experience
 
 ## Run it with Docker Compose
 
-Run the whole pipeline 24/7 on one machine with SQLite state.
-Three services: **poller** (scrape → filter → score → notify on the
-`schedules.*` cadence, plus a daily prune), **web** (triage inbox, board,
-analytics, ops, and `/tailor`), and **ollama** (opt-in local LLM, only started
-with `--profile ollama`).
+The whole pipeline runs 24/7 on one machine with SQLite state, as three
+services: **poller** (scrape → filter → score → notify on the `schedules.*`
+cadence, plus a daily prune), **web** (triage inbox, board, analytics, ops,
+and `/tailor`), and **ollama** (opt-in local LLM, only started with
+`--profile ollama`). [§1](#1-start-it) already got you running; this section
+covers upgrading, pinning, the headless image, and running from a clone.
 
-**Prerequisite:** Docker + Docker Compose **2.24 or newer** (`docker compose
-version`; Docker Desktop on macOS/Windows). `docker-compose.yml` marks `.env`
-optional, which older Compose releases reject.
-Everything else — Python, SQLite, WeasyPrint — lives inside the image.
-
-### A1. Configure
-
-Create `config.yaml` + `profile.md` per [§2](#2-tailor-it-to-your-job-preferences).
-Secrets can go in an optional `.env` (`cp .env.example .env`, then uncomment what
-you use) or straight into the database once the stack is built (A3):
+**Upgrading** to a new image:
 
 ```bash
-docker compose run --rm -it web python -m src.settings set-secret ntfy_topic_url
-docker compose run --rm -it web python -m src.settings set-secret discord_webhook_url
+docker compose pull && docker compose up -d
 ```
 
-Both notification channels are optional — without them, matches still land in the web UI.
+**Pinning a version.** The downloaded `docker-compose.yml` tracks `:latest`.
+To stay on a known-good release, edit the `image:` line under both `poller`
+and `web`:
 
-### A2. Set your LLM key
+```
+image: ghcr.io/seancampbell3161/job-aggregator:0.12.0
+```
 
-Match your `relevance.provider`. Store the key with `set-secret` (for example
-`docker compose run --rm -it web python -m src.settings set-secret anthropic_api_key`)
-or put it in `.env`:
+**The headless image.** Only **Avature** boards (`sources.avature`) need a
+real browser — they serve an empty response to plain HTTP clients. Phenom
+boards look similar but are fetched over plain HTTP and never need this. If
+you add an Avature board, switch both services to the `-headless` tag
+(about 1.7 GB larger):
+
+```
+image: ghcr.io/seancampbell3161/job-aggregator:latest-headless
+```
+
+(`:0.12.0-headless` / `:0.12-headless` pin it, matching the slim tags above.)
+
+**Fully-local Ollama** — no cloud key, no per-token cost: start the bundled
+service and pull a model once, then pick it in **Settings → LLM**:
 
 ```bash
-# Anthropic
-JOB_AGG_ANTHROPIC_API_KEY=sk-ant-...
-# or Gemini
-JOB_AGG_GOOGLE_API_KEY=...
-# or Ollama Cloud (hosted — runs big models without local GPU/RAM):
-# set relevance.ollama_host: https://ollama.com in config.yaml, or override with JOB_AGG_OLLAMA_HOST
-JOB_AGG_OLLAMA_API_KEY=...
-# or fully-local Ollama: leave the key empty
-# relevance.ollama_host defaults to http://ollama:11434 — override with JOB_AGG_OLLAMA_HOST
-JOB_AGG_OLLAMA_API_KEY=
+docker compose --profile ollama up -d
+docker compose exec ollama ollama pull llama3.1:8b
 ```
 
-### A3. Start the stack
+`gpt-oss:120b`, the model the hosted-Ollama-Cloud recipes use, is far too big
+for a typical Mac mini — pick something sized to your RAM instead, like
+`llama3.1:8b` or `qwen2.5:7b`, and re-check `score_low` once you switch (see
+`docs/runbooks/calibrating-relevance-scores.md`).
+
+**Working on the code instead of just running it?** Clone the repository —
+it carries a tracked `docker-compose.override.yml` that Compose loads
+automatically and that builds your working tree instead of pulling the
+published image, so the command is the same one either way:
 
 ```bash
-docker compose up -d --build                  # Anthropic / Gemini / Ollama Cloud
-# or, for fully-local Ollama:
-docker compose --profile ollama up -d --build
-docker compose exec ollama ollama pull llama3.1:8b   # pull your model once
+git clone https://github.com/seancampbell3161/job-aggregator.git
+cd job-aggregator
+docker compose up -d --build
 ```
 
-The first build takes a few minutes (it installs WeasyPrint's native libraries).
-
-### The short path
-
-Bring the stack up, open `http://localhost:8000`, set a password, and choose
-**Start from defaults**. That drops you into Settings with nothing configured;
-the Overview page lists what is still missing before alerts can arrive. You
-only need the import command below if you already have a `config.yaml`.
-
-Then load your settings (the web UI shows a setup page and the poller logs
-`awaiting_setup` until you do):
-
-```bash
-docker compose run --rm -v "$PWD:/import:ro" web python -m src.settings import /import
-docker compose run --rm web python -m src.settings status
-```
-
-### A4. Open the web UI
-
-`http://localhost:8000` — or `http://<this-box-lan-ip>:8000` from your phone or
-laptop on the same network. The first visit asks you to **create the password**
-that protects the UI. Do it right after starting the stack: until it's set,
-whoever opens the page first chooses it. To set it from the terminal instead
-(before or after starting the stack):
-
-```bash
-docker compose run --rm -it web python -m src.settings set-password
-```
-
-Each browser signs in once and stays signed in until it goes 30 days unused.
-
-> [!WARNING]
-> **Keep it off the public internet.** The UI is served over plain HTTP, so the
-> password and everything the UI shows — your résumé, every application and its
-> status, your apply-kit answers — cross the network unencrypted. That's fine on
-> your home network and not fine on shared or public Wi-Fi. To reach it away from
-> home use [Tailscale](#reach-it-from-your-phone-anywhere-tailscale) (encrypted)
-> rather than port-forwarding. To restrict it to this machine only, publish
-> `127.0.0.1:8000:8000` in `docker-compose.yml`. Behind an HTTPS reverse proxy,
-> set `FORWARDED_ALLOW_IPS` to the proxy's address (see `.env.example`).
-
-Everything persists in **`./data`** — settings, secrets you stored, jobs,
-generated PDFs, template packs — which is git-ignored. Back it up by copying
-that folder. Jump to
-[Operating it](#operating-it) for day-to-day commands.
+After a `git pull`, `docker compose up -d --build` again picks up the
+change. Need the headless tier locally? Uncomment `target: headless` under
+both `build:` blocks in `docker-compose.override.yml` and rebuild.
 
 ---
 
 ## Operating it
 
+> **When changes take effect.** Settings changed in the UI apply on the next
+> cycle — no restart. Only a new image needs anything:
+> `docker compose pull && docker compose up -d` (`--build` instead, after a
+> `git pull`, in a clone).
+
 ```bash
 docker compose logs -f poller          # follow the poller (or: web)
-docker compose run --rm -v "$PWD:/import:ro" web python -m src.settings import /import   # apply edits (live)
+docker compose run --rm -v "$PWD:/import:ro" web python -m src.settings import /import   # bulk-edit via config.yaml (live)
 docker compose run --rm web python -m src.settings status       # setup state + secret origins
 docker compose run --rm -it web python -m src.settings set-password   # new web UI password; signs every device out
 docker compose run --rm web python -m src.settings sign-out-everywhere # lost a device: end every session
-docker compose up -d --build           # apply new code (after git pull)
+docker compose pull && docker compose up -d   # new image (clone: --build, after git pull)
 docker compose down                    # stop everything (add --profile ollama
                                        # if you started Ollama). Data survives in ./data
 ```
@@ -565,7 +528,7 @@ fine).
 5. **On the phone, make sure Tailscale is toggled on**, then tap the **"Tailor
    resume"** action on an alert. The same address also serves the whole triage UI
    — `http://<hostname>.<tailnet>.ts.net:8000` works from anywhere your phone has
-   signal, replacing the LAN-only access from [§A4](#a4-open-the-web-ui).
+   signal, replacing the LAN-only access from [§1](#1-start-it).
    The tailor link and its PDF download need no sign-in — the signed link is
    the key. Every other page asks you to sign in once on each device.
 
@@ -621,9 +584,9 @@ Conditions: pipeline stopped (web-container watchdog), zero new postings for
 12h, LLM degraded for 2 consecutive cycles, and settings fallback (the newest
 settings version is invalid). Thresholds live under `ops_notify:`; each alert
 has a 6h cooldown and sends a recovery notice when the condition clears.
-Settings changes apply live; `.env` edits need
-`docker compose up -d --force-recreate`; after pulling this code change,
-`docker compose up -d --build`.
+Settings changes apply live; anything else — a `.env` edit or a new image —
+needs `docker compose up -d` (`--build` after pulling this code change, in a
+clone).
 
 ### Threshold tuning from audit verdicts (optional)
 
@@ -637,11 +600,12 @@ uv run python scripts/tune_thresholds.py            # all-time
 uv run python scripts/tune_thresholds.py --since 2026-06-01 --min-verdicts 15
 ```
 
-Run it on the box whose SQLite DB holds the verdicts. It never edits settings —
-`export` to a directory, copy the suggested values into `config.yaml`, and
-re-import (applies live). With few verdicts it honestly reports "insufficient
-data"; it can only recommend *lowering* `score_low` (verdicts exist only on
-suppressed jobs), never raising it.
+Run it on the box whose SQLite DB holds the verdicts. It never edits settings
+— copy the suggested values into **Settings → Filters** / **Settings → LLM**
+directly, or `export` to a directory, edit `config.yaml`, and re-import
+(applies live either way). With few verdicts it honestly reports
+"insufficient data"; it can only recommend *lowering* `score_low` (verdicts
+exist only on suppressed jobs), never raising it.
 
 ### Board automation (optional)
 
@@ -690,8 +654,8 @@ JOB_AGG_GMAIL_ADDRESS=you@gmail.com
 JOB_AGG_GMAIL_APP_PASSWORD=abcdabcdabcdabcd
 ```
 
-3. If you used `.env`: `docker compose up -d --force-recreate` (compose
-   snapshots `.env` at container creation).
+3. If you used `.env`: `docker compose up -d` (Compose re-reads `.env` at
+   container recreation).
 
 Both empty = feature off. Tunables under `gmail:` (`check_cron`,
 `first_run_days`, `lookback_max_days`, `max_messages_per_run`). The first run
@@ -711,9 +675,10 @@ pip install -e '.[headless]'
 playwright install chromium
 ```
 
-Add each board by its `SearchJobs` URL under `sources.avature` — branded domains
-aren't machine-discoverable, so these are hand-curated `{careers_url, company}`
-entries:
+Add each board in **Settings → Companies** by pasting its `SearchJobs` URL —
+branded domains aren't machine-discoverable, so this is always a hand-curated
+`{careers_url, company}` entry, never an auto-detected slug. A `config.yaml`
+with the same shape imports too, for bulk edits:
 
 ```yaml
 sources:
@@ -722,8 +687,8 @@ sources:
 ```
 
 **Verify each site passes headless first** — some Avature tenants sit behind a
-WAF that blocks even a real browser. Re-import, then watch
-the `headless` cycle logs for that company's job count. The tier runs every
+WAF that blocks even a real browser. After adding it, watch the `headless`
+cycle logs for that company's job count. The tier runs every
 `schedules.headless_minutes` (default 45).
 
 ### Automated board discovery (optional)
