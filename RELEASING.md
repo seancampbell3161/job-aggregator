@@ -107,8 +107,8 @@ sense to whoever wrote them. Budget for that edit; it's most of the work.
    ```
 
    The inspect output must list both `linux/amd64` and `linux/arm64`. A tag
-   whose manifest has one architecture means a build job failed and the merge
-   job ran anyway — investigate before announcing the release.
+   whose manifest has one architecture means one leg's digest never reached
+   the merge — check the build matrix before announcing the release.
 
    > **One-time, on the first publish only:** GHCR creates the package
    > **private**, even for a public repository. Set its visibility to public in

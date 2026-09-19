@@ -35,7 +35,6 @@ services:
       # The UI requires a login. The first visitor creates the password, so set
       # it right after `up` — or beforehand with
       #   docker compose run --rm -it web python -m src.settings set-password
-      # (In a clone, you can also configure via the UI after logging in.)
       # Plain HTTP sends that password in cleartext: on a network you don't
       # trust, publish "127.0.0.1:8000:8000" and reach it over Tailscale or an
       # SSH tunnel, or put an HTTPS reverse proxy in front. Never port-forward
@@ -46,7 +45,7 @@ services:
       # unhealthy badge means the process is genuinely broken.
       test: ["CMD", "python", "-c",
              "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
-      interval: 30s
+      interval: 60s
       timeout: 5s
       start_period: 20s
       retries: 3

@@ -117,6 +117,9 @@ def _override() -> dict:
     return yaml.safe_load((REPO / "docker-compose.override.yml").read_text())
 
 
+# Coupled to .github/workflows/publish.yaml's `env.IMAGE`, which derives the
+# same name from `${{ github.repository }}` rather than a literal — a repo
+# rename would need updating both, and nothing else would catch the drift.
 IMAGE = "ghcr.io/seancampbell3161/job-aggregator:latest"
 
 

@@ -34,7 +34,7 @@ docker compose up -d
 
 Open <http://localhost:8000>. The first visitor sets the admin password, so do
 this now rather than later — on a shared network, whoever gets there first
-claims it. To set it before the port is even reachable:
+claims it. Or skip the UI and set it from the command line instead:
 
 ```bash
 docker compose run --rm -it web python -m src.settings set-password
@@ -408,7 +408,7 @@ you add an Avature board, switch both services to the `-headless` tag
 image: ghcr.io/seancampbell3161/job-aggregator:latest-headless
 ```
 
-(`:0.12.0-headless` / `:0.12-headless` pin it, matching the slim tags above.)
+(`:0.12.0-headless` / `:0.12-headless` pin it, matching the slim tag above.)
 
 **Fully-local Ollama** — no cloud key, no per-token cost: start the bundled
 service and pull a model once, then pick it in **Settings → LLM**:
