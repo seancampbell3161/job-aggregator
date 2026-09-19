@@ -48,3 +48,38 @@ def test_docs_no_longer_say_the_ui_has_no_authentication():
 
 def test_env_example_documents_forwarded_allow_ips():
     assert "#FORWARDED_ALLOW_IPS=" in (REPO / ".env.example").read_text()
+
+
+def _dockerfile() -> str:
+    return (REPO / "Dockerfile").read_text()
+
+
+def test_dockerfile_has_a_slim_default_and_a_headless_variant():
+    text = _dockerfile()
+    assert "AS runtime" in text
+    assert "FROM runtime AS headless" in text
+    # Chromium belongs only to the variant: the base must not install it.
+    base, _, variant = text.partition("FROM runtime AS headless")
+    assert "playwright install" not in base
+    assert "playwright install" in variant
+
+
+def test_base_image_omits_the_headless_extra():
+    base, _, _ = _dockerfile().partition("FROM runtime AS headless")
+    assert '"/app[web,render]"' in base
+    assert "headless]" not in base
+
+
+def test_dockerfile_does_not_ship_personal_resume_files():
+    """resume/ holds no runtime input (packs live in src/tailor/render/templates),
+    and .dockerignore does not exclude content.json or evidence.json, so copying
+    the directory bakes a developer's own resume into the image."""
+    assert "COPY resume/" not in _dockerfile()
+
+
+def test_container_drops_privileges():
+    text = _dockerfile()
+    assert "docker-entrypoint.sh" in text
+    assert "ENTRYPOINT" in text
+    entrypoint = (REPO / "docker-entrypoint.sh").read_text()
+    assert "setpriv" in entrypoint

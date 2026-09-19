@@ -1,6 +1,6 @@
-# Keep the Docker build context small. The image needs:
-# pyproject.toml, README.md, LICENSE (both read at build time by the packaging
-# metadata), src/, config.yaml, profile.md, resume/ — everything below is excluded.
+# Keep the Docker build context small. The image needs: pyproject.toml,
+# README.md, LICENSE (read at build time by the packaging metadata), src/,
+# scripts/seeds/, docs/CONFIG.md and docker-entrypoint.sh — nothing else.
 .venv
 .git
 .github
@@ -25,6 +25,7 @@ scripts
 **/.DS_Store
 .pytest_cache
 infra
-resume.md
-resume/baseline.html
-resume/facts.yaml
+resume
+# ^ no runtime input lives here: built-in template packs ship inside
+# src/tailor/render/templates/, and resume/content.json + resume/evidence.json
+# are personal files that must never enter an image.
