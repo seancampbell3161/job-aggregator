@@ -15,8 +15,9 @@ from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import field_map, value_at
 from src.settings.service import canonical_doc
 from src.web.settings.forms import apply_patch, decode, decode_secrets, errors_by_path
-from src.web.settings.probes import ProbeResult, probe_llm
+from src.web.settings.probes import ProbeResult, probe_discord, probe_llm, probe_ntfy
 from src.web.settings.shell import secret_rows
+from src.web.wizard.ntfy_topic import suggest_topic, topic_qr_svg
 from src.web.wizard.steps import (
     build_context, next_step, step_by_slug, step_states,
 )
@@ -38,11 +39,35 @@ LLM_PATHS = (
 )
 LLM_SECRETS = ("anthropic_api_key", "google_api_key", "ollama_api_key")
 
+NOTIFY_SECRETS = ("ntfy_topic_url", "discord_webhook_url")
+# {probe} URL slug -> (secret it tests, probe to run). Deliberately its own
+# registry rather than reusing settings' _SINK_PROBES: that dict maps the
+# same secrets to the same two probe_* functions, but the wizard also tests
+# ops_ntfy_topic_url/ops_discord_webhook_url there, which this step never
+# shows. Each value is a lambda, not the bare function, so it looks
+# `probe_ntfy`/`probe_discord` up on this module fresh at call time — what
+# lets tests monkeypatch src.web.wizard.routes.probe_ntfy and have it take
+# effect here, same trick settings/routes.py uses for the same reason.
+_WIZARD_SINK_PROBES = {
+    "ntfy": ("ntfy_topic_url", lambda url: probe_ntfy(url)),
+    "discord": ("discord_webhook_url", lambda url: probe_discord(url)),
+}
+
+
+def _wizard_probe_targets() -> dict[str, str]:
+    """Secret name -> the {probe} slug it tests, derived fresh from
+    _WIZARD_SINK_PROBES on every call so a test that monkeypatches it after
+    the app is built still sees the button appear (mirrors settings/routes.py's
+    _probe_targets)."""
+    return {secret: slug for slug, (secret, _fn) in _WIZARD_SINK_PROBES.items()}
+
+
 # A step's editable paths and secrets, for wizard_ctx's fields/secrets and for
 # save_step. A step with neither (nothing to render field/secret macros for
 # yet) falls back to the empty default below.
 STEP_FIELDS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "llm": (LLM_PATHS, LLM_SECRETS),
+    "notifications": ((), NOTIFY_SECRETS),
 }
 
 
@@ -93,10 +118,35 @@ def companies_extra(request: Request) -> dict:
     }
 
 
+def notifications_extra(request: Request) -> dict:
+    """The notifications step's own context: probe_targets (for
+    secret_field's Test buttons, same shape settings pages use) always, and a
+    freshly generated suggested_topic/suggested_qr ONLY when ntfy_topic_url is
+    currently unset.
+
+    That gate matters: suggest_topic() is random, and re-suggesting on every
+    render would silently swap out a topic the user may already have scanned
+    into the ntfy app on their phone. Once the topic is saved,
+    service.secret_source(...) reads "stored" (or "env"), the gate closes,
+    and the template falls back to secret_field's ordinary stored-source
+    notice instead of a suggestion. suggest_topic() is called at most once
+    here, and its result is reused for both the pre-filled input and the QR
+    (topic_qr_svg(topic)) — never called twice, so the two can never
+    disagree."""
+    extra: dict = {"probe_targets": _wizard_probe_targets()}
+    if request.app.state.service.secret_source("ntfy_topic_url") == "unset":
+        topic = suggest_topic()
+        extra["suggested_topic"] = topic
+        extra["suggested_qr"] = topic_qr_svg(topic)
+    return extra
+
+
 def render_step(request: Request, step, **extra) -> HTMLResponse:
     paths, secrets = STEP_FIELDS.get(step.slug, ((), ()))
     if step.slug == "companies":
         extra = {**companies_extra(request), **extra}
+    elif step.slug == "notifications":
+        extra = {**notifications_extra(request), **extra}
     return request.app.state.templates.TemplateResponse(
         request, TEMPLATES[step.slug],
         wizard_ctx(request, step, paths=paths, secrets=secrets, **extra)
@@ -204,6 +254,32 @@ def register_wizard_routes(app: FastAPI) -> None:
             merged[name] = ""
         cfg = cfg.model_copy(update={"secrets": cfg.secrets.model_copy(update=merged)})
         return _probe_partial(request, await probe_llm(cfg, snap.documents.profile))
+
+    @app.post("/wizard/notifications")
+    async def wizard_notifications_save(request: Request):
+        form = await request.form()
+        raw = {k: form.getlist(k) for k in form.keys()}
+        return save_step(request, step_by_slug("notifications"), (), NOTIFY_SECRETS, raw)
+
+    @app.post("/wizard/notifications/test/{probe}")
+    async def wizard_notifications_test(request: Request, probe: str):
+        entry = _WIZARD_SINK_PROBES.get(probe)
+        if entry is None:
+            raise HTTPException(status_code=404)
+        secret_name, run = entry
+        form = await request.form()
+        value = (form.get(f"secret.{secret_name}") or "").strip()
+        # A pending "clear" checkbox is what Save will actually do to this
+        # secret — the probe must reflect that too, or ticking clear and
+        # pressing Test reports green off the still-stored value (the same
+        # trap fixed for /wizard/llm/test in Task 7). Only fall back to the
+        # stored value when the field is blank AND nothing is telling Save to
+        # delete it.
+        if not value and not form.get(f"clear.{secret_name}"):
+            value = request.app.state.service.effective_secret(secret_name)
+        if not value:
+            return _probe_partial(request, ProbeResult(False, "Nothing to test yet."))
+        return _probe_partial(request, await run(value))
 
     # Declared before /wizard/{slug} — Starlette matches in registration
     # order, and the parameterised route would otherwise swallow /wizard/done

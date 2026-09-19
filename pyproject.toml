@@ -60,6 +60,7 @@ web = [
   "uvicorn>=0.29",
   "jinja2>=3.1",
   "python-multipart>=0.0.9",
+  "segno>=1.6",
 ]
 render = [
   "weasyprint>=60",
