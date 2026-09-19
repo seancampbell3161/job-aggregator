@@ -211,9 +211,10 @@ _TAILOR_NUM_PREDICT = 16384  # rewrite-all returns EVERY bullet + cover letter +
 class TailorEngine:
     """Provider-agnostic tailoring. Same fail-open contract as before: tailor()
     never raises, and a provider failure returns TailorResult.fallback() with
-    is_fallback=True — the sentinel src/web/settings/probes.py:147-149 detects
-    failure by. complete_json deliberately does NOT fail open, so absorbing
-    that is this class's job."""
+    is_fallback=True — the sentinel src/tailor/endpoint/run.py:51 and
+    src/tailor/__main__.py:79 branch on to report "tailoring unavailable"
+    instead of a broken result. complete_json deliberately does NOT fail
+    open, so absorbing that is this class's job."""
 
     def __init__(self, *, binding: LlmBinding, content: ResumeContent,
                  evidence: EvidenceBank) -> None:

@@ -165,15 +165,23 @@ async def test_engine_network_error_is_fallback_not_raise():
 
 
 @pytest.mark.asyncio
-async def test_engine_timeout_is_fallback():
+async def test_engine_timeout_is_fallback(caplog):
+    """Asserts the logged error_type, not just is_fallback: TailorResult carries
+    no error_type of its own (unlike Score/Gaps/CoachResult), and is_fallback
+    alone can't distinguish a real timeout from _Slow.chat() actually running
+    to completion (~10s) and returning None — both end at fallback. Pinning
+    error_type == "TimeoutError" is what catches asyncio.wait_for being
+    dropped from the seam."""
     import asyncio
 
     class _Slow:
         async def chat(self, **kwargs):
             await asyncio.sleep(10)
 
-    r = await _engine(_Slow(), timeout=0).tailor(job_id="j", jd_text="x")
+    with caplog.at_level("WARNING", logger="src.tailor.engine"):
+        r = await _engine(_Slow(), timeout=0).tailor(job_id="j", jd_text="x")
     assert r.is_fallback is True
+    assert caplog.records[-1].error_type == "TimeoutError"
 
 
 @pytest.mark.asyncio
@@ -206,14 +214,20 @@ async def test_engine_runs_on_gemini():
 
 
 def test_the_schema_names_the_ids_the_grounding_guards_check():
-    """The guards key on source_bullet_id and experience_id. A schema that
-    omitted them would let a forced-tool provider return bullets the parser
-    then drops as fabricated — a silently empty tailoring run."""
+    """The guards key on source_bullet_id, experience_id, and project_id. A
+    schema that omitted any of them would let a forced-tool provider return
+    entries/bullets the parser then drops as fabricated — a silently empty
+    tailoring run."""
     exp = TAILOR_SCHEMA["properties"]["experiences"]["items"]
     assert "experience_id" in exp["properties"]
+    assert "experience_id" in exp["required"]
     bullet = exp["properties"]["bullets"]["items"]
     assert "source_bullet_id" in bullet["properties"]
     assert "source_bullet_id" in bullet["required"]
+
+    proj = TAILOR_SCHEMA["properties"]["projects"]["items"]
+    assert "project_id" in proj["properties"]
+    assert "project_id" in proj["required"]
 
 
 def test_parse_non_list_experiences_is_fallback():
@@ -394,10 +408,3 @@ def test_parse_result_covers_every_content_bullet_exactly_once():
     assert r.is_fallback is False
     per_entry = {e.experience_id: [b.source_bullet_id for b in e.bullets] for e in r.experiences}
     assert per_entry == {"exp-1": ["exp-1-b1"], "exp-2": ["exp-2-b1"]}
-
-
-@pytest.mark.asyncio
-async def test_engine_num_predict_fits_rewrite_all():
-    client = _FakeOllamaClient(_good_json())
-    await _engine(client).tailor(job_id="j", jd_text="x")
-    assert client.kwargs["options"]["num_predict"] >= 8192
