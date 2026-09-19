@@ -5,6 +5,112 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-09-19
+
+The installable release. Getting from a fresh checkout to useful alerts used to
+mean hand-authoring up to seven files before the web UI was even reachable, and
+every install built its own 2 GB image. Settings, documents and secrets now live
+in the database behind a login and a full settings UI, and the app is published
+as an image: a newcomer downloads one compose file, runs `docker compose up -d`,
+and configures everything in the browser. Nothing is authored by hand, and
+nothing is cloned.
+
+### Added
+
+- **BREAKING:** Settings foundation — settings, documents, and secrets in
+  SQLite (#5). YAML becomes import/export only; the app boots with zero files
+  present, in an explicit "not set up" state.
+- Require a login for the web UI (#7). First visitor sets the admin password;
+  secrets are write-only in the UI and a non-empty `JOB_AGG_*` env var still wins.
+- Edit every setting, secret and document from the browser (#8), including an
+  Advanced section generated from the config model with per-flag help.
+- Manage company boards, settings history and backups from the browser (#9) —
+  add a board by pasting a careers URL, diff and restore any past version, and
+  move an instance with a downloadable ZIP.
+- Publish images to GHCR and install without cloning (#10). Multi-arch
+  (amd64/arm64) images on every release tag, in two variants: the default slim
+  image (~494 MB) and `-headless` (~2.17 GB), which adds Chromium for Avature
+  boards. The container now runs unprivileged.
+- `GET /healthz`, a liveness endpoint that answers in every setup state.
+
+### Changed
+
+- The app is distributed as an image. `docker-compose.yml` pulls
+  `ghcr.io/seancampbell3161/job-aggregator:latest`; a clone additionally gets
+  `docker-compose.override.yml`, which Compose auto-loads, so `docker compose
+  up -d --build` still builds your working tree.
+- **Two apply rules instead of three.** Settings changed in the UI take effect
+  on the next cycle with no restart; only a new image needs anything
+  (`docker compose pull && docker compose up -d`). `--force-recreate` is no
+  longer needed for `.env` edits — Compose hashes an `env_file`'s content into
+  the service config.
+- A missing browser is now legible: a slim image with an Avature board
+  configured logs `headless_unavailable` and skips that tier, instead of
+  raising an uncaught `ImportError` every 45 minutes. The settings UI warns
+  before you add such a board.
+- Cut releases through a PR, not a push to main.
+
+### Fixed
+
+- Refuse an import only when the files would undo newer settings (#6).
+- Treat HTTP 400 as blocked, not transient.
+- The image no longer copies `resume/`, which had no runtime purpose and could
+  bake a developer's own `resume/content.json` and `resume/evidence.json` into
+  a locally built image.
+
+### Removed
+
+- **BREAKING:** Remove the AWS deployment path (#4). One runtime, one config
+  source, one secrets store.
+
+### Upgrading
+
+**Existing installs must run one import.** Settings, documents and secrets now
+live in the app database. From your clone, once:
+
+```bash
+docker compose run --rm -v "$PWD:/import:ro" web python -m src.settings import /import
+```
+
+Résumé template packs move to `./data/templates` as part of that import.
+
+**Set the admin password before exposing the port.** The web UI now requires a
+login, and the first visitor claims it:
+
+```bash
+docker compose run --rm -it web python -m src.settings set-password
+```
+
+**Delete `JOB_AGG_BACKEND` from `.env`.** The AWS path is gone; the variable is
+ignored and logs a warning. **If you were on DynamoDB, run v0.11.0's
+`scripts/migrate_dynamo_to_sqlite.py` BEFORE upgrading** — it does not exist in
+this release.
+
+**Ollama Cloud users must set `relevance.ollama_host`.** It now drives
+tailoring and DOCX import too, and defaults to `http://ollama:11434` (those
+paths previously hardcoded `ollama.com`). A stale `JOB_AGG_OLLAMA_HOST` in
+`.env` silently overrides the stored setting and is not copied by
+`import-env-secrets` — delete it, or keep it deliberately.
+
+**`./data` changes owner on first boot.** The container no longer runs as root:
+the entrypoint takes ownership of `./data` as UID 1000 once, then drops
+privileges. Nothing to do. On a Linux host whose own user is not UID 1000,
+files under `./data` become owned by that UID — readable and backup-able, but
+`rm` needs `sudo`, and a host-side `python -m src.web` against the same
+database will not have write access.
+
+**A clone with its own `docker-compose.override.yml` will fail to pull.** That
+filename is now tracked. If you created one locally, move it aside before
+`git pull`.
+
+**Pulling instead of building.** After this upgrade a clone still builds, via
+the tracked override. To run the published image instead, use
+`docker compose -f docker-compose.yml up -d`. Add `-headless` to the tag if you
+use Avature boards — the default image has no browser, and the poller logs
+`headless_unavailable` if you have those boards configured without it.
+
+Requires Docker Compose 2.24 or newer.
+
 ## [0.11.0] - 2026-08-23
 
 The reliability release. Three incidents in three weeks — a JSON `null` that
@@ -1212,6 +1318,7 @@ entries below are kept for the record. From 0.12.0 on, the usual
 compare/vP.R.E..vX.Y.Z links resume (see RELEASING.md).
 -->
 
+[0.12.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.11.0..v0.12.0
 [0.11.0]: https://github.com/seancampbell3161/job-aggregator/releases/tag/v0.11.0
 
 <!-- generated by git-cliff -->
