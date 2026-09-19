@@ -51,8 +51,8 @@ docker compose run --rm -it web python -m src.settings set-password
 > `8000:8000`. Behind an HTTPS reverse proxy, set `FORWARDED_ALLOW_IPS` (see
 > `.env.example`).
 
-Each browser stays signed in for 30 days of use; sign in again from a new
-device or after that.
+Each browser stays signed in until it goes 30 days unused; sign in again on
+a new device, or after that.
 
 Everything persists in **`./data`**, next to the compose file — settings,
 secrets, jobs, generated résumés, template packs — created on first boot.
@@ -63,11 +63,18 @@ in ([§2](#2-configure-it)).
 
 ## 2. Configure it
 
-After the password, **/setup** offers three ways in: **Start from defaults**
-— a blank slate; **Settings → Overview** then lists what's still missing
-before alerts can arrive — restoring a backup `.zip` from an existing
-instance, or importing a `config.yaml` (plus `profile.md`/`resume.md`) the
-same way a clone would; the page itself shows the exact command for each.
+After the password, **/setup** offers three ways in:
+
+- **Start from defaults** — an empty settings version, then straight into
+  Settings.
+- **Restore from a backup** — upload the `.zip` file **Settings → Backup**
+  on an existing instance produced.
+- **Or import existing files** — a `config.yaml` (plus `profile.md`/
+  `resume.md`) the same way a clone would; the page shows the exact command
+  for this one.
+
+Whichever you pick, **Settings → Overview** then lists what's still missing
+before alerts can arrive.
 
 From there, everything is in the web UI under **Settings** — filters, your
 relevance profile, LLM provider and key, companies, notification sinks,
