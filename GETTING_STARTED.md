@@ -685,10 +685,13 @@ document.
 **Easiest path:** draft your structured résumé at
 **Settings → Documents → Draft your structured résumé** (or
 `/settings/documents/draft`) and save it — if you don't already have a
-`kit_facts` document, saving scaffolds one for you from your résumé's
-contact info, with the Eligibility fields blank and every EEO field blank by
-construction (nothing in a résumé answers those); fill in the blanks on
-**Settings → Documents**.
+`kit_facts` document, saving scaffolds one for you: Links come from your
+résumé's contact info, Location and Desired salary are filled in from your
+filters (`filters.location`, `filters.comp_floor_usd`), the remaining
+eligibility answers (work authorization, sponsorship, relocation, start
+date) are left blank for you to fill in, and every EEO field is blank by
+construction — there is no code path by which it could be populated from
+model output. Fill in the blanks on **Settings → Documents**.
 
 **Hand-written path:** still works, and some questions (EEO answers, a
 specific "desired salary") you'll want to fill in by hand regardless.
