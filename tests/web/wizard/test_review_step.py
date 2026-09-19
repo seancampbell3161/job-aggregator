@@ -175,6 +175,47 @@ def test_a_draft_wins_over_the_interview_prefill(tmp_path, monkeypatch):
     assert "from interview" not in r.text
 
 
+def test_a_draft_with_no_usable_filters_still_prefills_from_the_interview(
+        tmp_path, monkeypatch):
+    """_sanitize() drops every path a model proposed when it answers with bare
+    keys (`titles` instead of `filters.titles`) — yet the draft is still "ok",
+    because its profile came back fine. The interview answers are then the only
+    word left about the filters, so they must not be thrown away along with the
+    model's unusable paths, leaving the user with bare defaults."""
+    app = _app(tmp_path, monkeypatch)
+    app.state.stores.wizard.put("answers", {
+        "target_titles": ["platform engineer"],
+        "comp_floor": ["185000"],
+    })
+    _drafts(monkeypatch, Draft(
+        profile_md="## Quick summary\nPlatform engineer.",
+        filters={},
+        warnings=["Ignored titles: the draft may only set filters."],
+    ))
+    r = signed_in_client(app).get("/wizard/review")
+    assert "platform engineer" in r.text
+    assert "185000" in r.text
+
+
+def test_answers_survive_for_the_paths_a_draft_did_not_set(tmp_path, monkeypatch):
+    """_sanitize() can keep one proposed path and drop another, so a draft is
+    often partial. The paths it did set are the later word; for every path it
+    did not, the interview is still the only thing the user told us."""
+    app = _app(tmp_path, monkeypatch)
+    app.state.stores.wizard.put("answers", {
+        "target_titles": ["from interview"],
+        "comp_floor": ["185000"],
+    })
+    _drafts(monkeypatch, Draft(
+        profile_md="## Quick summary\nx",
+        filters={"filters.titles": ["platform engineer"]},
+    ))
+    r = signed_in_client(app).get("/wizard/review")
+    assert "platform engineer" in r.text
+    assert "from interview" not in r.text
+    assert "185000" in r.text
+
+
 def test_warnings_are_shown(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
     _drafts(monkeypatch, Draft(

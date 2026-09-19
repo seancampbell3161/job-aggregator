@@ -201,18 +201,26 @@ def review_prefill(request: Request) -> dict:
     config forever, so an intentional edit made at approval time would look
     like it silently reverted on the next visit.
 
-    Before that first save, the draft wins when there is one: it was built
-    FROM the interview answers, so it is the later and better-informed word.
-    Without a draft — no LLM, or a failed call — fall back to the answers
-    themselves, which already bind to real config paths. Otherwise the eight
-    questions the user just answered would buy them an empty form."""
+    Before that first save, the interview answers are the floor — they already
+    bind to real config paths — and the draft is layered over them, path by
+    path. Where the draft set a path it wins, being built FROM those answers
+    and so the later and better-informed word; every path it left alone keeps
+    what the user themselves said.
+
+    Layering rather than replacing matters because a draft is "ok" as soon as
+    its profile parses, while _sanitize() independently drops any filter path
+    the model got wrong — a model answering with bare `titles` instead of
+    `filters.titles` loses all of them and still reports "ok". Replacing the
+    answers with that draft would hand back exactly the empty form this is
+    here to prevent, and a partial draft would blank the rest."""
     if request.state.snapshot.documents.profile:
         return {}
     store = request.app.state.stores.wizard
     draft = store.get("draft") or {}
+    prefill = answers_to_patch(store.get("answers") or {})
     if draft.get("status") == "ok":
-        return dict(draft.get("filters") or {})
-    return answers_to_patch(store.get("answers") or {})
+        prefill.update(draft.get("filters") or {})
+    return prefill
 
 
 def review_shown(ctx_submitted, cfg, spec, prefill):
