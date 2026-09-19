@@ -1,5 +1,7 @@
 """The apply-kit scaffold: deterministic, and structurally incapable of
 answering an EEO question."""
+import yaml
+
 from src.config import AppConfig, FiltersConfig, LocationFilterConfig
 from src.kit_facts import parse_facts
 from src.resume_intake.facts_scaffold import build_facts_yaml
@@ -64,8 +66,15 @@ def test_eligibility_answers_the_llm_cannot_know_are_blank():
     assert values["Eligibility/Requires sponsorship"] == ""
 
 
-def test_the_scaffold_round_trips_a_no_answer_the_user_types_later():
-    """An unquoted `No` parses as a boolean — the trap
-    resume/facts.example.yaml warns about. safe_dump must quote it."""
+def test_the_scaffold_quotes_a_value_yaml_would_otherwise_reinterpret():
+    """An unquoted `No` parses as the boolean False — the trap
+    resume/facts.example.yaml warns about. Asserting through parse_facts
+    cannot catch it: kit_facts._coerce maps False back to the string "No",
+    so the round trip looks correct even when the quoting is gone. Parse the
+    raw YAML instead, where the bool is still a bool."""
     text = build_facts_yaml({**CONTACT, "website": "No"}, _cfg())
-    assert _values(text)["Links/Personal site"] == "No"
+    raw = yaml.safe_load(text)
+    site = next(f["value"] for g in raw for f in g["facts"]
+                if f["label"] == "Personal site")
+    assert site == "No"
+    assert isinstance(site, str)
