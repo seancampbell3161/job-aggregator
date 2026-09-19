@@ -39,7 +39,12 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # the web UI or a backup is restored.
 ENV JOB_AGG_SQLITE_PATH=/data/job_aggregator.db \
     JOB_AGG_TAILORED_DIR=/data/tailored \
-    JOB_AGG_TEMPLATES_DIR=/data/templates
+    JOB_AGG_TEMPLATES_DIR=/data/templates \
+    JOB_AGG_WEB_HOST=0.0.0.0
+# Inside a container the network namespace is the isolation boundary; the -p
+# publish flag on docker run is the security gate. Binding 127.0.0.1 makes the
+# app reachable only from inside the container, not through -p. A host-side
+# `python -m src.web` still defaults to 127.0.0.1 and remains safe.
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 # Default command is the web UI; compose overrides for the poller.

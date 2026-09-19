@@ -41,6 +41,12 @@ def test_image_defaults_templates_into_data():
     assert "JOB_AGG_TEMPLATES_DIR=/data/templates" in (REPO / "Dockerfile").read_text()
 
 
+def test_image_binds_to_all_interfaces_for_published_ports():
+    """Inside a container, docker -p publishes only from 0.0.0.0, not 127.0.0.1.
+    Without this ENV default, the published image is unreachable through -p."""
+    assert "JOB_AGG_WEB_HOST=0.0.0.0" in (REPO / "Dockerfile").read_text()
+
+
 def test_docs_no_longer_say_the_ui_has_no_authentication():
     for name in ("docker-compose.yml", "README.md", "GETTING_STARTED.md",
                  "SECURITY.md", "TROUBLESHOOTING.md"):
