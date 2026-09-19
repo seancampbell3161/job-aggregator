@@ -110,10 +110,18 @@ def test_wizard_requires_a_login(tmp_path, monkeypatch):
 
 def test_every_step_has_a_template():
     """A WIZARD_STEPS entry with no TEMPLATES row 500s on render — and the
-    step it strands is unreachable, because next_step still returns it."""
+    step it strands is unreachable, because next_step still returns it.
+
+    Asserts the actual slug -> filename pairing, not just that the two sets
+    of keys match: comparing only `set(TEMPLATES)` against the step slugs
+    would not catch two slugs having their template values swapped (e.g.
+    "llm": "wizard_resume.html", "resume": "wizard_llm.html" passes a
+    set-equality check but renders the wrong page for both steps)."""
     from src.web.wizard.routes import TEMPLATES
     from src.web.wizard.steps import WIZARD_STEPS
     assert set(TEMPLATES) == {s.slug for s in WIZARD_STEPS}
+    for slug in TEMPLATES:
+        assert TEMPLATES[slug] == f"wizard_{slug}.html"
 
 
 def test_wizard_is_not_setup_exempt(tmp_path, monkeypatch):
