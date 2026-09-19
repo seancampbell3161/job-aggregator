@@ -1,16 +1,25 @@
 # Upgrading a running local stack
 
 The supported deployment is **Docker Compose + SQLite on a dedicated always-on
-box**. An upgrade = pull code + rebuild the image. This runbook covers the core
-upgrade plus turning on the opt-in features afterwards. Run every command **on
-the box that runs the stack**, in the repo directory.
+box**. Most operators run the **published image** — an upgrade there is
+`docker compose pull && docker compose up -d`, no source tree involved. If
+you're running from a **clone** to work on the code, upgrade with
+`git pull` + `docker compose up -d --build` instead; the commands below note
+where the two paths differ. This runbook covers the core upgrade plus turning
+on the opt-in features afterwards. Run every command **on the box that runs
+the stack**, in the directory holding `docker-compose.yml` (the repo
+directory, for a clone).
 
-## What a rebuild ships — and what it never touches
+## What an upgrade ships — and what it never touches
 
-- `git pull` updates **tracked** files: `src/`, `Dockerfile`, docs.
-- `docker compose up -d --build` rebuilds the image, baking in the new `src/`,
-  **Chromium** (headless tier), and the **enterprise seed CSV** (board discovery).
-- **Local-only, never touched by pull/build:** `data/` (the SQLite DB —
+- **Published image:** `docker compose pull` fetches the new tag; `docker
+  compose up -d` recreates `poller` and `web` from it. **Clone:** `git pull`
+  updates tracked files (`src/`, `Dockerfile`, docs) and `docker compose up -d
+  --build` rebuilds the image from them.
+- Either way you get the new `src/`, **Chromium** (headless tier — only on the
+  `-headless` image tag or the `target: headless` override), and the
+  **enterprise seed CSV** (board discovery).
+- **Local-only, never touched by a pull or a rebuild:** `data/` (the SQLite DB —
   **settings, documents, stored secrets**, and all job state), `.env`, and
   your gitignored settings files (`config.yaml`, `profile.md`, `resume.md`,
   `resume/*`). Since the settings-database release those files are an import
@@ -21,13 +30,18 @@ the box that runs the stack**, in the repo directory.
 ## Phase 0 — Pre-flight
 
 ```bash
-cd <repo-dir>
+cd <stack-dir>                               # wherever docker-compose.yml lives
 docker compose version                       # needs Compose 2.24+ (optional .env in docker-compose.yml)
 docker compose ps                            # what's currently up
+cp -r ./data "./data.bak-$(date +%Y%m%d)"    # back up the DB before migrations
+```
+
+Running from a **clone** rather than the published image? Also:
+
+```bash
 git fetch origin
 git status -sb                               # ⚠️ KEY — see below
 git log --oneline -1                         # currently deployed commit
-cp -r ./data "./data.bak-$(date +%Y%m%d)"    # back up the DB before migrations
 ```
 
 The critical line is **`git status`**. If it's clean (or only shows the usual
@@ -35,14 +49,23 @@ untracked local files), continue.
 
 ## Phase 1 — Core deploy
 
+**Published image** (most operators):
+
+```bash
+docker compose pull && docker compose up -d  # new image, recreate poller + web
+```
+
+**Clone** (working on the code):
+
 ```bash
 git pull --ff-only origin main
 docker compose up -d --build                 # rebuild image, recreate poller + web
 ```
 
-The first build is slow (WeasyPrint natives + Playwright/Chromium); later builds
-cache. `web` and `poller` are the only services unless you run local Ollama
-(`--profile ollama`); with a cloud LLM provider, plain `up -d` is correct.
+The first pull or build is slow (WeasyPrint natives, plus Playwright/Chromium
+on the `-headless` tag or target); later ones are cached. `web` and `poller`
+are the only services unless you run local Ollama (`--profile ollama`); with a
+cloud LLM provider, the commands above are correct as-is.
 
 ## Phase 1b — Settings import (first upgrade to the settings database, and after any edit)
 
@@ -107,8 +130,9 @@ docker compose exec poller python -m src.handler --tier discovery 2>&1 | grep bo
 # expect: board_discovery_done {"swept": N, "matched": M, ...}  with M >= 0
 ```
 
-If `swept` is `0`, the seed CSV didn't make it into the image — the rebuild
-didn't take; re-run `docker compose up -d --build`.
+If `swept` is `0`, the seed CSV didn't make it into the image — the upgrade
+didn't take; re-run `docker compose pull && docker compose up -d` (a clone:
+`docker compose up -d --build`).
 
 ## Phase 3 — Apply kit (`facts.yaml`)
 
@@ -162,7 +186,7 @@ confirm the tailored PDF reflects the new bullets.
 3. If you used `.env`, recreate so containers snapshot it (Compose reads it
    only at container creation):
    ```bash
-   docker compose up -d --force-recreate
+   docker compose up -d
    ```
 4. **Verify immediately** — run one real sweep now instead of waiting for the
    top-of-hour cron (a bad password *raises* here, rather than failing silently):
@@ -177,7 +201,7 @@ confirm the tailored PDF reflects the new bullets.
      ```bash
      docker compose exec poller python -c "import os; a=os.environ.get('JOB_AGG_GMAIL_ADDRESS',''); p=os.environ.get('JOB_AGG_GMAIL_APP_PASSWORD',''); print('address=', repr(a), '| password_len=', len(p), '| has_space=', ' ' in p)"
      ```
-     `password_len= 0` → the `force-recreate` didn't pick up `.env`. `19` / `has_space= True` → strip the spaces. `16` but still failing → the account can't use app passwords (see prerequisite); skip the feature.
+     `password_len= 0` → `docker compose up -d` didn't pick up `.env` (recreate again). `19` / `has_space= True` → strip the spaces. `16` but still failing → the account can't use app passwords (see prerequisite); skip the feature.
 
 The mailbox is read-only; bodies are never stored. Tunables live under `gmail:`
 (`check_cron` default hourly, `first_run_days`, `lookback_max_days`).
@@ -185,8 +209,14 @@ The mailbox is read-only; bodies are never stored. Tunables live under `gmail:`
 ## Phase 5 — Avature (headless), one tenant at a time
 
 Avature boards are branded and often WAF-gated, so verify each one passes a real
-browser **before** committing it. For each candidate (you supply its `SearchJobs`
-URL):
+browser **before** committing it. This tier needs an image with a browser — the
+default (slim) image has none. Switch both services to
+`ghcr.io/seancampbell3161/job-aggregator:latest-headless` (or a pinned
+`X.Y.Z-headless` tag) and `docker compose pull && docker compose up -d`; in a
+clone, uncomment `target: headless` under both `build:` blocks in
+`docker-compose.override.yml` and `docker compose up -d --build` instead.
+**Phenom** boards need none of this — they poll over plain HTTP on the `ats`
+tier. For each Avature candidate (you supply its `SearchJobs` URL):
 
 1. Add it to `config.yaml` under `sources.avature`, then re-import (Phase 1b):
    ```yaml
@@ -215,10 +245,23 @@ committed upstream.
 
 ## Rollback
 
+**Published image:** edit the `image:` tag under both `poller` and `web` back
+to the previous version, then:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+**Clone:**
+
 ```bash
 git checkout <previous-commit> && docker compose up -d --build
-# only if a migration misbehaved (rare — migrations are additive):
-#   docker compose down && cp -r ./data.bak-<date>/. ./data/ && docker compose up -d
+```
+
+Either way, only if a migration misbehaved (rare — migrations are additive):
+
+```bash
+docker compose down && cp -r ./data.bak-<date>/. ./data/ && docker compose up -d
 ```
 
 Older code tolerates newer additive tables/columns, so the DB backup is
@@ -226,5 +269,5 @@ belt-and-suspenders rather than usually necessary.
 
 Releases before the settings database ignore the new tables and read
 `config.yaml`/`profile.md` from disk again, so rolling back needs no data
-changes — restore the pre-upgrade compose bind mounts by checking out the old
-commit.
+changes — restore the pre-upgrade compose bind mounts (or image tag) by
+checking out the old commit.
