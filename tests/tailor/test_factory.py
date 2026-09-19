@@ -46,4 +46,56 @@ def test_factory_local_host_needs_no_key(monkeypatch):
 
 def test_factory_none_when_documents_missing():
     assert build_tailor_engine(_cfg(), None, EVIDENCE) is None
-    assert build_tailor_engine(_cfg(), CONTENT, None) is None
+
+
+def _cfg_anthropic():
+    return AppConfig(
+        tailoring=TailoringConfig(enabled=True, provider="anthropic"),
+        relevance=RelevanceConfig(provider="ollama", model="gpt-oss:120b",
+                                  ollama_host="https://ollama.com"),
+        secrets=Secrets(anthropic_api_key="sk-test"),
+    )
+
+
+def test_factory_builds_an_anthropic_engine():
+    """The guard this sub-project exists to remove: a Claude user had scoring,
+    gaps, coaching and drafting working and tailoring silently unavailable."""
+    engine = build_tailor_engine(_cfg_anthropic(), CONTENT, EVIDENCE)
+    assert engine is not None
+    assert engine._binding.provider == "anthropic"
+
+
+def test_factory_builds_a_gemini_engine():
+    cfg = AppConfig(
+        tailoring=TailoringConfig(enabled=True, provider="gemini"),
+        relevance=RelevanceConfig(provider="ollama", model="gpt-oss:120b",
+                                  ollama_host="https://ollama.com"),
+        secrets=Secrets(google_api_key="g-test"),
+    )
+    engine = build_tailor_engine(cfg, CONTENT, EVIDENCE)
+    assert engine is not None
+    assert engine._binding.provider == "gemini"
+
+
+def test_factory_still_refuses_a_provider_with_no_key():
+    cfg = AppConfig(
+        tailoring=TailoringConfig(enabled=True, provider="anthropic"),
+        relevance=RelevanceConfig(provider="ollama", model="m",
+                                  ollama_host="https://ollama.com"),
+        secrets=Secrets(),
+    )
+    assert build_tailor_engine(cfg, CONTENT, EVIDENCE) is None
+
+
+def test_factory_builds_without_any_evidence_document():
+    """evidence.json is digested from a Jira CSV export. Requiring it made
+    tailoring unreachable for everyone who has no such export."""
+    engine = build_tailor_engine(_cfg(), CONTENT, None)
+    assert engine is not None
+    assert engine._evidence.projects == []
+
+
+def test_factory_still_refuses_without_content():
+    """Unlike evidence, content is genuinely required — there is nothing to
+    rewrite without it."""
+    assert build_tailor_engine(_cfg(), None, EVIDENCE) is None
