@@ -94,7 +94,9 @@ RULE_4_WITHOUT_EVIDENCE = """\
 4. NEVER INTRODUCE A NUMBER. A rewritten bullet may keep any number that is
    already in the CONTENT bullet it came from, and must keep it. You must not
    add a number the CONTENT bullet does not state. There is no evidence bank on
-   this install, so leave evidence_refs empty."""
+   this install, so leave evidence_refs empty. The JSON example below shows
+   "evidence_refs": ["JIRA-..."] for illustration only; ignore that example on
+   this install and emit "evidence_refs": [] for every bullet, always."""
 
 NO_EVIDENCE_CLAUSE = """\
 
