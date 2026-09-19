@@ -1,1 +1,34 @@
 {% extends "wizard_base.html" %}
+{% import "_settings_macros.html" as w %}
+{% block step %}
+{% set profile_value = submitted.get('profile', [''])[0] if submitted is not none
+   else (saved_profile if saved_profile else (draft.profile_md if draft and draft.status == 'ok' else '')) %}
+<form method="post" action="/wizard/review">
+  <section class="panel">
+    <h2>Your profile</h2>
+    <p class="muted">What the scorer grades each posting against — markdown is
+      fine. Edit it as much as you like; approving writes exactly what's
+      below, not whatever the draft originally said.</p>
+    {% if draft and draft.status == 'ok' and draft.warnings %}
+    {% for note in draft.warnings %}
+    <p class="muted field-help">{{ note }}</p>
+    {% endfor %}
+    {% endif %}
+    <textarea id="i-profile" name="profile" rows="16"
+              placeholder="## Quick summary…">{{ profile_value }}</textarea>
+  </section>
+
+  <section class="panel">
+    <h2>Filters</h2>
+    <p class="muted">Hard gates every posting passes before it is scored.</p>
+    {% for spec in fields %}
+      {{ w.field(spec, review_shown(submitted, cfg, spec, prefill), errors) }}
+    {% endfor %}
+  </section>
+
+  <p>
+    <button type="submit" formaction="/wizard/review/redraft" class="btn">Draft again</button>
+    <button type="submit" class="btn primary">Save and continue</button>
+  </p>
+</form>
+{% endblock %}

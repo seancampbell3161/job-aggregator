@@ -11,14 +11,18 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.config import SLUG_SOURCE_FAMILIES
+from src.resume_intake.draft import DraftFailed, draft_profile_and_filters
 from src.resume_intake.extract import ExtractionFailed, extract_text
-from src.resume_intake.interview import INTERVIEW_FIELDS, decode_answers
+from src.resume_intake.interview import INTERVIEW_FIELDS, answers_to_patch, decode_answers
+from src.settings.documents import validate_document
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import field_map, value_at
 from src.settings.service import canonical_doc
 from src.web.settings.backup import MAX_UPLOAD_BYTES
 from src.web.settings.forms import apply_patch, decode, decode_secrets, errors_by_path
 from src.web.settings.probes import ProbeResult, probe_discord, probe_llm, probe_ntfy
+from src.web.settings.routes import shown
+from src.web.settings.sections import section_by_slug
 from src.web.settings.shell import secret_rows
 from src.web.wizard.ntfy_topic import suggest_topic, topic_qr_svg
 from src.web.wizard.steps import (
@@ -41,6 +45,8 @@ LLM_PATHS = (
     "relevance.ollama_host", "relevance.timeout_seconds",
 )
 LLM_SECRETS = ("anthropic_api_key", "google_api_key", "ollama_api_key")
+
+FILTER_PATHS = tuple(section_by_slug("filters").paths)
 
 NOTIFY_SECRETS = ("ntfy_topic_url", "discord_webhook_url")
 # {probe} URL slug -> (secret it tests, probe to run). Deliberately its own
@@ -70,6 +76,7 @@ def _wizard_probe_targets() -> dict[str, str]:
 # yet) falls back to the empty default below.
 STEP_FIELDS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "llm": (LLM_PATHS, LLM_SECRETS),
+    "review": (FILTER_PATHS, ()),
     "notifications": ((), NOTIFY_SECRETS),
 }
 
@@ -155,6 +162,96 @@ def notifications_extra(request: Request) -> dict:
     return extra
 
 
+def review_prefill(request: Request) -> dict:
+    """What the filter inputs start out showing.
+
+    Once a profile document has actually been saved, this page is an ordinary
+    settings page from then on: the config is truth, so no prefill (an empty
+    mapping makes review_shown() fall straight through to the config). That
+    matters for a direct revisit after approval — without it, a stale
+    pre-edit draft cached from before that save would keep outranking the
+    config forever, so an intentional edit made at approval time would look
+    like it silently reverted on the next visit.
+
+    Before that first save, the draft wins when there is one: it was built
+    FROM the interview answers, so it is the later and better-informed word.
+    Without a draft — no LLM, or a failed call — fall back to the answers
+    themselves, which already bind to real config paths. Otherwise the eight
+    questions the user just answered would buy them an empty form."""
+    if request.state.snapshot.documents.profile:
+        return {}
+    store = request.app.state.stores.wizard
+    draft = store.get("draft") or {}
+    if draft.get("status") == "ok":
+        return dict(draft.get("filters") or {})
+    return answers_to_patch(store.get("answers") or {})
+
+
+def review_shown(ctx_submitted, cfg, spec, prefill):
+    """review's own shown(): the same submitted-or-config rule settings pages
+    use (settings.routes.shown), with one more layer underneath. A not-yet-
+    saved draft or interview prefill wins over the stored config, so a first
+    visit shows the draft rather than empty/default fields. Once the user has
+    actually typed something (ctx_submitted is not None, i.e. a re-render
+    after a failed save), that submitted value always wins, exactly like
+    shown() — this never overrides what's on screen with the draft."""
+    if ctx_submitted is None and spec.path in prefill:
+        return prefill[spec.path]
+    return shown(ctx_submitted, cfg, spec)
+
+
+def review_extra(request: Request) -> dict:
+    """The review step's own context: the prefill mapping described above, and
+    the profile document itself when one is already saved — so the profile
+    textarea (which has no config path to read a "current value" from the way
+    the filter fields do) also shows what was actually saved rather than a
+    stale draft, on a revisit after approval."""
+    return {
+        "prefill": review_prefill(request),
+        "saved_profile": request.state.snapshot.documents.profile,
+    }
+
+
+async def _ensure_draft(request: Request) -> tuple[dict | None, str | None]:
+    """(draft dict, error message). Generated on first visit and cached in
+    wizard_ui, so a reload does not pay for another LLM round trip. A failure
+    is cached too — as an error record — so a broken provider does not get
+    re-called on every render.
+
+    Once a profile document is saved, this step is done and behaves like any
+    other settings page: no more auto-drafting (nothing left to bootstrap),
+    and "Draft again" becomes a no-op rather than silently overwriting a
+    hand-made edit with a regenerated suggestion nobody asked to redo."""
+    snap = request.state.snapshot
+    if snap.documents.profile:
+        return None, None
+
+    store = request.app.state.stores.wizard
+    cached = store.get("draft")
+    if cached is not None:
+        return (cached, None) if cached.get("status") == "ok" else (None, cached.get("error"))
+
+    resume_text = snap.documents.resume_text
+    if not resume_text:
+        return None, None  # nothing to draft from; plain forms, no error shown
+
+    answers = store.get("answers") or {}
+    try:
+        draft = await draft_profile_and_filters(
+            snap.cfg, resume_text=resume_text, answers=answers,
+        )
+    except DraftFailed as exc:
+        store.put("draft", {"status": "error", "error": str(exc)})
+        return None, str(exc)
+
+    record = {
+        "status": "ok", "profile_md": draft.profile_md,
+        "filters": draft.filters, "warnings": draft.warnings,
+    }
+    store.put("draft", record)
+    return record, None
+
+
 def render_step(request: Request, step, **extra) -> HTMLResponse:
     paths, secrets = STEP_FIELDS.get(step.slug, ((), ()))
     if step.slug == "companies":
@@ -163,6 +260,8 @@ def render_step(request: Request, step, **extra) -> HTMLResponse:
         extra = {**notifications_extra(request), **extra}
     elif step.slug == "resume":
         extra = {**resume_extra(request), **extra}
+    elif step.slug == "review":
+        extra = {**review_extra(request), **extra}
     return request.app.state.templates.TemplateResponse(
         request, TEMPLATES[step.slug],
         wizard_ctx(request, step, paths=paths, secrets=secrets, **extra)
@@ -223,6 +322,8 @@ def save_step(request: Request, step, paths, secrets, form_raw) -> HTMLResponse 
 
 
 def register_wizard_routes(app: FastAPI) -> None:
+    app.state.templates.env.globals["review_shown"] = review_shown
+
     @app.get("/wizard")
     def wizard_root(request: Request):
         """Always the entry point: recomputes where the user actually is, so a
@@ -331,10 +432,69 @@ def register_wizard_routes(app: FastAPI) -> None:
             return _probe_partial(request, ProbeResult(False, "Nothing to test yet."))
         return _probe_partial(request, await run(value))
 
+    @app.get("/wizard/review", response_class=HTMLResponse)
+    async def wizard_review(request: Request):
+        draft, error = await _ensure_draft(request)
+        return render_step(
+            request, step_by_slug("review"), draft=draft,
+            form_errors=[error] if error else [],
+        )
+
+    @app.post("/wizard/review/redraft")
+    async def wizard_redraft(request: Request):
+        request.app.state.stores.wizard.delete("draft")
+        return RedirectResponse("/wizard/review", status_code=303)
+
+    @app.post("/wizard/review")
+    async def wizard_review_save(request: Request):
+        step = step_by_slug("review")
+        form = await request.form()
+        raw = {k: form.getlist(k) for k in form.keys()}
+        service = request.app.state.service
+        specs = tuple(field_map()[p] for p in FILTER_PATHS)
+        profile = (form.get("profile") or "").strip()
+
+        def render_error(errors, form_errors):
+            return render_step(request, step, errors=errors, form_errors=form_errors,
+                               submitted=raw,
+                               draft=request.app.state.stores.wizard.get("draft"))
+
+        try:
+            patch = decode(specs, raw)
+            validate_document("profile", profile)
+        except SettingsInvalid as exc:
+            by_path, form_level = errors_by_path(exc, known={s.path for s in specs})
+            return render_error(by_path, form_level)
+
+        doc = canonical_doc(request.state.snapshot.cfg)
+        apply_patch(doc, patch)
+        source = "llm_draft" if (request.app.state.stores.wizard.get("draft") or {}
+                                 ).get("status") == "ok" else "wizard"
+        try:
+            # One bundle: settings and the profile document validate together,
+            # so a bad filter and a bad profile surface in the same pass.
+            service.save_bundle(doc, {"profile": profile}, source=source,
+                                note="wizard: profile and filters")
+        except SettingsInvalid as exc:
+            by_path, form_level = errors_by_path(exc, known={s.path for s in specs})
+            return render_error(by_path, form_level)
+        except StaleWrite:
+            return render_error({}, ["Someone else saved while you were editing. "
+                                     "Reload and reapply."])
+        # The draft's job was to prefill this form once; now that a profile
+        # document exists, review_prefill()/_ensure_draft() stop consulting it
+        # on their own (the config is the current truth from here on) — this
+        # delete is just hygiene, so a stale draft blob doesn't sit in
+        # wizard_ui forever.
+        request.app.state.stores.wizard.delete("draft")
+        return RedirectResponse("/wizard", status_code=303)
+
     # Declared before /wizard/{slug} — Starlette matches in registration
     # order, and the parameterised route would otherwise swallow /wizard/done
     # (slug="done"), the same ordering constraint documented at the top of
-    # src/web/settings/routes.py.
+    # src/web/settings/routes.py. /wizard/review and its POST siblings above
+    # are declared here for the same reason: /wizard/{slug} would otherwise
+    # swallow GET /wizard/review too.
     @app.get("/wizard/{slug}", response_class=HTMLResponse)
     def wizard_step(request: Request, slug: str):
         step = step_by_slug(slug)
