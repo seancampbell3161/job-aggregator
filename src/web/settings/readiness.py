@@ -8,17 +8,13 @@ from dataclasses import dataclass
 from typing import Callable
 
 from src.config import AppConfig, SLUG_SOURCE_FAMILIES
+# The single source of truth, shared with every LLM factory.
+from src.llm.providers import PROVIDER_KEYS as _PROVIDER_KEYS
 
 _STRUCTURED_FAMILIES = (
     "workday", "oraclecloud", "eightfold", "jsonld_boards", "phenom", "taleo", "avature",
 )
 _AGGREGATORS = ("hn_who_is_hiring", "remotive", "remoteok", "hiringcafe", "adzuna")
-
-_PROVIDER_KEYS = {
-    "anthropic": "anthropic_api_key",
-    "gemini": "google_api_key",
-    "ollama": "ollama_api_key",
-}
 
 
 @dataclass(frozen=True)

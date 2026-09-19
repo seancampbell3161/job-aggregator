@@ -16,6 +16,7 @@ from src.connectors.base import build_connectors
 from src.digest import format_gap_digest, send_gap_digest, tally_gaps
 from src.discovery import DiscoveryConfig, make_yc_oss_fetcher, run_board_discovery, run_discovery, run_vc_discovery
 from src.fingerprint import DEFAULT_SEEDS, EU_SEEDS, load_seeds
+from src.llm.providers import build_binding
 from src.poll_health import recover_suppressed
 from src.logging_setup import configure_logging
 from src.notify.base import Sink
@@ -76,24 +77,13 @@ def _build_relevance_scorer(
     if not cfg.relevance.enabled:
         return None
 
-    provider = cfg.relevance.provider
-    if provider == "anthropic":
-        api_key = cfg.secrets.anthropic_api_key
-        key_name = "anthropic_api_key"
-    elif provider == "gemini":
-        api_key = cfg.secrets.google_api_key
-        key_name = "google_api_key"
-    elif provider == "ollama":
-        api_key = cfg.secrets.ollama_api_key
-        key_name = "ollama_api_key"
-    else:  # pragma: no cover — Pydantic Literal prevents this branch
-        return None
-
-    needs_key = not (provider == "ollama" and cfg.relevance.ollama_is_local)
-    if needs_key and not api_key:
+    binding = build_binding(
+        cfg, feature="relevance", timeout_seconds=cfg.relevance.timeout_seconds
+    )
+    if binding is None:
         log.warning(
             "relevance_disabled_at_runtime",
-            extra={"reason": f"{key_name} not set", "provider": provider},
+            extra={"reason": "no provider binding", "provider": cfg.relevance.provider},
         )
         return None
 
@@ -103,36 +93,15 @@ def _build_relevance_scorer(
         log.warning("relevance_disabled_at_runtime", extra={"reason": "profile document missing"})
         return None
 
-    if provider == "anthropic":
-        from anthropic import AsyncAnthropic
-        client = AsyncAnthropic(api_key=api_key)
-        return RelevanceScorer(
-            client=client,
-            model=cfg.relevance.model,
-            profile_md=profile_text,
-            timeout_seconds=cfg.relevance.timeout_seconds,
-        )
-
-    if provider == "ollama":
-        from ollama import AsyncClient
-        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        client = AsyncClient(host=cfg.relevance.ollama_host, headers=headers)
-        return OllamaRelevanceScorer(
-            client=client,
-            model=cfg.relevance.model,
-            profile_md=profile_text,
-            timeout_seconds=cfg.relevance.timeout_seconds,
-        )
-
-    # provider == "gemini"
-    from google import genai  # type: ignore
-    client = genai.Client(api_key=api_key)
-    return GeminiRelevanceScorer(
-        client=client,
-        model=cfg.relevance.model,
-        profile_md=profile_text,
-        timeout_seconds=cfg.relevance.timeout_seconds,
+    common = dict(
+        client=binding.client, model=binding.model, profile_md=profile_text,
+        timeout_seconds=binding.timeout_seconds,
     )
+    if binding.provider == "anthropic":
+        return RelevanceScorer(**common)
+    if binding.provider == "ollama":
+        return OllamaRelevanceScorer(**common)
+    return GeminiRelevanceScorer(**common)
 
 
 def _build_gap_analyzer(cfg: AppConfig, resume_text: str | None) -> GapAnalyzer | None:
@@ -144,24 +113,11 @@ def _build_gap_analyzer(cfg: AppConfig, resume_text: str | None) -> GapAnalyzer 
     if not cfg.gap_analysis.enabled:
         return None
 
-    provider = cfg.gap_analysis.provider or cfg.relevance.provider
-    model = cfg.gap_analysis.model or cfg.relevance.model
-
-    if provider == "anthropic":
-        api_key, key_name = cfg.secrets.anthropic_api_key, "anthropic_api_key"
-    elif provider == "gemini":
-        api_key, key_name = cfg.secrets.google_api_key, "google_api_key"
-    elif provider == "ollama":
-        api_key, key_name = cfg.secrets.ollama_api_key, "ollama_api_key"
-    else:  # pragma: no cover — Pydantic Literal prevents this
-        return None
-
-    needs_key = not (provider == "ollama" and cfg.relevance.ollama_is_local)
-    if needs_key and not api_key:
-        log.warning(
-            "gap_analysis_disabled_at_runtime",
-            extra={"reason": f"{key_name} not set", "provider": provider},
-        )
+    binding = build_binding(
+        cfg, feature="gap_analysis", timeout_seconds=cfg.gap_analysis.timeout_seconds
+    )
+    if binding is None:
+        log.warning("gap_analysis_disabled_at_runtime", extra={"reason": "no provider binding"})
         return None
 
     if resume_text is None:
@@ -169,24 +125,15 @@ def _build_gap_analyzer(cfg: AppConfig, resume_text: str | None) -> GapAnalyzer 
         return None
 
     common = dict(
-        model=model,
-        resume_md=resume_text,
-        timeout_seconds=cfg.gap_analysis.timeout_seconds,
+        client=binding.client, model=binding.model, resume_md=resume_text,
+        timeout_seconds=binding.timeout_seconds,
         max_skills=cfg.gap_analysis.max_skills_per_job,
     )
-
-    if provider == "anthropic":
-        from anthropic import AsyncAnthropic
-        return AnthropicGapAnalyzer(client=AsyncAnthropic(api_key=api_key), **common)
-
-    if provider == "ollama":
-        from ollama import AsyncClient
-        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        client = AsyncClient(host=cfg.relevance.ollama_host, headers=headers)
-        return OllamaGapAnalyzer(client=client, **common)
-
-    from google import genai  # type: ignore
-    return GeminiGapAnalyzer(client=genai.Client(api_key=api_key), **common)
+    if binding.provider == "anthropic":
+        return AnthropicGapAnalyzer(**common)
+    if binding.provider == "ollama":
+        return OllamaGapAnalyzer(**common)
+    return GeminiGapAnalyzer(**common)
 
 
 def _build_coach(cfg: AppConfig) -> CoachEngine | None:
@@ -199,39 +146,20 @@ def _build_coach(cfg: AppConfig) -> CoachEngine | None:
     if not cfg.coach.enabled:
         return None
 
-    provider = cfg.coach.provider or cfg.relevance.provider
-    model = cfg.coach.model or cfg.relevance.model
-
-    if provider == "anthropic":
-        api_key, key_name = cfg.secrets.anthropic_api_key, "anthropic_api_key"
-    elif provider == "gemini":
-        api_key, key_name = cfg.secrets.google_api_key, "google_api_key"
-    elif provider == "ollama":
-        api_key, key_name = cfg.secrets.ollama_api_key, "ollama_api_key"
-    else:  # pragma: no cover — Pydantic Literal prevents this
+    binding = build_binding(cfg, feature="coach", timeout_seconds=cfg.coach.timeout_seconds)
+    if binding is None:
+        log.warning("coach_disabled_at_runtime", extra={"reason": "no provider binding"})
         return None
 
-    needs_key = not (provider == "ollama" and cfg.relevance.ollama_is_local)
-    if needs_key and not api_key:
-        log.warning(
-            "coach_disabled_at_runtime",
-            extra={"reason": f"{key_name} not set", "provider": provider},
-        )
-        return None
-
-    common = dict(model=model, timeout_seconds=cfg.coach.timeout_seconds)
-
-    if provider == "anthropic":
-        from anthropic import AsyncAnthropic
-        return AnthropicCoach(client=AsyncAnthropic(api_key=api_key), **common)
-
-    if provider == "ollama":
-        from ollama import AsyncClient
-        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        return OllamaCoach(client=AsyncClient(host=cfg.relevance.ollama_host, headers=headers), **common)
-
-    from google import genai  # type: ignore
-    return GeminiCoach(client=genai.Client(api_key=api_key), **common)
+    common = dict(
+        client=binding.client, model=binding.model,
+        timeout_seconds=binding.timeout_seconds,
+    )
+    if binding.provider == "anthropic":
+        return AnthropicCoach(**common)
+    if binding.provider == "ollama":
+        return OllamaCoach(**common)
+    return GeminiCoach(**common)
 
 
 def _build_gap_digest(cfg: AppConfig, store: Any, *, days: int | None = None):
