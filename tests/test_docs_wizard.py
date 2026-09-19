@@ -1,7 +1,28 @@
 """The docs describe the path a newcomer actually takes now that /setup
 offers a guided wizard (src/web/wizard/) ahead of the older start-from-
 defaults / restore-backup / import-existing-files doors."""
+import re
 from pathlib import Path
+
+
+def _section(text: str, heading: str) -> str:
+    """The text of the section starting at `heading` (matched literally,
+    case-insensitively) up to -- but NOT including -- the next `##`/`###`
+    heading, or end of file if there isn't one.
+
+    Slicing "from a heading to EOF" (as an earlier version of this file
+    did) lets unrelated, later occurrences of the searched-for text satisfy
+    an assertion that is only supposed to be about ONE section -- proven by
+    fix round 1: deleting the CLI-import block from "Existing installs"
+    left `test_existing_installs_section_still_documents_cli_import` green
+    because two other, unrelated mentions of the same command exist further
+    down the file. Bounding the slice to the next heading closes that.
+    """
+    match = re.search(re.escape(heading), text, re.IGNORECASE)
+    assert match, f"heading not found: {heading!r}"
+    rest = text[match.end():]
+    next_heading = re.search(r"\n#{2,3} ", rest)
+    return rest[: next_heading.start()] if next_heading else rest
 
 
 def test_getting_started_leads_with_guided_setup():
@@ -46,12 +67,21 @@ def test_guided_setup_is_introduced_before_hand_authoring_config_yaml():
 
 def test_existing_installs_section_still_documents_cli_import():
     """Restructure, don't delete: self-hosters and existing installs still
-    need the CLI import path; it must survive under the new heading."""
+    need the CLI import path; it must survive under the new heading --
+    specifically IN that section, not merely somewhere later in the file
+    (the doc also mentions `python -m src.settings import` in the Docker
+    Compose upgrading section and the local dry-run section, which would
+    satisfy an unbounded "rest of the file" check on their own).
+
+    Matches the actual invocation (`settings import .` or `settings import
+    /import`), not a bare substring -- this section also documents
+    `settings import-env-secrets`, a different command whose name happens
+    to start with the same characters ("import" immediately followed by a
+    hyphen, not a space) and would satisfy a plain `in` check on its own.
+    """
     text = Path("GETTING_STARTED.md").read_text()
-    lower = text.lower()
-    expert_idx = lower.index("### existing installs")
-    rest = text[expert_idx:]
-    assert "python -m src.settings import" in rest
+    section = _section(text, "### Existing installs & config.yaml")
+    assert re.search(r"settings import (\.|/import)\b", section)
 
 
 def test_getting_started_matches_the_setup_page_cta():
@@ -71,5 +101,10 @@ def test_config_md_has_a_row_per_resume_draft_flag():
 
 
 def test_readme_feature_list_mentions_guided_setup():
-    text = Path("README.md").read_text().lower()
-    assert "guided setup" in text
+    """Scoped to the '## What it does' section specifically -- an earlier
+    version checked the whole file, which a later '## Configuration'
+    mention of "guided setup wizard" would satisfy even if the feature-list
+    bullet itself were deleted."""
+    text = Path("README.md").read_text()
+    section = _section(text, "## What it does")
+    assert "guided setup" in section.lower()

@@ -72,8 +72,8 @@ After the password, **/setup** offers four ways in:
 - **Start guided setup** — the recommended path for a first install. Six
   skippable steps, each a standalone page: **LLM** (connect and test a
   provider), **Résumé** (upload a PDF/DOCX or paste it, plus a short
-  six-question interview covering what a résumé can't say — target titles,
-  level, IC vs. management, location, employment type, comp floor),
+  interview covering what a résumé can't say — target titles, level, IC
+  vs. management, location, employment type, comp floor),
   **Review** (an LLM drafts `profile.md` and the hard filters from your
   résumé and answers, or — without an LLM — the form is pre-filled from the
   interview instead; you edit and approve them like any other setting),
