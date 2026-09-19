@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "job-aggregator"
-version = "0.12.0"
+version = "0.13.0"
 description = "A self-hosted job-alert pipeline: polls public ATS endpoints and job boards, hard-filters postings against your criteria, LLM-scores the survivors against your profile, and pushes the keepers to ntfy and Discord."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
