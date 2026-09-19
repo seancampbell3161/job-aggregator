@@ -435,8 +435,9 @@ docker compose up -d --build
 ```
 
 After a `git pull`, `docker compose up -d --build` again picks up the
-change. Need the headless tier locally? Uncomment `target: headless` under
-both `build:` blocks in `docker-compose.override.yml` and rebuild.
+change. Need the headless tier locally? Add `target: headless` under both
+`build:` keys in `docker-compose.override.yml` (see the comment at the
+bottom of that file) and rebuild.
 
 ---
 

@@ -213,8 +213,9 @@ browser **before** committing it. This tier needs an image with a browser — th
 default (slim) image has none. Switch both services to
 `ghcr.io/seancampbell3161/job-aggregator:latest-headless` (or a pinned
 `X.Y.Z-headless` tag) and `docker compose pull && docker compose up -d`; in a
-clone, uncomment `target: headless` under both `build:` blocks in
-`docker-compose.override.yml` and `docker compose up -d --build` instead.
+clone, add `target: headless` under both `build:` keys in
+`docker-compose.override.yml` (see the comment at the bottom of that file)
+and `docker compose up -d --build` instead.
 **Phenom** boards need none of this — they poll over plain HTTP on the `ats`
 tier. For each Avature candidate (you supply its `SearchJobs` URL):
 
