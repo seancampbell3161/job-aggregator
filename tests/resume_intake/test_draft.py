@@ -3,9 +3,8 @@ profile is indistinguishable from a good one."""
 import pytest
 
 from src.config import AppConfig, Secrets
-from src.resume_intake.draft import (
-    DRAFTABLE_PATHS, DraftFailed, draft_profile_and_filters,
-)
+from src.resume_intake.draft import DRAFTABLE_PATHS, draft_profile_and_filters
+from src.resume_intake.errors import DraftFailed
 
 RESUME = "Ten years of Python, Kubernetes and Postgres at Example Corp."
 ANSWERS = {"target_titles": ["platform engineer"], "countries": ["US"]}

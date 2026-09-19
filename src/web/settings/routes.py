@@ -19,18 +19,19 @@ registered alongside them for consistency, though its own paths
 (/settings/documents/draft and .../draft/status) are three segments deep and
 could not be swallowed by the catch-all regardless of ordering.
 
-register_content_draft_routes is imported lazily, inside
-register_settings_routes below, rather than at module level like its
-siblings: src/web/settings/content_draft.py imports draft_content/NO_RESUME
-from src.resume_intake.content_draft, which imports
-src.resume_intake.draft, which itself imports src.web.settings.forms — and
-that import is what first triggers this package's own __init__ (`from
-src.web.settings.routes import register_settings_routes`). A module-level
-import here would close that loop back onto this same module while it is
-still mid-import, the same class of cycle shell.py's docstring records for
-companies.py's now-removed reach into routes.py. src/web/app.py's own
-`from src.web.settings import register_settings_routes` (inside create_app,
-not at module level) uses the identical trick for the same reason.
+register_content_draft_routes was imported lazily here for a while, because
+src/web/settings/content_draft.py reaches src.resume_intake.content_draft,
+that module used to reach src.resume_intake.draft for DraftFailed, and
+draft.py imports src.web.settings.forms — which, entered from
+src.resume_intake.draft, ran this package's own __init__ (`from
+src.web.settings.routes import register_settings_routes`) and closed the loop
+back onto a half-imported draft.py. Moving DraftFailed to the leaf module
+src/resume_intake/errors.py cut the return leg, so this is an ordinary
+module-level import again; tests/resume_intake/test_content_draft.py asserts
+in a fresh interpreter that the drafter pulls in no src.web module at all.
+draft.py's own reach into src.web.settings.forms is still an inversion, and
+still the larger cleanup (moving apply_patch and the section registry out of
+the web package) that has not been done.
 
 page_ctx/render_section/secret_rows live in shell.py (Ruling R10) — this
 module still uses them constantly, but so does every leaf settings route
@@ -53,6 +54,7 @@ from src.settings.rows import list_rows
 from src.settings.service import canonical_doc
 from src.web.settings.backup import register_backup_routes
 from src.web.settings.companies import register_companies_routes
+from src.web.settings.content_draft import register_content_draft_routes
 from src.web.settings.forms import apply_patch, decode, decode_secrets, errors_by_path
 from src.web.settings.history import register_history_routes
 from src.web.settings.probes import ProbeResult, probe_discord, probe_llm, probe_ntfy
@@ -203,9 +205,6 @@ async def save_section(request: Request, section: Section, **extra) -> HTMLRespo
 
 
 def register_settings_routes(app: FastAPI) -> None:
-    # Lazy: see the module docstring for the circular-import chain this dodges.
-    from src.web.settings.content_draft import register_content_draft_routes
-
     register_row_routes(app)
     register_companies_routes(app)
     register_history_routes(app)

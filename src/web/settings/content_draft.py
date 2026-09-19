@@ -29,7 +29,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.resume_intake.content_draft import MIN_TIMEOUT_SECONDS, NO_RESUME, draft_content
-from src.resume_intake.draft import DraftFailed
+from src.resume_intake.errors import DraftFailed
 from src.resume_intake.facts_scaffold import build_facts_yaml
 from src.settings.errors import SettingsInvalid
 from src.web.settings.sections import section_by_slug

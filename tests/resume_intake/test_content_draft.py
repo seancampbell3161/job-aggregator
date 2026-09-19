@@ -2,6 +2,9 @@
 source for every later rewrite, so its failures must be loud and its ids must
 be the server's."""
 import json
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -11,7 +14,7 @@ from src.llm.providers import LlmBinding
 from src.resume_intake.content_draft import (
     CONTENT_SCHEMA, ContentDraft, assign_ids, draft_content,
 )
-from src.resume_intake.draft import DraftFailed
+from src.resume_intake.errors import DraftFailed
 from src.tailor.content import parse_content
 
 RESUME = "Acme Corp — Staff Engineer, 2021-present. Improved checkout latency."
@@ -282,3 +285,27 @@ async def test_the_resume_is_fenced_as_untrusted_data(monkeypatch):
     assert "TRANSCRIBE" in seen["system"]
     assert "&lt;/resume&gt;" in seen["user"]
     assert seen["user"].count("</resume>") == 1
+
+
+def test_the_drafter_pulls_in_no_part_of_the_web_layer():
+    """A domain module must not depend on the web package.
+
+    It used to, transitively and for one symbol: this module reached
+    src.resume_intake.draft for DraftFailed, draft.py imports
+    src.web.settings.forms, and that chain is what forced
+    src/web/settings/routes.py to import its own content_draft sibling lazily
+    — importing src.resume_intake.draft first ran src/web/settings/__init__,
+    which imported routes.py, which came back to a half-imported draft.py
+    whose DraftFailed did not exist yet. DraftFailed now lives in the leaf
+    module src/resume_intake/errors.py.
+
+    Run in a fresh interpreter on purpose. In-process this would assert
+    nothing: by the time the suite reaches it, hundreds of other tests have
+    already put src.web.* in sys.modules, so the list would be non-empty
+    however clean this module's own imports were."""
+    code = ("import sys, src.resume_intake.content_draft; "
+            "print(sorted(k for k in sys.modules if k.startswith('src.web')))")
+    root = Path(__file__).resolve().parents[2]
+    out = subprocess.run([sys.executable, "-c", code], cwd=root,
+                         capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "[]"

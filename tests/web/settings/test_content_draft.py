@@ -144,7 +144,7 @@ def test_the_status_route_renders_the_ok_branch_too(tmp_path, monkeypatch):
 # on these; a previous task in this plan removed one for being inconsistent
 # with sibling tests, so it's omitted here too.
 async def test_the_task_stores_a_failure_rather_than_raising(tmp_path, monkeypatch):
-    from src.resume_intake.draft import DraftFailed
+    from src.resume_intake.errors import DraftFailed
     from src.web.settings.content_draft import run_content_draft
 
     app = _app(tmp_path, monkeypatch, documents={"resume_text": "CV"})
