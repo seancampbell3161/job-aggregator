@@ -123,3 +123,24 @@ def test_test_button_passes_the_typed_key_to_the_probe(tmp_path, monkeypatch):
     monkeypatch.setattr("src.web.wizard.routes.probe_llm", fake)
     signed_in_client(app).post("/wizard/llm/test", data=FORM)
     assert seen["key"] == "sk-test"
+
+
+def test_test_button_honours_a_pending_clear(tmp_path, monkeypatch):
+    """Ticking clear then testing must not probe with the key Save will
+    delete. Reachable in the wizard, not just in Settings: save the LLM step
+    once (the key becomes "stored"), GET /wizard/llm again (no guard against
+    revisiting a completed step), tick clear, press Test — same
+    secret_field macro and secret_rows() helper Settings uses."""
+    app = _app(tmp_path, monkeypatch)
+    app.state.service.set_secret("anthropic_api_key", "sk-stored")
+    seen = {}
+
+    async def fake(cfg, profile):
+        seen["key"] = cfg.secrets.anthropic_api_key
+        return ProbeResult(True, "ok")
+
+    monkeypatch.setattr("src.web.wizard.routes.probe_llm", fake)
+    signed_in_client(app).post("/wizard/llm/test", data={
+        **FORM, "secret.anthropic_api_key": "", "clear.anthropic_api_key": "on",
+    })
+    assert seen["key"] == ""

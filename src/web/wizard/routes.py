@@ -172,9 +172,14 @@ def register_wizard_routes(app: FastAPI) -> None:
         except SettingsInvalid as exc:
             return _probe_partial(request, ProbeResult(False, "; ".join(
                 f"{e.get('loc', '')}: {e['msg']}" for e in exc.errors)))
-        typed, _ = decode_secrets(LLM_SECRETS, raw, service.secret_source)
+        typed, to_clear = decode_secrets(LLM_SECRETS, raw, service.secret_source)
         merged = {name: service.effective_secret(name) for name in LLM_SECRETS}
         merged.update(typed)
+        # A pending "clear" checkbox is what Save will actually do to this
+        # secret — the probe must reflect that too, or ticking clear and
+        # pressing Test reports green off the still-stored value.
+        for name in to_clear:
+            merged[name] = ""
         cfg = cfg.model_copy(update={"secrets": cfg.secrets.model_copy(update=merged)})
         return _probe_partial(request, await probe_llm(cfg, snap.documents.profile))
 
