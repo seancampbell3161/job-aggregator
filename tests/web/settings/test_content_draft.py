@@ -114,6 +114,24 @@ def test_the_status_route_renders_the_stored_record(tmp_path, monkeypatch):
     assert "Edit as JSON instead" in r.text
 
 
+def test_the_status_route_renders_the_ok_branch_too(tmp_path, monkeypatch):
+    """The only other status-route test above hits the 'error' branch,
+    which never reaches the {% import "_settings_macros.html" as w %} at
+    the top of _content_draft_result.html — so deleting that import left a
+    green suite despite a live UndefinedError on this route once a draft
+    actually completes. Render the 'ok' branch through the status route
+    itself (not the full settings page, which has its own import via
+    settings_base.html and would mask the same regression)."""
+    app = _app(tmp_path, monkeypatch, documents={"resume_text": "CV"})
+    app.state.stores.wizard.put("content_draft", {
+        "status": "ok", "document": DRAFTED,
+        "contact": {"email": "s@e.com"},
+    })
+    r = signed_in_client(app).get("/settings/documents/draft/status")
+    assert r.status_code == 200
+    assert 'name="text.acme-b1"' in r.text
+
+
 # asyncio_mode = "auto" (pyproject.toml:87) makes @pytest.mark.asyncio redundant
 # on these; a previous task in this plan removed one for being inconsistent
 # with sibling tests, so it's omitted here too.
@@ -225,6 +243,21 @@ def test_ids_are_never_taken_from_the_form():
     # the form and echoed the stored draft back unchanged.
     assert out["experiences"][0]["bullets"][0]["text"] == "kept"
     assert "smuggled in" not in json.dumps(out)
+    # Also rules out an implementation that invents a *project* (rather than
+    # an experience) from company.INVENTED — that would still satisfy the
+    # two assertions above, since neither looks at out["projects"].
+    assert "Nowhere Inc" not in json.dumps(out)
+
+
+def test_apply_edits_drops_an_entry_left_with_no_bullets():
+    """Dropping (or blanking) every bullet under a role must remove that
+    role from the result rather than write it with an empty bullet list —
+    parse_content on its own accepts a bulletless experience, so this is the
+    only thing that makes an empty entry structurally impossible to save."""
+    out = apply_edits(DRAFTED, {
+        "drop.acme-b1": ["1"], "drop.acme-b2": ["1"], "skills": ["Go"],
+    })
+    assert out["experiences"] == []
 
 
 def test_metric_bearing_is_recomputed_from_the_edited_text():
@@ -328,3 +361,89 @@ def test_dropping_every_bullet_is_refused_and_the_draft_survives(tmp_path, monke
     assert "nothing to tailor" in r.text
     assert app.state.service.snapshot().documents.resume_content is None
     assert app.state.stores.wizard.get("content_draft")["status"] == "ok"
+
+
+TWO_ROLES = {
+    **DRAFTED,
+    "experiences": [
+        DRAFTED["experiences"][0],
+        {"id": "beta", "company": "Beta", "role": "Eng", "start": "2019", "end": "2021",
+         "bullets": [{"id": "beta-b1", "text": "shipped x", "tags": [],
+                      "metric_bearing": False, "evidence_refs": []}]},
+    ],
+}
+
+
+def test_dropping_every_bullet_of_one_role_does_not_write_a_phantom_empty_role(tmp_path, monkeypatch):
+    """The refusal used to be a document-wide check (any bullet anywhere?),
+    which missed the case where one role is emptied while another keeps a
+    bullet: that combination saved successfully and wrote a real role with
+    zero bullets, which parse_content does not catch either. Emptying acme
+    while beta keeps a bullet must save beta only — acme must not appear at
+    all, let alone with an empty bullet list."""
+    app = _ready(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}), TWO_ROLES)
+    r = signed_in_client(app).post("/settings/documents/draft/save", data={
+        "drop.acme-b1": "1", "drop.acme-b2": "1", "text.beta-b1": "shipped x", "skills": "Go",
+    }, follow_redirects=False)
+    assert r.status_code == 303
+    saved = json.loads(app.state.service.snapshot().documents.resume_content)
+    assert [e["id"] for e in saved["experiences"]] == ["beta"]
+    assert all(e["bullets"] for e in saved["experiences"])
+
+
+WITH_PROJECT = {
+    **DRAFTED,
+    "projects": [{"id": "proj1", "name": "Widget", "subtitle": "", "dates": "2022",
+                 "bullets": [{"id": "proj1-b1", "text": "built widget", "tags": [],
+                              "metric_bearing": False, "evidence_refs": []}]}],
+}
+
+
+def test_a_projects_only_result_is_allowed(tmp_path, monkeypatch):
+    """A new grad with projects and no work history is a real résumé, not an
+    empty one — the refusal only fires when experiences AND projects are
+    both empty, not when either one alone is."""
+    app = _ready(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}), WITH_PROJECT)
+    r = signed_in_client(app).post("/settings/documents/draft/save", data={
+        "drop.acme-b1": "1", "drop.acme-b2": "1", "text.proj1-b1": "built widget", "skills": "Go",
+    }, follow_redirects=False)
+    assert r.status_code == 303
+    saved = json.loads(app.state.service.snapshot().documents.resume_content)
+    assert saved["experiences"] == []
+    assert [p["id"] for p in saved["projects"]] == ["proj1"]
+
+
+MISSING_NAME = {k: v for k, v in DRAFTED.items() if k != "name"}
+
+
+def test_a_refused_save_re_renders_with_the_edited_document_not_the_stored_draft(tmp_path, monkeypatch):
+    """The spec's error table promises the form re-renders with the user's
+    edits intact on a refusal. A SettingsInvalid from save_document (here:
+    the stored draft is missing content.json's required 'name' key) must
+    not fall back to redisplaying the last-stored draft, which would
+    silently discard whatever the user just typed."""
+    app = _ready(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}), MISSING_NAME)
+    r = signed_in_client(app).post("/settings/documents/draft/save", data={
+        "text.acme-b1": "first", "text.acme-b2": "second",
+        "company.acme": "EDITED CO", "skills": "Go",
+    })
+    assert r.status_code == 200
+    assert "EDITED CO" in r.text
+    assert app.state.service.snapshot().documents.resume_content is None
+
+
+def test_a_kit_facts_scaffold_failure_does_not_block_the_resume_save(tmp_path, monkeypatch):
+    """The résumé write is the part that matters. A failure scaffolding
+    kit_facts afterward (build_facts_yaml's output should always validate,
+    but this guards the case it doesn't) must not turn an already-successful
+    resume_content save into a 500 — the redirect must still happen."""
+    monkeypatch.setattr("src.web.settings.content_draft.build_facts_yaml",
+                        lambda contact, cfg: "not: [valid, yaml: structure")
+    app = _ready(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}))
+    r = signed_in_client(app).post("/settings/documents/draft/save", data={
+        "text.acme-b1": "first", "text.acme-b2": "second", "skills": "Go",
+    }, follow_redirects=False)
+    assert r.status_code == 303
+    snap = app.state.service.snapshot()
+    assert snap.documents.resume_content is not None
+    assert snap.documents.kit_facts is None

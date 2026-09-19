@@ -64,21 +64,34 @@ async def run_content_draft(app) -> dict:
 _DIGIT = re.compile(r"\d")
 
 
-def _one(form: Mapping[str, Any], name: str, default: str = "") -> str:
+def _one(form: Mapping[str, list[str]], name: str, default: str = "") -> str:
+    """The first value for ``name`` in ``form``, or ``default`` if absent.
+
+    ``form`` values are always ``list[str]`` — the save route builds it with
+    ``request.form().getlist()`` for every key, and every caller (production
+    and tests alike) follows that shape, so there is no plain-string branch
+    to support here."""
     values = form.get(name)
-    if isinstance(values, str):
-        return values.strip()
     return str(values[0]).strip() if values else default
 
 
-def apply_edits(document: Mapping[str, Any], form: Mapping[str, Any]) -> dict:
+def apply_edits(document: Mapping[str, Any], form: Mapping[str, list[str]]) -> dict:
     """The stored draft with the user's edits applied.
 
     Structure comes from the draft, never from the form: the form carries only
     per-id bullet text, per-id drop flags, per-entry strings and the skills
     chips. A malformed or hostile post can therefore change text and remove
     bullets, but cannot invent an entry, resurrect a dropped one, or rewrite
-    an id — which is what keeps the ids stable across a review."""
+    an id — which is what keeps the ids stable across a review.
+
+    An experience or project left with no bullets after edits (every bullet
+    dropped, or edited down to blank text) is dropped from the result
+    entirely rather than kept with an empty bullet list. That is what makes
+    an empty entry structurally impossible to write: parse_content on its own
+    accepts one, so the save route's refusal (nothing left to tailor at all)
+    cannot rely on it alone. Dropping every bullet from a role therefore
+    means "delete this role," not "keep an empty one" — a projects-only or
+    experience-only result is fine as long as something remains."""
 
     def edited_bullets(bullets):
         out = []
@@ -102,6 +115,7 @@ def apply_edits(document: Mapping[str, Any], form: Mapping[str, Any]) -> dict:
          "bullets": edited_bullets(e.get("bullets"))}
         for e in document.get("experiences") or []
     ]
+    experiences = [e for e in experiences if e["bullets"]]
     projects = [
         {**p,
          "name": _one(form, f"name.{p['id']}", p.get("name", "")),
@@ -110,15 +124,13 @@ def apply_edits(document: Mapping[str, Any], form: Mapping[str, Any]) -> dict:
          "bullets": edited_bullets(p.get("bullets"))}
         for p in document.get("projects") or []
     ]
+    projects = [p for p in projects if p["bullets"]]
 
     # Chips carry names only, so a kept skill's category is looked up from the
     # draft and a newly typed one gets an empty category — which parse_content
     # accepts (src/tailor/content.py:45).
-    raw_skills = form.get("skills")
-    if isinstance(raw_skills, str):
-        raw_skills = [raw_skills]
     names = list(dict.fromkeys(
-        n.strip() for n in (raw_skills or []) if n and n.strip()))
+        n.strip() for n in (form.get("skills") or []) if n and n.strip()))
     by_name = {str(s.get("name", "")).strip().lower(): s
                for s in document.get("skills") or []}
     skills = [
@@ -131,12 +143,18 @@ def apply_edits(document: Mapping[str, Any], form: Mapping[str, Any]) -> dict:
     return {**document, "skills": skills, "experiences": experiences, "projects": projects}
 
 
-def _render(request: Request, **extra) -> HTMLResponse:
-    """The Documents section's nav and chrome, this module's template."""
+def _render(request: Request, *, draft: dict | None = None, **extra) -> HTMLResponse:
+    """The Documents section's nav and chrome, this module's template.
+
+    ``draft`` overrides the stored record when given — the save route passes
+    the record with its ``document`` swapped for apply_edits's output when
+    re-rendering after a refusal, so the user's typed text and drop choices
+    survive the redisplay instead of reverting to the last stored draft."""
     return request.app.state.templates.TemplateResponse(
         request, PAGE_TEMPLATE,
         page_ctx(request, section_by_slug("documents"),
-                 draft=request.app.state.stores.wizard.get(KEY), **extra),
+                 draft=request.app.state.stores.wizard.get(KEY) if draft is None else draft,
+                 **extra),
     )
 
 
@@ -188,9 +206,17 @@ def register_content_draft_routes(app: FastAPI) -> None:
         raw = {k: form.getlist(k) for k in form.keys()}
         document = apply_edits(record["document"], raw)
         service = request.app.state.service
+        # Re-render on any refusal below uses this edited document, not the
+        # stored draft, so the user's typed text and drop choices survive —
+        # reverting to the stored draft here would silently discard them.
+        edited_record = {**record, "document": document}
 
-        if not any(e.get("bullets") for e in document.get("experiences") or []):
-            return _render(request, form_errors=[
+        # apply_edits already drops any entry left with no bullets, so an
+        # empty entry can never be written; refuse only once nothing (of
+        # either kind) is left to save. A projects-only or experience-only
+        # result is fine — that's a real résumé, not an empty one.
+        if not document.get("experiences") and not document.get("projects"):
+            return _render(request, draft=edited_record, form_errors=[
                 "Every bullet was dropped or blank, so there would be nothing "
                 "to tailor. Keep at least one, or edit the document as JSON."])
 
@@ -201,7 +227,7 @@ def register_content_draft_routes(app: FastAPI) -> None:
                 source="llm_draft",
             )
         except SettingsInvalid as exc:
-            return _render(request, form_errors=[str(exc)])
+            return _render(request, draft=edited_record, form_errors=[str(exc)])
 
         snap = service.snapshot()
         request.state.snapshot = snap
@@ -209,11 +235,19 @@ def register_content_draft_routes(app: FastAPI) -> None:
         # user's own work and this scaffold is a starting point, not an
         # improvement on it.
         if not snap.documents.kit_facts:
-            service.save_document(
-                "kit_facts",
-                build_facts_yaml(record.get("contact") or {}, snap.cfg),
-                source="llm_draft",
-            )
+            try:
+                service.save_document(
+                    "kit_facts",
+                    build_facts_yaml(record.get("contact") or {}, snap.cfg),
+                    source="llm_draft",
+                )
+            except Exception as exc:  # noqa: BLE001 — the résumé data just
+                # written above is what matters; build_facts_yaml's output
+                # should always validate, but a failure here must not turn
+                # an otherwise-successful save into a 500 after the write
+                # already happened. The user can write facts.yaml by hand.
+                log.warning("kit_facts_scaffold_failed",
+                            extra={"error": str(exc), "error_type": type(exc).__name__})
 
         store.delete(KEY)
         return RedirectResponse("/settings/documents?kind=resume_content",
