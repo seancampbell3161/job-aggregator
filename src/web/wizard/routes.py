@@ -195,7 +195,7 @@ def review_prefill(request: Request) -> dict:
 
     Once a profile document has actually been saved, this page is an ordinary
     settings page from then on: the config is truth, so no prefill (an empty
-    mapping makes review_shown() fall straight through to the config). That
+    mapping makes prefilled_shown() fall straight through to the config). That
     matters for a direct revisit after approval — without it, a stale
     pre-edit draft cached from before that save would keep outranking the
     config forever, so an intentional edit made at approval time would look
@@ -223,17 +223,40 @@ def review_prefill(request: Request) -> dict:
     return prefill
 
 
-def review_shown(ctx_submitted, cfg, spec, prefill):
-    """review's own shown(): the same submitted-or-config rule settings pages
-    use (settings.routes.shown), with one more layer underneath. A not-yet-
-    saved draft or interview prefill wins over the stored config, so a first
-    visit shows the draft rather than empty/default fields. Once the user has
+def prefilled_shown(ctx_submitted, cfg, spec, prefill):
+    """shown() with one more layer underneath, for the steps that open with a
+    suggestion: the same submitted-or-config rule settings pages use
+    (settings.routes.shown), except that a step's prefill wins over the stored
+    config, so a first visit shows the suggestion rather than empty/default
+    fields. Once the user has
     actually typed something (ctx_submitted is not None, i.e. a re-render
     after a failed save), that submitted value always wins, exactly like
     shown() — this never overrides what's on screen with the draft."""
     if ctx_submitted is None and spec.path in prefill:
         return prefill[spec.path]
     return shown(ctx_submitted, cfg, spec)
+
+
+def llm_prefill(request: Request) -> dict:
+    """The LLM step opens with Enabled already ticked.
+
+    The shipped default stays false on purpose: _llm_done() uses
+    relevance.enabled as its "has the user decided anything here?" signal, so a
+    true default would mark this step complete on a fresh install and skip the
+    one screen where the provider, model and key get set. Pre-ticking the box
+    puts the recommended path in front of the user without touching either the
+    config default or the step logic.
+
+    Skipping is the only way past this step without enabling scoring, so a
+    skipped step is the user saying no — and re-ticking then would quietly walk
+    that back."""
+    if "llm" in request.app.state.stores.wizard.skipped():
+        return {}
+    return {"relevance.enabled": True}
+
+
+def llm_extra(request: Request) -> dict:
+    return {"prefill": llm_prefill(request)}
 
 
 def review_extra(request: Request) -> dict:
@@ -290,7 +313,9 @@ async def _ensure_draft(request: Request) -> tuple[dict | None, str | None]:
 
 def render_step(request: Request, step, **extra) -> HTMLResponse:
     paths, secrets = STEP_FIELDS.get(step.slug, ((), ()))
-    if step.slug == "companies":
+    if step.slug == "llm":
+        extra = {**llm_extra(request), **extra}
+    elif step.slug == "companies":
         extra = {**companies_extra(request), **extra}
     elif step.slug == "notifications":
         extra = {**notifications_extra(request), **extra}
@@ -391,7 +416,7 @@ def save_step(request: Request, step, paths, secrets, form_raw) -> HTMLResponse 
 
 
 def register_wizard_routes(app: FastAPI) -> None:
-    app.state.templates.env.globals["review_shown"] = review_shown
+    app.state.templates.env.globals["prefilled_shown"] = prefilled_shown
 
     @app.get("/wizard")
     def wizard_root(request: Request):

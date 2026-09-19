@@ -256,9 +256,16 @@ class DiscoveryConfig(BaseModel):
 
 
 class RelevanceConfig(BaseModel):
+    # Scoring stays opt-in: web.wizard.steps._llm_done() reads
+    # relevance.enabled as "has the user decided anything on the LLM step yet?",
+    # so defaulting it true would mark that step complete on a fresh install and
+    # skip the one screen where the provider, model and key get set. The wizard
+    # pre-ticks the box instead (web.wizard.routes.llm_prefill).
     enabled: bool = False
-    provider: Literal["anthropic", "gemini", "ollama"] = "anthropic"
-    model: str = "claude-haiku-4-5"
+    # ...but when it IS switched on, it points at Ollama: the only provider that
+    # needs no API key, so the shipped default can work without a signup first.
+    provider: Literal["anthropic", "gemini", "ollama"] = "ollama"
+    model: str = "gpt-oss:120b"
     score_high: int = Field(default=7, ge=0, le=10)
     score_low: int = Field(default=3, ge=0, le=10)
     timeout_seconds: int = Field(default=10, ge=1)

@@ -22,7 +22,7 @@
     <h2>Filters</h2>
     <p class="muted">Hard gates every posting passes before it is scored.</p>
     {% for spec in fields %}
-      {{ w.field(spec, review_shown(submitted, cfg, spec, prefill), errors) }}
+      {{ w.field(spec, prefilled_shown(submitted, cfg, spec, prefill), errors) }}
     {% endfor %}
   </section>
 

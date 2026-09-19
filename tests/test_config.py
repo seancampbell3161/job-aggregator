@@ -282,14 +282,20 @@ schedules:
         """
     )
 
-    assert cfg.relevance.enabled is False  # default disabled
-    assert cfg.relevance.model == "claude-haiku-4-5"
+    # Scoring stays opt-in (the wizard's LLM step pre-ticks the box instead —
+    # a true default would make _llm_done() skip that step), but when it is
+    # switched on it points at a local Ollama: the only provider that needs no
+    # API key, so the shipped default can actually work out of the box.
+    assert cfg.relevance.enabled is False
+    assert cfg.relevance.provider == "ollama"
+    assert cfg.relevance.model == "gpt-oss:120b"
     assert cfg.relevance.score_high == 7
     assert cfg.relevance.score_low == 3
 
 
-def test_app_config_relevance_provider_defaults_to_anthropic():
-    """Backwards-compat: relevance.provider unspecified → 'anthropic'."""
+def test_app_config_relevance_provider_defaults_to_ollama():
+    """relevance.provider unspecified → 'ollama', the one provider that needs
+    no API key and so can work on a fresh install without any signup."""
     cfg = _validate(
         """
 filters:
@@ -303,7 +309,7 @@ sources: {greenhouse: []}
 schedules: {ats_minutes: 1, slow_minutes: 15, discovery_hours: 24}
         """
     )
-    assert cfg.relevance.provider == "anthropic"
+    assert cfg.relevance.provider == "ollama"
 
 
 def test_app_config_accepts_provider_gemini():
