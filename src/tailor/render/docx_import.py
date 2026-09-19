@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from src.llm.providers import build_binding, missing_key, resolve
+
 log = logging.getLogger(__name__)
 
 RENDERDOC_CONTRACT = """The template is a single Jinja2 HTML file rendered with one variable, `doc`:
@@ -108,16 +110,16 @@ def build_docx_importer(cfg: Any) -> DocxTemplateImporter | None:
     key required only for a non-local host, None when unavailable (the
     /builder page shows docx import as unavailable)."""
     t = cfg.tailoring
-    provider = t.provider or cfg.relevance.provider
+    provider, _ = resolve(cfg, "tailoring")
     if provider != "ollama":
         return None
-    api_key = cfg.secrets.ollama_api_key
-    if not cfg.relevance.ollama_is_local and not api_key:
+    if missing_key(cfg, "tailoring") is not None:
         return None
-    from ollama import AsyncClient
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-    client = AsyncClient(host=cfg.relevance.ollama_host, headers=headers)
+
+    binding = build_binding(cfg, feature="tailoring", timeout_seconds=t.timeout_seconds)
+    if binding is None:
+        return None
     # Template generation is a longer LLM call than a normal tailoring run;
     # never let a tight tailoring.timeout_seconds starve it.
-    return DocxTemplateImporter(client=client, model=t.model or cfg.relevance.model,
-                                timeout_seconds=max(t.timeout_seconds, 120))
+    return DocxTemplateImporter(client=binding.client, model=binding.model,
+                                timeout_seconds=max(binding.timeout_seconds, 120))

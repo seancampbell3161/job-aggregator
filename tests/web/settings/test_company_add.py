@@ -290,6 +290,81 @@ def test_a_jsonld_match_is_addable_under_its_sources_family(tmp_path, monkeypatc
     )
 
 
+# --- `next` threading (whole-branch review, Important 1): the wizard's
+# companies step reuses this same probe/add chain rather than reimplementing
+# it, but companies_add used to ALWAYS redirect to /settings/companies —
+# stranding a wizard user on the standalone settings page, which has no
+# route back into the wizard. The Check form now carries a `next` field
+# through the probe result into "Add this board", and companies_add honours
+# it (re-validated with safe_next() at the point of use, since the hidden
+# field is client-controlled HTML a tampered POST could resubmit). ---
+
+def test_probe_result_carries_next_into_the_add_form(tmp_path, monkeypatch):
+    _stub(monkeypatch, MATCH)
+    r = signed_in_client(_app(tmp_path, monkeypatch)).post(
+        "/settings/companies/probe", data={"target": "acme.com", "next": "/wizard"})
+    assert 'name="next" value="/wizard"' in r.text
+
+
+def test_probe_result_omits_next_when_none_was_given(tmp_path, monkeypatch):
+    """The settings page's own Check form never sends `next` — its add box
+    must keep redirecting to this same page, not gain a stray hidden field."""
+    _stub(monkeypatch, MATCH)
+    r = signed_in_client(_app(tmp_path, monkeypatch)).post(
+        "/settings/companies/probe", data={"target": "acme.com"})
+    assert 'name="next"' not in r.text
+
+
+def test_add_with_next_redirects_there_instead_of_the_settings_page(tmp_path, monkeypatch):
+    app = _app(tmp_path, monkeypatch)
+    r = signed_in_client(app, follow_redirects=False).post("/settings/companies/add", data={
+        "family": "greenhouse", "name": "Acme", "identity": '{"slug": "acme"}',
+        "next": "/wizard",
+    })
+    assert r.status_code == 303
+    assert r.headers["location"] == "/wizard"
+    assert app.state.service.snapshot().cfg.sources.greenhouse == ["acme"]
+
+
+def test_add_without_next_keeps_the_default_settings_redirect(tmp_path, monkeypatch):
+    app = _app(tmp_path, monkeypatch)
+    r = signed_in_client(app, follow_redirects=False).post("/settings/companies/add", data={
+        "family": "greenhouse", "name": "Acme", "identity": '{"slug": "acme"}'})
+    assert r.status_code == 303
+    assert r.headers["location"] == "/settings/companies?added=1"
+
+
+def test_add_rejects_an_off_site_next(tmp_path, monkeypatch):
+    """The hidden `next` field survives in the browser's DOM and could be
+    resubmitted with anything — safe_next() must be enforced here, not just
+    trusted because companies_probe originally validated it. safe_next()'s
+    own contract (src/web/auth.py) is to fall back to "/" for anything that
+    isn't a same-site path, not to the companies page specifically — reused
+    as-is here rather than re-implemented, so this pins that contract, not a
+    companies-specific one."""
+    app = _app(tmp_path, monkeypatch)
+    r = signed_in_client(app, follow_redirects=False).post("/settings/companies/add", data={
+        "family": "greenhouse", "name": "Acme", "identity": '{"slug": "acme"}',
+        "next": "https://evil.example/steal",
+    })
+    assert r.status_code == 303
+    assert r.headers["location"] == "/"
+
+
+def test_add_is_idempotent_and_still_honours_next(tmp_path, monkeypatch):
+    """The already-configured dedupe branch is a separate return point from
+    the normal write path — it must honour `next` too, or re-confirming an
+    already-added board from the wizard would strand the user exactly like
+    the bug this fix targets."""
+    app = _app(tmp_path, monkeypatch, make_service({"sources": {"greenhouse": ["acme"]}}))
+    r = signed_in_client(app, follow_redirects=False).post("/settings/companies/add", data={
+        "family": "greenhouse", "name": "Acme", "identity": '{"slug": "acme"}',
+        "next": "/wizard",
+    })
+    assert r.status_code == 303
+    assert r.headers["location"] == "/wizard"
+
+
 def test_an_unsupported_jsonld_family_points_at_its_real_manual_form(tmp_path, monkeypatch):
     """icims/successfactors/talentbrew are hand-curated into jsonld_boards
     (fingerprint.py's own docstring) — a generic "/settings/rows/" substring

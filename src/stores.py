@@ -22,6 +22,7 @@ if TYPE_CHECKING:
         SqliteRejectedPostingsStore,
         SqliteSeenJobsStore,
         SqliteSourceStateStore,
+        SqliteWizardStore,
     )
 
 
@@ -37,6 +38,7 @@ class Stores:
     boards: SqliteDiscoveredBoardsStore
     coach: SqliteCoachRunsStore
     builder: SqliteBuilderSettingsStore
+    wizard: SqliteWizardStore
     settings: SqliteSettingsStore
     auth: SqliteAuthStore
 
@@ -62,6 +64,7 @@ def build_stores(cfg: Any = None) -> Stores:
         SqliteRejectedPostingsStore,
         SqliteSeenJobsStore,
         SqliteSourceStateStore,
+        SqliteWizardStore,
     )
     conn = connect()
     return Stores(
@@ -75,6 +78,7 @@ def build_stores(cfg: Any = None) -> Stores:
         boards=SqliteDiscoveredBoardsStore(conn),
         coach=SqliteCoachRunsStore(conn),
         builder=SqliteBuilderSettingsStore(conn),
+        wizard=SqliteWizardStore(conn),
         # Its own connection: SqliteSettingsStore.read()/_write() BEGIN their
         # own transactions, which would collide ("cannot start a transaction
         # within a transaction") with any other store's BEGIN IMMEDIATE on a

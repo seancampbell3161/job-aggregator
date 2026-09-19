@@ -57,6 +57,7 @@ SECTIONS: tuple[Section, ...] = (
             "relevance.score_high", "relevance.score_low",
             "relevance.timeout_seconds", "relevance.ollama_host",
             "gap_analysis.enabled", "gap_analysis.provider", "gap_analysis.model",
+            "resume_draft.provider", "resume_draft.model", "resume_draft.timeout_seconds",
             "tailoring.enabled", "tailoring.provider", "tailoring.model",
             "coach.enabled", "coach.provider", "coach.model",
         ),

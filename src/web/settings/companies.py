@@ -30,6 +30,7 @@ from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import item_model
 from src.settings.rows import add_row_patch
 from src.state import DiscoveredSlug
+from src.web.auth import safe_next
 from src.web.settings.forms import apply_patch
 from src.web.settings.health import board_status
 from src.web.settings.sections import SECTIONS, section_by_slug
@@ -94,9 +95,16 @@ def _manual_row_path(family: str) -> str:
 
 def _probe_partial(
     request: Request, *, result: FingerprintResult | None = None,
-    already: bool = False, error: str | None = None,
+    already: bool = False, error: str | None = None, next_path: str | None = None,
 ) -> HTMLResponse:
-    ctx: dict = {"result": result, "already": already, "error": error}
+    # next_path is only ever a caller-supplied path already validated by
+    # safe_next() in companies_probe below — this function trusts it as
+    # given rather than re-validating, so it stays a plain pass-through for
+    # whatever the "Add this board" form should return to once confirmed.
+    # Named `next` in the template context (matching the form field name the
+    # wizard's Check form submits), not `next_path`, so avoid the builtin
+    # shadow here and rename only at the boundary.
+    ctx: dict = {"result": result, "already": already, "error": error, "next": next_path}
     if result is not None:
         # connector_name() needs BOTH family and identity — an unsupported
         # result carries only a family, so this guard (not a template-side
@@ -212,16 +220,25 @@ def register_companies_routes(app: FastAPI) -> None:
         """Fingerprint the pasted value. Writes nothing, ever."""
         form = await request.form()
         target = str(form.get("target", ""))
+        # `next` rides along from the Check form (a hidden field, set only by
+        # callers that want confirming a board to land somewhere other than
+        # this page — the wizard's companies step points it at /wizard) and
+        # is threaded through to the "Add this board" form below, so
+        # companies_add knows where to send the browser once it writes.
+        # safe_next() rejects anything that isn't a same-site path, so a
+        # tampered hidden field can't turn this into an open redirect.
+        next_raw = form.get("next")
+        next_path = safe_next(str(next_raw)) if next_raw else None
         try:
             normalize_target(target)
         except ValueError as exc:
-            return _probe_partial(request, error=str(exc))
+            return _probe_partial(request, error=str(exc), next_path=next_path)
         async with _probe_client() as client:
             result = await probe_target(client, target)
         configured = gather_already_polled(request.state.snapshot.cfg)
         already = (result.status in ("matched", "not_found") and result.family
                    and result.identity and connector_name(result) in configured)
-        return _probe_partial(request, result=result, already=bool(already))
+        return _probe_partial(request, result=result, already=bool(already), next_path=next_path)
 
     @app.post("/settings/companies/add", response_class=HTMLResponse)
     async def companies_add(request: Request):
@@ -231,6 +248,17 @@ def register_companies_routes(app: FastAPI) -> None:
         form = await request.form()
         family = str(form.get("family", ""))
         name = str(form.get("name", ""))
+        # Where to land after a successful add. Defaults to this same page
+        # (?added=1, read by companies_page's "Saved" banner) unless a
+        # caller asked for somewhere else — see companies_probe above for
+        # where `next` comes from. Re-checked with safe_next() here too: the
+        # hidden field survives in the browser's DOM, so a POST straight to
+        # this route (bypassing the probe step) is a tampering vector this
+        # route must not trust blindly even though companies_probe already
+        # validated the value it originally handed back.
+        next_raw = form.get("next")
+        next_path = safe_next(str(next_raw)) if next_raw else None
+        added_url = next_path or "/settings/companies?added=1"
         if family not in BOARD_FAMILIES:
             raise HTTPException(status_code=400, detail="unknown source family")
         try:
@@ -258,7 +286,7 @@ def register_companies_routes(app: FastAPI) -> None:
         # an uncaught KeyError here instead of the clean 400 above.
         new_entry = patch[path][-1]
         if board_key(family, new_entry) in gather_already_polled(cfg):
-            return RedirectResponse("/settings/companies?added=1", status_code=303)
+            return RedirectResponse(added_url, status_code=303)
 
         def mutate(doc: dict) -> str | None:
             return f"ui: added a {family} board" if apply_patch(doc, patch) else None
@@ -276,7 +304,7 @@ def register_companies_routes(app: FastAPI) -> None:
             return RedirectResponse("/setup", status_code=303)
 
         request.state.snapshot = request.app.state.service.snapshot()
-        return RedirectResponse("/settings/companies?added=1", status_code=303)
+        return RedirectResponse(added_url, status_code=303)
 
     @app.get("/settings/companies/remove/{digest}", response_class=HTMLResponse)
     def companies_remove_confirm(request: Request, digest: str):

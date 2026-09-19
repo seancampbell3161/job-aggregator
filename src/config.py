@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import warnings
 from datetime import time
-from typing import Literal
+from typing import Literal, get_args
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -16,6 +16,10 @@ from src import geo
 EmploymentType = Literal[
     "full_time", "part_time", "contract", "contract_to_hire", "temporary", "internship"
 ]
+# Derived, not hand-copied — a hand-written tuple would silently drift from
+# the Literal above. Not a config flag itself, so it carries no docs/CONFIG.md
+# row (tests/test_config_docs.py walks the model tree, not module constants).
+EMPLOYMENT_TYPES: tuple[str, ...] = get_args(EmploymentType)
 
 
 def _check_crontab(value: str) -> str:
@@ -278,6 +282,17 @@ class GapAnalysisConfig(BaseModel):
     digest_window_days: int = Field(default=30, ge=1)
 
 
+class ResumeDraftConfig(BaseModel):
+    """The first-run wizard's résumé -> profile + filters drafting.
+
+    No `enabled` flag on purpose: drafting is offered when a provider binding
+    can be built and falls back to hand-filled forms when it cannot, so there
+    is nothing for a flag to switch off."""
+    provider: Literal["anthropic", "gemini", "ollama"] | None = None
+    model: str | None = None
+    timeout_seconds: int = 60
+
+
 class TailoringConfig(BaseModel):
     enabled: bool = False
     # provider/model default to the relevance values when None (see build_tailor_engine)
@@ -504,6 +519,7 @@ class AppConfig(BaseModel):
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
     relevance: RelevanceConfig = Field(default_factory=RelevanceConfig)
     gap_analysis: GapAnalysisConfig = Field(default_factory=GapAnalysisConfig)
+    resume_draft: ResumeDraftConfig = Field(default_factory=ResumeDraftConfig)
     tailoring: TailoringConfig = Field(default_factory=TailoringConfig)
     board: BoardConfig = Field(default_factory=BoardConfig)
     audit: AuditConfig = Field(default_factory=AuditConfig)

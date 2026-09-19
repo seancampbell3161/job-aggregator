@@ -17,16 +17,7 @@
     {% block section %}{% endblock %}
   </div>
 </div>
-<script>
-  // Chip lists need no JS to work — blank inputs are dropped on save — this
-  // just saves a round trip when adding several at once.
-  function addChip(btn) {
-    var box = btn.previousElementSibling;
-    var last = box.lastElementChild;
-    var copy = last.cloneNode();
-    copy.value = '';
-    box.appendChild(copy);
-    copy.focus();
-  }
-</script>
+{# addChip() lives in base.html now — shared with wizard_base.html, which
+   also renders chip fields (via the same _settings_macros.html w.chips
+   macro) but extends base.html directly rather than this template. #}
 {% endblock %}

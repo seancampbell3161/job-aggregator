@@ -1,0 +1,24 @@
+{% extends "wizard_base.html" %}
+{% block step %}
+<section class="panel">
+  <h2>See what would arrive</h2>
+  <p>A one-off, read-only look at real postings on your configured boards,
+    scored against your profile and filters — up to 5 boards, up to a minute.
+    Nothing is delivered and nothing is marked as seen, so your first real
+    alert batch is still waiting for you after this.</p>
+  <form method="post" action="/wizard/preview/start">
+    <button type="submit" class="btn primary">Run the preview</button>
+  </form>
+</section>
+{% include "_wizard_preview_result.html" %}
+{% if step_done %}
+<p><a class="btn" href="/wizard">Finish</a></p>
+{% else %}
+{# No preview has finished (ok or error) yet, so /wizard would just route
+   straight back here -- same loop as the companies step's Continue. Post an
+   explicit skip so Finish actually leaves the wizard. #}
+<form method="post" action="/wizard/preview/skip">
+  <button type="submit" class="btn">Finish</button>
+</form>
+{% endif %}
+{% endblock %}

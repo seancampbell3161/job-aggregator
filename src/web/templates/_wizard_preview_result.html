@@ -1,0 +1,41 @@
+{% if not preview %}
+<div id="preview-result"></div>
+{% elif preview.status == "running" %}
+<div id="preview-result" class="muted" hx-get="/wizard/preview/status"
+     hx-trigger="every 2s" hx-target="this" hx-swap="outerHTML">
+  Still looking&hellip; this can take up to a minute.
+</div>
+{% elif preview.status == "error" %}
+<div id="preview-result" class="panel">
+  <p class="bad">The preview couldn't finish: {{ preview.error }}</p>
+  <p class="muted">You can still finish setup — polling runs on its own
+    schedule once you're done, regardless of what happened here.</p>
+</div>
+{% elif preview.matches %}
+<div id="preview-result" class="panel">
+  <p class="muted">Checked {{ preview.fetched }} postings just now —
+    {{ preview.matched }} matched your filters.</p>
+  <table>
+    <thead>
+      <tr><th>Title</th><th>Company</th><th>Location</th><th>Score</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for m in preview.matches %}
+      <tr>
+        <td>{{ m.title }}</td>
+        <td>{{ m.company }}</td>
+        <td>{{ m.location }}</td>
+        <td>{{ m.score if m.score is not none else "—" }}</td>
+        <td><a href="{{ m.apply_url }}" target="_blank" rel="noopener noreferrer">Apply</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div id="preview-result" class="panel">
+  <p class="warn">Nothing matched — your filters may be too narrow. Revisit
+    <a href="/wizard/review">Profile and filters</a> and try again.</p>
+  <p class="muted">Checked {{ preview.fetched }} postings just now.</p>
+</div>
+{% endif %}

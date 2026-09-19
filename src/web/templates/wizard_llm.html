@@ -1,0 +1,14 @@
+{% extends "wizard_base.html" %}
+{% import "_settings_macros.html" as w %}
+{% block step %}
+<form method="post" action="/wizard/llm">
+  {% for spec in fields %}{{ w.field(spec, shown(submitted, cfg, spec), errors) }}{% endfor %}
+  {% for s in secrets %}{{ w.secret_field(s, errors, {}, "") }}{% endfor %}
+  <p>
+    <button type="button" class="btn" hx-post="/wizard/llm/test"
+            hx-include="closest form" hx-target="#probe-llm">Test scoring</button>
+  </p>
+  <div id="probe-llm"></div>
+  <button type="submit" class="btn primary">Save and continue</button>
+</form>
+{% endblock %}

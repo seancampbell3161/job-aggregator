@@ -1,0 +1,35 @@
+{% extends "wizard_base.html" %}
+{% import "_settings_macros.html" as w %}
+{% block step %}
+<form method="post" action="/wizard/notifications">
+  <section class="panel">
+    <h2>Phone alerts (ntfy)</h2>
+    <p>Install the ntfy app, then scan this or subscribe to the topic below.
+      Anyone who knows the topic can read your alerts, so keep it to yourself.</p>
+    {% if suggested_topic %}
+    <div class="qr">{{ suggested_qr | safe }}</div>
+    <div class="field">
+      <label class="field-label" for="s-ntfy_topic_url">Topic URL</label>
+      <input id="s-ntfy_topic_url" type="text" name="secret.ntfy_topic_url"
+             value="{{ suggested_topic }}">
+    </div>
+    <button type="button" class="btn small" hx-post="/wizard/notifications/test/ntfy"
+            hx-include="closest form" hx-target="#probe-ntfy_topic_url">Send a test</button>
+    <div id="probe-ntfy_topic_url"></div>
+    {% else %}
+      {% for s in secrets if s.name == 'ntfy_topic_url' %}
+        {{ w.secret_field(s, errors, probe_targets, "/wizard/notifications/test/") }}
+      {% endfor %}
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <h2>Discord (optional)</h2>
+    {% for s in secrets if s.name == 'discord_webhook_url' %}
+      {{ w.secret_field(s, errors, probe_targets, "/wizard/notifications/test/") }}
+    {% endfor %}
+  </section>
+
+  <button type="submit" class="btn primary">Save and continue</button>
+</form>
+{% endblock %}

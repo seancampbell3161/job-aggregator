@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
-from typing import Iterable
+from typing import Any, Iterable
 
 from src.models import ConnectorState, NormalizedPosting
 from src.sanitize import sanitize_description
@@ -21,6 +22,8 @@ from src.state import (
     posting_display_fields,
 )
 from src.tailor.endpoint.jd import PostingJD
+
+log = logging.getLogger(__name__)
 
 
 def _now_ts() -> int:
@@ -1133,3 +1136,49 @@ class SqliteBuilderSettingsStore:
             "INSERT OR REPLACE INTO builder_settings (id, data) VALUES (1, ?)",
             (json.dumps(data),),
         )
+
+
+class SqliteWizardStore:
+    """First-run wizard UI state: which steps the user skipped, the pending
+    LLM draft awaiting review, and the last preview run.
+
+    Not versioned and not exported. A skip decision is this install's UI
+    state, not configuration — putting it in the settings document would put
+    it in version history, in every backup zip, and (because CI enforces a
+    docs row per flag) in docs/CONFIG.md."""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def get(self, key: str) -> Any | None:
+        row = self._conn.execute(
+            "SELECT value FROM wizard_ui WHERE key = ?", (key,)
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            return json.loads(row["value"])
+        except (ValueError, TypeError):
+            # Truncated or hand-edited: treat as absent rather than 500 the
+            # only page a first-time user can reach.
+            log.warning("wizard_ui_unreadable", extra={"key": key})
+            return None
+
+    def put(self, key: str, value: Any) -> None:
+        self._conn.execute(
+            "INSERT OR REPLACE INTO wizard_ui (key, value, updated_at) VALUES (?, ?, ?)",
+            (key, json.dumps(value), datetime.now(timezone.utc).isoformat()),
+        )
+
+    def delete(self, key: str) -> None:
+        self._conn.execute("DELETE FROM wizard_ui WHERE key = ?", (key,))
+
+    def skipped(self) -> set[str]:
+        value = self.get("skipped")
+        return set(value) if isinstance(value, list) else set()
+
+    def skip(self, slug: str) -> None:
+        self.put("skipped", sorted(self.skipped() | {slug}))
+
+    def unskip(self, slug: str) -> None:
+        self.put("skipped", sorted(self.skipped() - {slug}))

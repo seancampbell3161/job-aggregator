@@ -19,6 +19,7 @@ is in **[GETTING_STARTED.md](GETTING_STARTED.md)**.
 
 ## What it does
 
+- **Guided first-run setup.** `/setup` → **Start guided setup** walks a new install through connecting an LLM, your résumé, and your first company board and notification sink, drafting `profile.md` and the hard filters from your résumé along the way — every step skippable, everything works without an LLM, and it ends in a read-only preview of what would match right now.
 - **Polls many sources, often.** Company boards across fifteen ATS families (Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Workday, Rippling, Personio, Recruitee, Teamtailor, Oracle Cloud, Eightfold, Phenom, Taleo, and iCIMS / JSON-LD boards) — plus an optional **headless-browser tier** (Avature) for JS-gated sites, HN "Who Is Hiring," Remotive, RemoteOK, and an optional Adzuna API connector for off-ATS inventory — small companies and staffing agencies that don't run a major ATS (free self-service API key). A handful of boards ship in `config.example.yaml`; add companies with `python -m src.settings add-source` or by importing an edited `config.yaml`, or let discovery grow the list to hundreds over time. A Hiring.cafe connector also ships but is disabled: hiring.cafe now disallows the search endpoint it relied on, and the project does not work around that.
 - **Hard-filters on your criteria.** Title regex, seniority, location (a config-driven country allowlist — remote postings must be reachable from an allowed country — plus a city allowlist for onsite/hybrid), comp floor, stack-keyword overlap, and a freshness window (`max_age_days`).
 - **LLM-scores survivors** against `profile.md`. Postings scoring at or below `relevance.score_low` are suppressed; the rest get notified with the score and a one-line rationale.
@@ -186,7 +187,7 @@ in the same shape still imports (`python -m src.settings import`) and applies
 live the same way — seed one with `cp config.example.yaml config.yaml && cp
 profile.example.md profile.md` (both gitignored, so `git pull` never touches
 them). Neither file is required to get started — **/setup** on first boot
-offers Settings directly.
+offers a guided setup wizard, or Settings directly.
 
 Step-by-step tuning — filters, the relevance profile, providers and calibration, adding companies, gap analysis — is in **[GETTING_STARTED.md §2](GETTING_STARTED.md#2-configure-it)**.
 
