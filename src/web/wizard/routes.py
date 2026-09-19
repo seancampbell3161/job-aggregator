@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from src.config import SLUG_SOURCE_FAMILIES
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import field_map, value_at
 from src.settings.service import canonical_doc
@@ -73,8 +74,29 @@ def wizard_ctx(request: Request, step, *, paths: tuple[str, ...] = (),
     return ctx
 
 
+def companies_extra(request: Request) -> dict:
+    """Slug-family boards already configured, for the companies step's
+    "Already configured" nudge. Only SLUG_SOURCE_FAMILIES (src/config.py) --
+    each entry there is a bare slug string. Structured families (Workday,
+    Oracle Cloud, ...) still count toward the step's own completion check
+    (steps.py's _companies_done reads STRUCTURED_FAMILIES too) but aren't
+    enumerated here: their entries are structured boards, not slugs, so
+    "family: slug" isn't a sensible display for them, and the "Full companies
+    page" link is where they're actually managed."""
+    cfg = request.state.snapshot.cfg
+    return {
+        "configured": [
+            (family, slug)
+            for family in SLUG_SOURCE_FAMILIES
+            for slug in getattr(cfg.sources, family, ()) or ()
+        ]
+    }
+
+
 def render_step(request: Request, step, **extra) -> HTMLResponse:
     paths, secrets = STEP_FIELDS.get(step.slug, ((), ()))
+    if step.slug == "companies":
+        extra = {**companies_extra(request), **extra}
     return request.app.state.templates.TemplateResponse(
         request, TEMPLATES[step.slug],
         wizard_ctx(request, step, paths=paths, secrets=secrets, **extra)

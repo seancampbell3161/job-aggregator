@@ -1,1 +1,24 @@
 {% extends "wizard_base.html" %}
+{% block step %}
+<section class="panel">
+  <h2>Add a company by careers URL</h2>
+  <p>Paste a careers page and it is identified automatically. Nothing is saved
+    until you confirm.</p>
+  <form hx-post="/settings/companies/probe" hx-target="#probe-result" hx-swap="innerHTML">
+    <input type="text" name="target" placeholder="Paste a careers page URL or domain">
+    <button type="submit" class="btn small">Check</button>
+  </form>
+  <div id="probe-result"></div>
+</section>
+
+{% if configured %}
+<section class="panel">
+  <h2>Already configured</h2>
+  <ul>{% for family, slug in configured %}<li>{{ family }}: {{ slug }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+
+<p><a href="/settings/companies">Full companies page</a> — structured boards
+  (Workday, Oracle Cloud and the rest), removal, and health.</p>
+<p><a class="btn primary" href="/wizard">Continue</a></p>
+{% endblock %}
