@@ -19,3 +19,25 @@ def test_headless_tier_identifies_itself_honestly():
     text = src.read_text()
     for banned in ("navigator.webdriver", "AutomationControlled", "Mozilla/5.0", "stealth"):
         assert banned not in text, f"anti-detection code reintroduced in src/headless.py: {banned!r}"
+
+
+def test_headless_available_is_true_when_playwright_is_importable(monkeypatch):
+    import src.headless as h
+    monkeypatch.setattr(h.importlib.util, "find_spec", lambda name: object())
+    assert h.headless_available() is True
+
+
+def test_headless_available_is_false_without_playwright(monkeypatch):
+    import src.headless as h
+    monkeypatch.setattr(h.importlib.util, "find_spec", lambda name: None)
+    assert h.headless_available() is False
+
+
+def test_headless_available_does_not_import_playwright(monkeypatch):
+    """It must stay a spec lookup: importing Playwright to find out whether it
+    is importable would defeat the laziness the module exists to preserve."""
+    import src.headless as h
+    seen = []
+    monkeypatch.setattr(h.importlib.util, "find_spec", lambda name: seen.append(name) or None)
+    h.headless_available()
+    assert seen == ["playwright"]
