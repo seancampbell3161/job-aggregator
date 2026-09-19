@@ -5,6 +5,106 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-09-19
+
+The guided release. v0.12.0 made every setting editable in a browser; it did not
+tell you what to type. A new install now walks you through six skippable steps,
+reads your résumé, and drafts the two things nobody can write cold — the profile
+the scorer grades every posting against, and the hard filters underneath it.
+Résumé tailoring, which has worked for months behind three gates nobody could
+open, is reachable too: it runs on whichever LLM you already configured, needs no
+Jira export, and builds its structured résumé from the file you uploaded.
+
+### Added
+
+- **Guided first-run setup** (#12). `/setup` leads with "Start guided setup" —
+  six skippable steps (connect an LLM, upload your résumé, review the drafted
+  profile and filters, choose where to look, choose how to reach you, preview
+  real matches), each committing as you go. Restore and import stay as expert
+  escapes. Progress is derived from the same readiness checks the Overview page
+  reads, so the two can never disagree.
+- **A résumé drafts your profile and filters** (#12). Upload a PDF or DOCX, or
+  paste the text; answer the six things a résumé cannot say (target titles,
+  seniority, IC or management, location and remote policy, employment types,
+  comp floor); get a drafted `profile.md` and filter set to edit and approve.
+  Nothing is written until you approve it, and drafting failures fall back to
+  the ordinary forms rather than a silently empty profile.
+- **A preview of what would match** (#12), as the last wizard step: a bounded,
+  one-off poll of real postings that delivers nothing, marks nothing as seen,
+  and advances no connector cursors. An empty preview is a real answer — your
+  filters are too narrow — not an error.
+- **Résumé tailoring on any LLM provider** (#13). Tailoring and `.docx`
+  template import previously refused every provider but Ollama, silently
+  reporting themselves unavailable. Both now run on whatever
+  `tailoring.provider` names, falling back to your relevance settings.
+- **A drafted `content.json`, with a review gate** (#13). At
+  `/settings/documents/draft` — linked from the documents page and the end of
+  the wizard — your stored résumé becomes the structured résumé tailoring
+  reads. Every bullet is shown as editable text before anything is saved,
+  because the tailorer validates rewrites *against* this document and so cannot
+  catch anything invented *into* it. Entry and bullet ids are assigned
+  server-side; a draft that reads as empty fails loudly instead of looking
+  successful.
+- **An apply-kit scaffold** (#13). Saving a drafted résumé also seeds the
+  `kit_facts` document behind `/kit`, but only when you have none: links from
+  your résumé's contact details, location and desired salary from your existing
+  filters, the remaining eligibility answers left blank for you, and **every
+  EEO field blank by construction** — no code path can populate those from
+  model output.
+- **A shared LLM seam** (`src/llm/`, #12, extended in #13) replacing five
+  hand-rolled provider factories that each re-derived the same provider/model
+  fallback, the same provider-to-secret map, and the same "only a local Ollama
+  needs no key" rule. Adding a provider is now one place, not six.
+
+### Changed
+
+- **An evidence bank is no longer required** (#13). `evidence.json` stays
+  supported and stays the citation layer when present. With none, the tailoring
+  prompt drops its per-metric citation requirement in favour of a stricter rule
+  — never introduce a number that is not already in the bullet being rewritten.
+  Without that swap an empty bank made the old rule unsatisfiable, and a
+  compliant model would have stripped every metric from every bullet.
+- **A failed tailoring run names its cause** (#13) instead of advising a retry.
+  A model whose output-token ceiling rejects the request now says so, rather
+  than sending you round a loop that cannot succeed.
+- **`--dry-run` polls now leave no trace** (#12). They already skipped the seen
+  store, health and suppression writes, but still persisted connector ETag and
+  cursor hints — so a dry run could advance them, and the next real cycle would
+  fetch nothing and never alert those postings. `--dry-run` and `--calibrate`
+  also report `would_notify` in their JSON now.
+- **Résumé drafting is deterministic** (#13). The profile drafter shares the LLM
+  seam the ported tailoring and import call sites use, so it runs at
+  `temperature: 0` with `think=False`.
+
+### Upgrading
+
+**A source install needs new extras; Docker needs a rebuild.** The `web` extra
+gained `pypdf` and `segno` (résumé PDF parsing and the notification QR code):
+
+```bash
+uv sync --extra web --extra render
+docker compose build     # NOT --force-recreate: src/ is baked into the image
+```
+
+**Nothing else is required.** The new `wizard_ui` table is created on boot, and
+the one new configuration section — `resume_draft` (`provider`, `model`,
+`timeout_seconds`) — is entirely optional: provider and model fall back to your
+`relevance` values when unset, and the timeout defaults to 60 seconds. Existing
+`config.yaml` files need no edits.
+
+**If you script `--dry-run`, read the behaviour change above.** A dry run no
+longer advances connector cursors. If you relied on that — deliberately or not —
+your first real cycle after upgrading may fetch a larger batch than usual.
+
+**If you set a non-Ollama `tailoring.provider`, tailoring is live now.** It was
+silently unavailable before; there is nothing to change, but it will start
+making LLM calls it previously skipped. The same applies to `.docx` template
+import.
+
+**Tailoring no longer needs `evidence.json`.** If you have one, nothing changes.
+If you do not, tailoring now works — and you can produce the `content.json` it
+needs from `/settings/documents/draft` instead of writing it by hand.
+
 ## [0.12.0] - 2026-09-19
 
 The installable release. Getting from a fresh checkout to useful alerts used to
@@ -1318,6 +1418,7 @@ entries below are kept for the record. From 0.12.0 on, the usual
 compare/vP.R.E..vX.Y.Z links resume (see RELEASING.md).
 -->
 
+[0.13.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.12.0..v0.13.0
 [0.12.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.11.0..v0.12.0
 [0.11.0]: https://github.com/seancampbell3161/job-aggregator/releases/tag/v0.11.0
 
