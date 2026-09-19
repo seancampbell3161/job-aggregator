@@ -1,6 +1,9 @@
 """The drafting page: a background task, a polled status, and a confirm gate
 in front of an existing document."""
+import json
+
 from src.web.app import create_app
+from src.web.settings.content_draft import apply_edits
 from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import WEB_TEST_SETTINGS, make_service
 
@@ -164,3 +167,164 @@ async def test_the_task_never_writes_a_document_itself(tmp_path, monkeypatch):
     await run_content_draft(app)
     assert app.state.service.snapshot().documents.resume_content is None
     assert app.state.service.snapshot().documents.kit_facts is None
+
+
+# --- apply_edits + the review form + the save route ---
+
+DRAFTED = {
+    "name": "S", "contact": {"email": "s@e.com"},
+    "skills": [{"name": "Go", "category": "language", "tags": []},
+               {"name": "Rust", "category": "language", "tags": []}],
+    "experiences": [{
+        "id": "acme", "company": "Acme", "role": "Staff",
+        "start": "2021", "end": "now",
+        "bullets": [
+            {"id": "acme-b1", "text": "first", "tags": [], "metric_bearing": False,
+             "evidence_refs": []},
+            {"id": "acme-b2", "text": "second", "tags": [], "metric_bearing": False,
+             "evidence_refs": []},
+        ],
+    }],
+    "projects": [], "education": [{"degree": "BS", "institution": "UIUC", "dates": "2014"}],
+    "volunteer": [],
+}
+
+
+def test_edits_change_text_and_drops_remove_bullets():
+    """Spec test 11."""
+    out = apply_edits(DRAFTED, {
+        "text.acme-b1": ["edited first"],
+        "text.acme-b2": ["second"],
+        "drop.acme-b2": ["1"],
+        "company.acme": ["Acme Corp"],
+        "role.acme": ["Staff"],
+        "start.acme": ["2021-03"],
+        "end.acme": ["present"],
+        "skills": ["Go", "Rust"],
+    })
+    bullets = out["experiences"][0]["bullets"]
+    assert [b["id"] for b in bullets] == ["acme-b1"]
+    assert bullets[0]["text"] == "edited first"
+    assert out["experiences"][0]["company"] == "Acme Corp"
+    assert out["experiences"][0]["start"] == "2021-03"
+
+
+def test_ids_are_never_taken_from_the_form():
+    """Structure comes from the stored draft. A post that invents an entry or
+    rewrites an id must not be able to change the document's shape."""
+    out = apply_edits(DRAFTED, {
+        "text.acme-b1": ["kept"],
+        "text.INVENTED": ["smuggled in"],
+        "company.INVENTED": ["Nowhere Inc"],
+        "skills": ["Go"],
+    })
+    assert [e["id"] for e in out["experiences"]] == ["acme"]
+    # A positive check alongside the negative one below: proves the form WAS
+    # applied (acme-b1's text changed from "first" to "kept"), so the
+    # negative assertion can't be passing merely because apply_edits ignored
+    # the form and echoed the stored draft back unchanged.
+    assert out["experiences"][0]["bullets"][0]["text"] == "kept"
+    assert "smuggled in" not in json.dumps(out)
+
+
+def test_metric_bearing_is_recomputed_from_the_edited_text():
+    out = apply_edits(DRAFTED, {"text.acme-b1": ["Cut latency 40%"],
+                                "text.acme-b2": ["no numbers here"], "skills": []})
+    flags = [b["metric_bearing"] for b in out["experiences"][0]["bullets"]]
+    assert flags == [True, False]
+
+
+def test_dropped_skills_go_and_kept_skills_keep_their_category():
+    out = apply_edits(DRAFTED, {"text.acme-b1": ["x"], "text.acme-b2": ["y"],
+                                "skills": ["Go", "Postgres"]})
+    assert [s["name"] for s in out["skills"]] == ["Go", "Postgres"]
+    assert out["skills"][0]["category"] == "language"
+    assert out["skills"][1]["category"] == ""
+
+
+def test_sections_the_form_does_not_render_survive_unchanged():
+    """Education and volunteer have no ids to address them by, so they are
+    shown read-only and edited in the JSON editor. They must not be dropped."""
+    out = apply_edits(DRAFTED, {"text.acme-b1": ["x"], "text.acme-b2": ["y"],
+                                "skills": ["Go"]})
+    assert out["education"] == DRAFTED["education"]
+    assert out["contact"] == DRAFTED["contact"]
+
+
+def test_the_result_still_passes_the_real_validator():
+    from src.tailor.content import parse_content
+
+    out = apply_edits(DRAFTED, {"text.acme-b1": ["x"], "drop.acme-b2": ["1"],
+                                "skills": ["Go"]})
+    assert len(parse_content(json.dumps(out)).experiences[0].bullets) == 1
+
+
+# --- the save route ---
+
+def _ready(app, document=None):
+    app.state.stores.wizard.put("content_draft", {
+        "status": "ok", "document": document or DRAFTED,
+        "contact": {"email": "s@e.com", "github": "https://github.com/sc"},
+    })
+    return app
+
+
+def test_the_review_form_renders_every_bullet_as_editable_text(tmp_path, monkeypatch):
+    app = _ready(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}))
+    r = signed_in_client(app).get("/settings/documents/draft")
+    assert 'name="text.acme-b1"' in r.text
+    assert 'name="drop.acme-b2"' in r.text
+    assert "first" in r.text and "second" in r.text
+
+
+def test_saving_writes_the_document_and_clears_the_draft(tmp_path, monkeypatch):
+    app = _ready(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}))
+    r = signed_in_client(app).post("/settings/documents/draft/save", data={
+        "text.acme-b1": "first", "text.acme-b2": "second", "skills": "Go",
+    }, follow_redirects=False)
+    assert r.status_code == 303
+    saved = app.state.service.snapshot().documents.resume_content
+    assert saved is not None and "acme-b1" in saved
+    assert app.state.stores.wizard.get("content_draft") is None
+
+
+def test_saving_also_scaffolds_facts_when_there_are_none(tmp_path, monkeypatch):
+    from src.kit_facts import parse_facts
+
+    app = _ready(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}))
+    signed_in_client(app).post("/settings/documents/draft/save",
+                               data={"text.acme-b1": "first", "skills": "Go"})
+    facts = app.state.service.snapshot().documents.kit_facts
+    assert facts is not None
+    assert [g.name for g in parse_facts(facts)] == ["Links", "Eligibility", "EEO"]
+
+
+def test_saving_never_overwrites_existing_facts(tmp_path, monkeypatch):
+    existing = "- group: Mine\n  facts:\n    - label: Keep\n      value: \"me\"\n"
+    app = _ready(_app(tmp_path, monkeypatch, documents={"resume_text": "CV",
+                                                        "kit_facts": existing}))
+    signed_in_client(app).post("/settings/documents/draft/save",
+                               data={"text.acme-b1": "first", "skills": "Go"})
+    assert app.state.service.snapshot().documents.kit_facts == existing
+
+
+def test_saving_with_no_draft_is_a_conflict_not_a_500(tmp_path, monkeypatch):
+    app = _app(tmp_path, monkeypatch, documents={"resume_text": "CV"})
+    r = signed_in_client(app).post("/settings/documents/draft/save",
+                                   data={"skills": "Go"})
+    assert r.status_code == 409
+
+
+def test_dropping_every_bullet_is_refused_and_the_draft_survives(tmp_path, monkeypatch):
+    """parse_content happily accepts an experience with no bullets, so the
+    validator will not catch this — a résumé of empty roles would be written
+    silently and then tailored into a blank page. Refuse it here, keep the
+    draft so the user can undo, and write nothing."""
+    app = _ready(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}))
+    r = signed_in_client(app).post("/settings/documents/draft/save", data={
+        "drop.acme-b1": "1", "drop.acme-b2": "1", "skills": "Go",
+    })
+    assert r.status_code == 200
+    assert "nothing to tailor" in r.text
+    assert app.state.service.snapshot().documents.resume_content is None
+    assert app.state.stores.wizard.get("content_draft")["status"] == "ok"

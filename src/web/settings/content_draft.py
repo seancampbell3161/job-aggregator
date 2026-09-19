@@ -20,12 +20,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
+from typing import Any, Mapping
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.resume_intake.content_draft import NO_RESUME, draft_content
 from src.resume_intake.draft import DraftFailed
+from src.resume_intake.facts_scaffold import build_facts_yaml
 from src.settings.errors import SettingsInvalid
 from src.web.settings.sections import section_by_slug
 from src.web.settings.shell import page_ctx
@@ -56,6 +59,76 @@ async def run_content_draft(app) -> dict:
         record = {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
     store.put(KEY, record)
     return record
+
+
+_DIGIT = re.compile(r"\d")
+
+
+def _one(form: Mapping[str, Any], name: str, default: str = "") -> str:
+    values = form.get(name)
+    if isinstance(values, str):
+        return values.strip()
+    return str(values[0]).strip() if values else default
+
+
+def apply_edits(document: Mapping[str, Any], form: Mapping[str, Any]) -> dict:
+    """The stored draft with the user's edits applied.
+
+    Structure comes from the draft, never from the form: the form carries only
+    per-id bullet text, per-id drop flags, per-entry strings and the skills
+    chips. A malformed or hostile post can therefore change text and remove
+    bullets, but cannot invent an entry, resurrect a dropped one, or rewrite
+    an id — which is what keeps the ids stable across a review."""
+
+    def edited_bullets(bullets):
+        out = []
+        for bullet in bullets or []:
+            bullet_id = bullet["id"]
+            if form.get(f"drop.{bullet_id}"):
+                continue
+            text = _one(form, f"text.{bullet_id}", bullet.get("text", ""))
+            if not text:
+                continue
+            out.append({**bullet, "text": text,
+                        "metric_bearing": bool(_DIGIT.search(text))})
+        return out
+
+    experiences = [
+        {**e,
+         "company": _one(form, f"company.{e['id']}", e.get("company", "")),
+         "role": _one(form, f"role.{e['id']}", e.get("role", "")),
+         "start": _one(form, f"start.{e['id']}", e.get("start", "")),
+         "end": _one(form, f"end.{e['id']}", e.get("end", "")),
+         "bullets": edited_bullets(e.get("bullets"))}
+        for e in document.get("experiences") or []
+    ]
+    projects = [
+        {**p,
+         "name": _one(form, f"name.{p['id']}", p.get("name", "")),
+         "subtitle": _one(form, f"subtitle.{p['id']}", p.get("subtitle", "")),
+         "dates": _one(form, f"dates.{p['id']}", p.get("dates", "")),
+         "bullets": edited_bullets(p.get("bullets"))}
+        for p in document.get("projects") or []
+    ]
+
+    # Chips carry names only, so a kept skill's category is looked up from the
+    # draft and a newly typed one gets an empty category — which parse_content
+    # accepts (src/tailor/content.py:45).
+    raw_skills = form.get("skills")
+    if isinstance(raw_skills, str):
+        raw_skills = [raw_skills]
+    names = list(dict.fromkeys(
+        n.strip() for n in (raw_skills or []) if n and n.strip()))
+    by_name = {str(s.get("name", "")).strip().lower(): s
+               for s in document.get("skills") or []}
+    skills = [
+        {"name": name,
+         "category": str(by_name.get(name.lower(), {}).get("category", "")),
+         "tags": list(by_name.get(name.lower(), {}).get("tags", []))}
+        for name in names
+    ]
+
+    return {**document, "skills": skills, "experiences": experiences, "projects": projects}
 
 
 def _render(request: Request, **extra) -> HTMLResponse:
@@ -103,3 +176,45 @@ def register_content_draft_routes(app: FastAPI) -> None:
             request, RESULT_TEMPLATE,
             {"draft": request.app.state.stores.wizard.get(KEY)},
         )
+
+    @app.post(f"{PATH}/save", response_class=HTMLResponse)
+    async def content_draft_save(request: Request):
+        store = request.app.state.stores.wizard
+        record = store.get(KEY) or {}
+        if record.get("status") != "ok":
+            raise HTTPException(status_code=409, detail="no draft to save")
+
+        form = await request.form()
+        raw = {k: form.getlist(k) for k in form.keys()}
+        document = apply_edits(record["document"], raw)
+        service = request.app.state.service
+
+        if not any(e.get("bullets") for e in document.get("experiences") or []):
+            return _render(request, form_errors=[
+                "Every bullet was dropped or blank, so there would be nothing "
+                "to tailor. Keep at least one, or edit the document as JSON."])
+
+        try:
+            service.save_document(
+                "resume_content",
+                json.dumps(document, indent=2, ensure_ascii=False),
+                source="llm_draft",
+            )
+        except SettingsInvalid as exc:
+            return _render(request, form_errors=[str(exc)])
+
+        snap = service.snapshot()
+        request.state.snapshot = snap
+        # Only when there is nothing there: an existing apply kit is the
+        # user's own work and this scaffold is a starting point, not an
+        # improvement on it.
+        if not snap.documents.kit_facts:
+            service.save_document(
+                "kit_facts",
+                build_facts_yaml(record.get("contact") or {}, snap.cfg),
+                source="llm_draft",
+            )
+
+        store.delete(KEY)
+        return RedirectResponse("/settings/documents?kind=resume_content",
+                                status_code=303)
