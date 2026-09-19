@@ -4,7 +4,7 @@ import json
 import pytest
 
 from src.llm.providers import LlmBinding
-from src.llm.structured import complete_json
+from src.llm.structured import complete_json, complete_text
 
 SCHEMA = {
     "type": "object",
@@ -179,3 +179,65 @@ async def test_the_default_budget_is_what_existing_callers_already_had():
     client = _FakeAnthropic(EXPECTED)
     await complete_json(_binding("anthropic", client), system="s", user="u", schema=SCHEMA)
     assert client.kwargs["max_tokens"] == 4096
+
+
+TEXT = "<html><body>{{ doc.name }}</body></html>"
+
+
+@pytest.mark.asyncio
+async def test_complete_text_on_all_three_providers():
+    class _FakeAnthropicText:
+        def __init__(self):
+            self.kwargs = None
+            self.messages = self
+
+        async def create(self, **kwargs):
+            self.kwargs = kwargs
+            block = type("B", (), {"type": "text", "text": TEXT})()
+            return type("R", (), {"content": [block], "stop_reason": "end_turn"})()
+
+    anthropic = _FakeAnthropicText()
+    gemini = _FakeGemini(TEXT)
+    ollama = _FakeOllama(TEXT)
+    results = [
+        await complete_text(_binding("anthropic", anthropic), system="s", user="u",
+                            max_output_tokens=16384),
+        await complete_text(_binding("gemini", gemini), system="s", user="u",
+                            max_output_tokens=16384),
+        await complete_text(_binding("ollama", ollama), system="s", user="u",
+                            max_output_tokens=16384),
+    ]
+    assert results == [TEXT, TEXT, TEXT]
+    assert anthropic.kwargs["max_tokens"] == 16384
+    assert ollama.kwargs["options"]["num_predict"] == 16384
+
+
+@pytest.mark.asyncio
+async def test_complete_text_asks_gemini_for_text_not_json():
+    """A JSON mime type would make the model wrap an HTML template in a JSON
+    string — valid output that is useless to the caller."""
+    client = _FakeGemini(TEXT)
+    await complete_text(_binding("gemini", client), system="s", user="u",
+                        max_output_tokens=16384)
+    cfg = client.kwargs["config"]
+    as_dict = cfg if isinstance(cfg, dict) else vars(cfg)
+    assert as_dict.get("response_mime_type") is None
+    assert as_dict.get("response_json_schema") is None
+    assert as_dict["max_output_tokens"] == 16384
+
+
+@pytest.mark.asyncio
+async def test_complete_text_returns_none_for_empty_output():
+    assert await complete_text(_binding("ollama", _FakeOllama("")), system="s",
+                               user="u", max_output_tokens=64) is None
+
+
+@pytest.mark.asyncio
+async def test_complete_text_does_not_fail_open():
+    class _Boom:
+        def __init__(self): self.messages = self
+        async def create(self, **kwargs): raise RuntimeError("down")
+
+    with pytest.raises(RuntimeError):
+        await complete_text(_binding("anthropic", _Boom()), system="s", user="u",
+                            max_output_tokens=64)

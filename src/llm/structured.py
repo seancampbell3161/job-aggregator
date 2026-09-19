@@ -139,3 +139,49 @@ def _response_text(resp: Any) -> str | None:
     if message is None:
         return None
     return message.get("content") if isinstance(message, dict) else getattr(message, "content", None)
+
+
+async def complete_text(
+    binding: LlmBinding, *, system: str, user: str, max_output_tokens: int
+) -> str | None:
+    """The model's text, or None when it produced none.
+
+    Same no-fail-open contract as complete_json: provider exceptions
+    propagate, and None means "answered with nothing" rather than "the call
+    failed". For output that is not JSON — the docx importer emits a Jinja2
+    HTML template."""
+    if binding.provider == "anthropic":
+        resp = await binding.client.messages.create(
+            model=binding.model,
+            max_tokens=max_output_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+            timeout=binding.timeout_seconds,
+        )
+        text = "".join(
+            getattr(block, "text", "") for block in resp.content
+            if getattr(block, "type", None) == "text"
+        )
+        return text or None
+    if binding.provider == "gemini":
+        resp = await asyncio.wait_for(
+            binding.client.aio.models.generate_content(
+                model=binding.model, contents=user,
+                config=_gemini_config(system, max_output_tokens),
+            ),
+            timeout=binding.timeout_seconds,
+        )
+        return (getattr(resp, "text", "") or "") or None
+    resp = await asyncio.wait_for(
+        binding.client.chat(
+            model=binding.model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            think=False,
+            options={"temperature": 0, "num_predict": max_output_tokens},
+        ),
+        timeout=binding.timeout_seconds,
+    )
+    return _response_text(resp) or None
