@@ -376,19 +376,20 @@ async def _run(
 
         if headless_available():
             browser_factory = browser_session
-        elif cfg.sources.phenom or cfg.sources.avature:
-            # The slim image has no browser. Boards are configured, so this is
-            # a real misconfiguration rather than an idle tier: say so once per
-            # cycle instead of raising an ImportError into the scheduler's
+        elif cfg.sources.avature:
+            # The slim image has no browser. Avature is the only board family
+            # build_connectors puts on this tier (Phenom polls on "ats" via
+            # httpx and never needs one), so a configured Avature board here
+            # is a real misconfiguration rather than an idle tier: say so once
+            # per cycle instead of raising an ImportError into the scheduler's
             # catch-all, where it reads as an unexplained crash.
             log.warning("headless_unavailable", extra={
-                "phenom": len(cfg.sources.phenom),
                 "avature": len(cfg.sources.avature),
                 "remedy": "this image has no browser — use the -headless image tag",
             })
             return {"tier": "headless", "skipped": True, "reason": "headless_unavailable"}
-        # No browser and no headless boards: fall through unchanged, so the
-        # slim and -headless images behave identically in the common case.
+        # No browser and no headless-tier boards: fall through unchanged, so
+        # the slim and -headless images behave identically in the common case.
 
     # ats / slow tiers fall through to the existing run_once pipeline
     store = stores.seen

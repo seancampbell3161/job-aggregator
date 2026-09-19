@@ -29,6 +29,38 @@ def _headless_boards_doc():
     }
 
 
+def _phenom_only_doc():
+    return {
+        "relevance": {"score_low": 4},
+        "sources": {
+            "phenom": [{"careers_url": "https://careers.example.com/phenom"}],
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_headless_tier_falls_through_for_phenom_only_boards_without_a_browser(
+    monkeypatch, caplog,
+):
+    """Regression: Phenom polls on the "ats" tier via httpx (PhenomConnector.tier
+    == "ats") and build_connectors's headless branch builds only from
+    cfg.sources.avature — Phenom boards are never driven by a browser. A config
+    with Phenom boards and no Avature boards must not trip the
+    headless_unavailable skip: this invocation needs no browser at all, so
+    skipping it would both log spurious noise every cycle and drop this
+    tier's cycle telemetry (record_cycle) for no reason."""
+    from src import handler
+
+    monkeypatch.setattr("src.headless.headless_available", lambda: False)
+    service = make_service(_phenom_only_doc(), conn=connect(":memory:"))
+    with caplog.at_level(logging.WARNING):
+        result = await handler._run("headless", service=service, dry_run=True)
+
+    assert "skipped" not in result
+    assert result.get("reason") != "headless_unavailable"
+    assert "headless_unavailable" not in [r.message for r in caplog.records]
+
+
 @pytest.mark.asyncio
 async def test_headless_tier_skips_with_a_named_log_when_no_browser_is_installed(
     monkeypatch, caplog,
