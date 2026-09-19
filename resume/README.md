@@ -44,17 +44,25 @@ The script mechanically turns tickets into `achievements`; curate `metrics`
 (the numbers worth claiming) by hand afterwards.
 
 ## CLI
-    JOB_AGG_OLLAMA_API_KEY=<key> JOB_AGG_OLLAMA_HOST=https://ollama.com \
+    JOB_AGG_ANTHROPIC_API_KEY=<key> \
         .venv/bin/python -m src.tailor --jd path/to/jd.txt --job-id some-id
 
-Reads settings plus the imported content/evidence from the app DB. Writes
-`tailored/<job-id>/{content.json,cover_letter.md,fit.md}` (gitignored).
+Reads settings plus the `resume_content`/evidence documents from the app DB
+(hand-written, imported, or drafted at `/settings/documents/draft` — see
+above). Writes `tailored/<job-id>/{content.json,cover_letter.md,fit.md}`
+(gitignored).
 
-Tailoring calls Ollama at `relevance.ollama_host`. Its default,
-`http://ollama:11434`, only resolves inside Docker Compose, so for hosted Ollama
-Cloud either set `relevance.ollama_host: https://ollama.com` in `config.yaml` and
-import, or export `JOB_AGG_OLLAMA_HOST=https://ollama.com` for the command (as
-above).
+Tailoring runs on whichever provider `tailoring.provider` names — Anthropic,
+Gemini, or Ollama — falling back to `relevance.provider`/`relevance.model`
+when unset (see `tailoring.*` in [`docs/CONFIG.md`](../docs/CONFIG.md)). Set
+the matching key as an env var for the CLI: `JOB_AGG_ANTHROPIC_API_KEY`,
+`JOB_AGG_GOOGLE_API_KEY` (Gemini), or `JOB_AGG_OLLAMA_API_KEY` (Ollama).
+
+For Ollama specifically: `relevance.ollama_host` defaults to
+`http://ollama:11434`, which only resolves inside Docker Compose, so for
+hosted Ollama Cloud either set `relevance.ollama_host: https://ollama.com` in
+`config.yaml` and import, or export `JOB_AGG_OLLAMA_HOST=https://ollama.com`
+for the command.
 
 ## Rendering a PDF
 The CLI also writes a single-page `tailored/<job-id>/resume.pdf` that reproduces
