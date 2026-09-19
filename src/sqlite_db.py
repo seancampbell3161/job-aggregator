@@ -123,6 +123,11 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
     created_at   TEXT NOT NULL,
     last_seen_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS wizard_ui (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 

@@ -17,6 +17,7 @@ from src.state_sqlite import (
     SqliteRejectedPostingsStore,
     SqliteSeenJobsStore,
     SqliteSourceStateStore,
+    SqliteWizardStore,
 )
 from src.stores import Stores
 
@@ -54,6 +55,7 @@ def sqlite_stores(conn: sqlite3.Connection) -> Stores:
         boards=SqliteDiscoveredBoardsStore(conn),
         coach=SqliteCoachRunsStore(conn),
         builder=SqliteBuilderSettingsStore(conn),
+        wizard=SqliteWizardStore(conn),
         settings=SqliteSettingsStore(conn),
         auth=SqliteAuthStore(conn),
     )
