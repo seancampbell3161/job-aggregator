@@ -17,6 +17,7 @@ from src.config import AppConfig
 # a posting differently. Kept under this module's own private name so the
 # rest of this file (and its tests) don't need to know handler.py's name for it.
 from src.handler import _build_relevance_scorer as _build_scorer
+from src.llm.providers import missing_key
 from src.models import NormalizedPosting
 from src.notify.base import NotificationPayload
 from src.notify.discord import DiscordSink
@@ -49,6 +50,29 @@ SAMPLE_PAYLOAD = NotificationPayload(
     seniority=None,
     relevance_rationale="This is a test notification you triggered from Settings.",
 )
+
+# A stand-in for the user's own profile, used only when they have none yet.
+# The wizard's LLM step runs two steps before the profile document is written,
+# so at first-run setup there is nothing real to grade against — and refusing
+# there would make Test impossible to pass on the one screen where a user most
+# needs to know whether their provider, key and model name are right. It mirrors
+# the shape profile.example.md documents, so the provider sees a realistic
+# prompt and a wrong model name or bad key still fails the way it would later.
+SAMPLE_PROFILE = """\
+# Relevance profile
+
+## Quick summary
+A senior backend engineer with ten years building distributed services.
+
+## Stack depth
+Primary: Python, Go. Familiar: TypeScript, PostgreSQL, Kubernetes.
+
+## Strong fit (8-10 score territory)
+Senior or staff backend and platform roles, remote or hybrid.
+
+## Weak fit / not interested (1-3 score territory)
+Frontend-only work, junior roles, on-site-only positions.
+"""
 
 SAMPLE_POSTING = NormalizedPosting(
     job_id="settings-test:1",
@@ -120,9 +144,14 @@ async def probe_discord(url: str) -> ProbeResult:
 
 
 async def probe_llm(cfg: AppConfig, profile: str | None) -> ProbeResult:
-    """Score one synthetic posting with the configured provider."""
+    """Score one synthetic posting with the configured provider.
+
+    `profile` is whatever document the user has saved, which is None until the
+    wizard's review step writes one. The probe answers "can I reach this
+    provider?", not "is scoring ready?", so it falls back to SAMPLE_PROFILE
+    rather than reporting the unreachable-sounding "not configured"."""
     try:
-        scorer = _build_scorer(cfg, profile)
+        scorer = _build_scorer(cfg, profile or SAMPLE_PROFILE)
     except Exception as exc:  # noqa: BLE001 — a probe reports, it never 500s the page.
         # _build_scorer eagerly constructs a provider client (e.g. the Ollama SDK
         # parses ollama_host into an httpx.Client at __init__), and those fields
@@ -130,10 +159,18 @@ async def probe_llm(cfg: AppConfig, profile: str | None) -> ProbeResult:
         # a malformed host/URL raises here, before any scoring is attempted.
         return ProbeResult(False, f"{type(exc).__name__}: {exc}")
     if scorer is None:
-        return ProbeResult(False, (
-            "Scoring is not configured — it needs to be enabled, with an API "
-            "key for the selected provider and a saved profile document."
-        ))
+        # Work out WHICH gate tripped rather than listing every possible cause
+        # and leaving the user to guess which one is theirs. Checked here, after
+        # the build, so a caller that substitutes a scorer is unaffected.
+        if not cfg.relevance.enabled:
+            return ProbeResult(False, "Scoring is switched off — tick Enabled to use it.")
+        key = missing_key(cfg, "relevance")
+        if key is not None:
+            return ProbeResult(False, (
+                f"No {key} is set, which provider "
+                f"'{cfg.relevance.provider}' needs."
+            ))
+        return ProbeResult(False, "Scoring is not configured.")
     try:
         score = await scorer.score(SAMPLE_POSTING)
     except Exception as exc:  # noqa: BLE001 — surface the provider's message verbatim.

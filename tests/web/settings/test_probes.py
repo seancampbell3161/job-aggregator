@@ -87,11 +87,43 @@ async def test_a_control_character_in_the_url_is_refused():
 
 
 @pytest.mark.asyncio
-async def test_llm_probe_reports_a_disabled_scorer():
+async def test_llm_probe_says_so_when_scoring_is_switched_off():
+    """One reason per message. The old text listed all three possible causes
+    at once, so it never told the user which one was theirs."""
     cfg = AppConfig.model_validate({"relevance": {"enabled": False}})
     r = await probe_llm(cfg, "# profile")
     assert not r.ok
-    assert "not configured" in r.detail.lower()
+    assert "enabled" in r.detail.lower()
+    assert "api key" not in r.detail.lower()
+
+
+@pytest.mark.asyncio
+async def test_llm_probe_names_the_secret_the_provider_is_missing():
+    cfg = AppConfig.model_validate(
+        {"relevance": {"enabled": True, "provider": "anthropic"}})
+    r = await probe_llm(cfg, "# profile")
+    assert not r.ok
+    assert "anthropic_api_key" in r.detail
+
+
+@pytest.mark.asyncio
+async def test_llm_probe_does_not_ask_local_ollama_for_an_api_key(monkeypatch):
+    """A local Ollama needs no key, so the probe must get as far as actually
+    calling it rather than refusing up front — the old message demanded a key
+    for every provider."""
+    from src.relevance import Score
+
+    class FakeScorer:
+        async def score(self, posting):
+            return Score(value=6, rationale="ok", is_fallback=False)
+
+    monkeypatch.setattr("src.web.settings.probes._build_scorer",
+                        lambda cfg, profile: FakeScorer())
+    cfg = AppConfig.model_validate({"relevance": {
+        "enabled": True, "provider": "ollama",
+        "ollama_host": "http://127.0.0.1:11434"}})
+    r = await probe_llm(cfg, None)
+    assert r.ok, r.detail
 
 
 @pytest.mark.asyncio
@@ -106,6 +138,54 @@ async def test_llm_probe_scores_a_sample_posting(monkeypatch):
     cfg = AppConfig.model_validate({"relevance": {"enabled": True}})
     r = await probe_llm(cfg, "# profile")
     assert r.ok and "8" in r.detail
+
+
+@pytest.mark.asyncio
+async def test_llm_probe_works_before_a_profile_document_exists(monkeypatch):
+    """The wizard's LLM step comes two steps before the profile document is
+    written, so at first-run setup there is nothing to grade against. The probe
+    is answering "can I reach this provider?", not "is scoring ready?" — so it
+    falls back to a sample profile rather than refusing, which would make the
+    button impossible to pass on the one screen that most needs it."""
+    from src.relevance import Score
+
+    seen = {}
+
+    class FakeScorer:
+        async def score(self, posting):
+            return Score(value=8, rationale="Strong fit", is_fallback=False)
+
+    def fake_build(cfg, profile):
+        seen["profile"] = profile
+        return FakeScorer()
+
+    monkeypatch.setattr("src.web.settings.probes._build_scorer", fake_build)
+    cfg = AppConfig.model_validate({"relevance": {"enabled": True}})
+    r = await probe_llm(cfg, None)
+    assert r.ok, r.detail
+    assert seen["profile"], "the probe must supply a stand-in profile, not None"
+
+
+@pytest.mark.asyncio
+async def test_llm_probe_prefers_the_real_profile_when_there_is_one(monkeypatch):
+    """The stand-in is only for the not-yet-written case; once the user has a
+    profile the probe must exercise the real thing."""
+    from src.relevance import Score
+
+    seen = {}
+
+    class FakeScorer:
+        async def score(self, posting):
+            return Score(value=8, rationale="Strong fit", is_fallback=False)
+
+    def fake_build(cfg, profile):
+        seen["profile"] = profile
+        return FakeScorer()
+
+    monkeypatch.setattr("src.web.settings.probes._build_scorer", fake_build)
+    cfg = AppConfig.model_validate({"relevance": {"enabled": True}})
+    await probe_llm(cfg, "# my real profile")
+    assert seen["profile"] == "# my real profile"
 
 
 @pytest.mark.asyncio
