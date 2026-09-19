@@ -264,8 +264,13 @@ class RelevanceConfig(BaseModel):
     enabled: bool = False
     # ...but when it IS switched on, it points at Ollama: the only provider that
     # needs no API key, so the shipped default can work without a signup first.
+    # The model is sized to match ollama_host's default, the bundled LOCAL
+    # service — and is the one GETTING_STARTED's fully-local recipe pulls, so
+    # the default works with the model a user following it already has.
+    # gpt-oss:120b targets hosted Cloud and is too big for a typical Mac mini;
+    # gpt-oss:20b returns empty content on Cloud (see TROUBLESHOOTING.md).
     provider: Literal["anthropic", "gemini", "ollama"] = "ollama"
-    model: str = "gpt-oss:120b"
+    model: str = "llama3.1:8b"
     score_high: int = Field(default=7, ge=0, le=10)
     score_low: int = Field(default=3, ge=0, le=10)
     timeout_seconds: int = Field(default=10, ge=1)

@@ -288,7 +288,10 @@ schedules:
     # API key, so the shipped default can actually work out of the box.
     assert cfg.relevance.enabled is False
     assert cfg.relevance.provider == "ollama"
-    assert cfg.relevance.model == "gpt-oss:120b"
+    # llama3.1:8b, not a gpt-oss size: the default ollama_host is the bundled
+    # LOCAL service, and this is the exact model GETTING_STARTED's fully-local
+    # recipe pulls, so the shipped default matches what a user already has.
+    assert cfg.relevance.model == "llama3.1:8b"
     assert cfg.relevance.score_high == 7
     assert cfg.relevance.score_low == 3
 

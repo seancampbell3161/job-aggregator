@@ -29,6 +29,7 @@ from src.web.settings.routes import _probe_partial, shown
 from src.web.settings.sections import section_by_slug
 from src.web.settings.shell import secret_rows
 from src.web.wizard.ntfy_topic import suggest_topic, topic_qr_svg
+from src.web.wizard.presets import LLM_PRESETS, preset_for_provider
 from src.web.wizard.steps import (
     build_context, next_step, step_by_slug, step_states,
 )
@@ -256,7 +257,14 @@ def llm_prefill(request: Request) -> dict:
 
 
 def llm_extra(request: Request) -> dict:
-    return {"prefill": llm_prefill(request)}
+    cfg = request.state.snapshot.cfg
+    return {
+        "prefill": llm_prefill(request),
+        "presets": LLM_PRESETS,
+        # Open the panel for the provider already configured, so the
+        # instructions describe the form the user is actually looking at.
+        "open_recipe": preset_for_provider(cfg.relevance.provider, cfg.relevance.ollama_host),
+    }
 
 
 def review_extra(request: Request) -> dict:

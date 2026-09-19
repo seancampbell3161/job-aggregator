@@ -326,3 +326,16 @@ header { display: flex; align-items: baseline; gap: 16px; }
 .actions { display: flex; gap: .5rem; align-items: center; margin-top: 1rem; }
 .group-list { list-style: none; padding: 0; }
 .group-list li { padding: .5rem 0; border-bottom: 1px solid var(--border); }
+
+/* Wizard LLM step: ready-made provider recipes. Each choice is a button (an
+   action that fills the form) plus the one line that decides it — a key or a
+   model pull — so the trade-off is visible before clicking, not after. */
+.recipe-choices { display: flex; flex-wrap: wrap; gap: .75rem; margin: .5rem 0 1rem; }
+.recipe-choice { display: flex; flex-direction: column; gap: .25rem; max-width: 14rem; }
+.recipe-summary { font-size: .8rem; line-height: 1.3; }
+.recipe-panel { border-top: 1px solid var(--border); padding-top: .75rem; }
+.recipe-panel ol { margin: .5rem 0; padding-left: 1.2rem; }
+.recipe-panel li { margin: .25rem 0; }
+.recipe-commands { background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 6px; padding: .6rem .8rem; overflow-x: auto;
+  font-family: ui-monospace, monospace; font-size: .8rem; margin: .5rem 0 0; }
