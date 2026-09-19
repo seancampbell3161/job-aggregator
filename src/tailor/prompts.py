@@ -43,8 +43,7 @@ Hard rules — follow ALL of them:
    with ALL of its bullets exactly once; never omit a bullet. Every output
    bullet MUST carry the source_bullet_id of the CONTENT bullet it came from.
    Do not invent new bullets (no blank source_bullet_id).
-4. CITE EVIDENCE FOR METRICS. Any number/metric in a rewritten bullet must carry
-   evidence_refs drawn from the EVIDENCE bank's ticket_refs.
+@@RULE_4@@
 5. PROJECTS. Always include EVERY project; tailor each project's bullets to the JD
    the same way as experience bullets (grounded by source_bullet_id). Never drop a
    whole project.
@@ -82,6 +81,30 @@ Respond with ONLY a JSON object, no prose around it, in exactly this form:
 }
 """
 
+# Substituted by str.replace, NOT str.format: POLICY_PROMPT ends with a
+# literal JSON example full of { and }, so format() would try to interpret
+# every one of them as a field.
+_RULE_4_TOKEN = "@@RULE_4@@"
+
+RULE_4_WITH_EVIDENCE = """\
+4. CITE EVIDENCE FOR METRICS. Any number/metric in a rewritten bullet must carry
+   evidence_refs drawn from the EVIDENCE bank's ticket_refs."""
+
+RULE_4_WITHOUT_EVIDENCE = """\
+4. NEVER INTRODUCE A NUMBER. A rewritten bullet may keep any number that is
+   already in the CONTENT bullet it came from, and must keep it. You must not
+   add a number the CONTENT bullet does not state. There is no evidence bank on
+   this install, so leave evidence_refs empty. The JSON example below shows
+   "evidence_refs": ["JIRA-..."] for illustration only; ignore that example on
+   this install and emit "evidence_refs": [] for every bullet, always."""
+
+NO_EVIDENCE_CLAUSE = """\
+
+This install has no EVIDENCE bank. Wherever the rules above mention EVIDENCE,
+only the CONTENT applies — it is the sole record of what the candidate has
+done, and it is what every rule is enforced against.
+"""
+
 
 def serialize_content(content: ResumeContent) -> str:
     return json.dumps(asdict(content), ensure_ascii=False, indent=2)
@@ -92,9 +115,20 @@ def serialize_evidence(evidence: EvidenceBank) -> str:
 
 
 def build_system_text(content: ResumeContent, evidence: EvidenceBank) -> str:
-    return (
-        POLICY_PROMPT
-        + "\n----- RÉSUMÉ CONTENT -----\n" + serialize_content(content)
-        + "\n----- EVIDENCE BANK -----\n" + serialize_evidence(evidence)
-        + "\n----- END -----\n"
+    """The policy prompt plus the artifacts, with the citation rule chosen to
+    match what the install actually has.
+
+    An empty bank is the normal case for anyone who did not build one from a
+    Jira export, which is everyone but this repo's author."""
+    has_evidence = bool(evidence.projects)
+    policy = POLICY_PROMPT.replace(
+        _RULE_4_TOKEN,
+        RULE_4_WITH_EVIDENCE if has_evidence else RULE_4_WITHOUT_EVIDENCE,
     )
+    if not has_evidence:
+        policy += NO_EVIDENCE_CLAUSE
+    parts = [policy, "\n----- RÉSUMÉ CONTENT -----\n", serialize_content(content)]
+    if has_evidence:
+        parts += ["\n----- EVIDENCE BANK -----\n", serialize_evidence(evidence)]
+    parts.append("\n----- END -----\n")
+    return "".join(parts)

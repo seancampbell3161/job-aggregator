@@ -151,13 +151,22 @@ class TailorResult:
     is_fallback: bool = False
 
     @classmethod
-    def fallback(cls) -> "TailorResult":
+    def fallback(cls, reason: str = "") -> "TailorResult":
+        # No reason: the pre-existing case, still right for a malformed or
+        # empty provider response, where a retry might succeed. A given
+        # reason means the failure is permanent for this configuration (e.g.
+        # a provider's own max_tokens ceiling) — naming it beats sending the
+        # user around a retry loop that can never succeed.
+        cover_letter = (
+            f"(Tailoring unavailable — {reason})" if reason
+            else "(Tailoring unavailable — the LLM call failed. Retry shortly.)"
+        )
         return cls(
             fit=FitAnalysis(),
             experiences=[],
             skills_ordered=[],
             summary_placeholder=SUMMARY_PLACEHOLDER,
-            cover_letter="(Tailoring unavailable — the LLM call failed. Retry shortly.)",
+            cover_letter=cover_letter,
             projects=[],
             is_fallback=True,
         )

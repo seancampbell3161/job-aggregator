@@ -4,8 +4,9 @@ Unlike every other LLM feature here, this one does NOT fail open. A scorer
 that fails open costs one posting's score; a drafter that fails open writes an
 empty profile that looks exactly like a good one and silently mis-scores
 everything from then on. So: provider errors raise, unparseable output raises,
-and an empty profile raises. The wizard catches DraftFailed and falls back to
-hand-filled forms.
+and an empty profile raises. The wizard catches DraftFailed (which lives in
+src/resume_intake/errors.py, a leaf module, so that catching it does not drag
+this module's web-layer import along) and falls back to hand-filled forms.
 
 The résumé is attacker-controlled text (an uploaded file) that ends up inside
 an LLM prompt, so it gets the same treatment job-posting text gets in
@@ -22,6 +23,7 @@ from typing import Any, Mapping
 from src.config import AppConfig
 from src.llm.providers import build_binding
 from src.llm.structured import complete_json
+from src.resume_intake.errors import DraftFailed
 from src.resume_intake.interview import INTERVIEW_FIELDS
 from src.sanitize import wrap_untrusted
 from src.settings.service import canonical_doc
@@ -44,10 +46,6 @@ DRAFT_SCHEMA: dict = {
     },
     "required": ["profile_md", "filters"],
 }
-
-
-class DraftFailed(Exception):
-    """User-facing reason the draft could not be produced."""
 
 
 @dataclass(frozen=True)

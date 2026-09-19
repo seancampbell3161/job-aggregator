@@ -44,8 +44,9 @@ def tailor_boot(request: Request):
     """(engine, content) for tailoring runs: the override set on app.state
     (tests), else built from the request's snapshot and cached per settings
     generation. None when not set up, tailoring is disabled, or no résumé
-    content document exists. The engine itself may be None (no key/evidence):
-    stored results can still be re-rendered."""
+    content document exists. The engine itself may be None (the configured
+    provider has no API key, or building it raised — an evidence bank is not
+    required for one): stored results can still be re-rendered."""
     override = request.app.state.tailor_boot_override
     if override is not None:
         return override

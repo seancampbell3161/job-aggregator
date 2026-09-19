@@ -93,25 +93,12 @@ def test_relevance_scorer_with_malformed_host_and_no_profile_returns_none():
     assert _build_relevance_scorer(cfg, None) is None
 
 
-def test_tailor_engine_refuses_unsupported_provider_before_checking_its_key(caplog):
-    """Regression: a non-Ollama provider must be refused for being
-    unsupported (tailoring_unsupported_provider), not for lacking a key it
-    could never use anyway (tailoring_disabled_at_runtime) — advising the
-    user to add a key that cannot help is actively misleading."""
-    from src.tailor import build_tailor_engine
-    from src.tailor.models import EvidenceBank, ResumeContent
-
-    cfg = AppConfig(
-        tailoring={"enabled": True, "provider": "anthropic"},
-        secrets=Secrets(),  # no anthropic_api_key
-    )
-    with caplog.at_level("WARNING", logger="src.tailor"):
-        result = build_tailor_engine(
-            cfg,
-            ResumeContent(name="A", contact={}, skills=[], experiences=[]),
-            EvidenceBank(),
-        )
-    assert result is None
-    events = [r.message for r in caplog.records]
-    assert "tailoring_unsupported_provider" in events
-    assert "tailoring_disabled_at_runtime" not in events
+# test_tailor_engine_refuses_unsupported_provider_before_checking_its_key
+# (Task 5's predecessor) asserted the opposite of Task 5's purpose: it pinned
+# tailoring_unsupported_provider as the refusal reason for every non-Ollama
+# provider. Task 5 deliberately removes that guard so anthropic/gemini reach
+# the engine — see tests/tailor/test_factory.py::test_factory_builds_an_anthropic_engine
+# and ::test_factory_builds_a_gemini_engine, which cover the now-supported
+# path, and ::test_factory_still_refuses_a_provider_with_no_key, which covers
+# the key-missing refusal this test used to guard against being reached too
+# early.

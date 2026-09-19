@@ -217,7 +217,7 @@ def _stage_and_accept(request: Request, slug: str, staging: Path) -> HTMLRespons
 async def _import_docx(request: Request, slug: str, data: bytes) -> HTMLResponse:
     prov = request.app.state.builder
     if prov.importer is None:
-        return _gallery(request, error="docx import is not configured (needs the Ollama tailoring provider).")
+        return _gallery(request, error="docx import is not configured (needs a configured tailoring provider).")
     if _slug_taken(slug):
         return _gallery(request, error=f"A template named '{slug}' already exists.")
     staging = user_templates_dir() / ".pending" / slug

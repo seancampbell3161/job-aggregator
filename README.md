@@ -113,7 +113,7 @@ several pages over the same state as the pipeline:
 - **Pipeline / ops dashboard** (`/pipeline`) — a health strip, connector health, match & score analytics, LLM-failure tally, and cycle stats & fetch failures (rolling 7 days). Each panel is fail-soft.
 - **Match analytics** (`/analytics`) — matches over time, where matches come from (by company and ATS), and your most common résumé stretch-skills.
 - **Coach** (`/coach`) — on-demand LLM recommendations for improving your application response rate, grounded in your own funnel, audit trail, config, and résumé; keeps a run history.
-- **Apply kit** (`/kit`) — a tap-to-copy sheet of your recurring application answers (work authorization, links, EEO), sourced from a gitignored `resume/facts.yaml`.
+- **Apply kit** (`/kit`) — a tap-to-copy sheet of your recurring application answers (work authorization, links, EEO), sourced from the `kit_facts` settings document (edit it under `/settings/documents`); saving a drafted résumé scaffolds one for you if you don't already have one, with the EEO fields left blank for you to fill in.
 - **Resume builder** (`/builder`) — manage résumé template packs and rendering settings. Switch between the two built-in designs, upload your own (a Jinja2 HTML file, a zip pack with fonts, or a `.docx` converted once via the LLM and held for your review), and set bullet caps, max pages, and page size/margins. The active template drives every tailored-résumé PDF (the alert deep-links and the CLI); a finished run can be re-rendered in any template instantly, no LLM call. Template contract: [`resume/README.md`](resume/README.md).
 - **`/settings`** — edit every setting, secret, and document from the browser;
   changes apply live to the poller and scheduler with no restart.

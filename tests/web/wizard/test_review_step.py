@@ -2,7 +2,8 @@
 normal save_bundle, not a special accept-the-LLM path."""
 import pytest
 
-from src.resume_intake.draft import Draft, DraftFailed
+from src.resume_intake.draft import Draft
+from src.resume_intake.errors import DraftFailed
 from src.web.app import create_app
 from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import WEB_TEST_SETTINGS, make_service

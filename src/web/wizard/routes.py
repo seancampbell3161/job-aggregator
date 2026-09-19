@@ -13,7 +13,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.config import SLUG_SOURCE_FAMILIES
-from src.resume_intake.draft import DraftFailed, draft_profile_and_filters
+from src.resume_intake.draft import draft_profile_and_filters
+from src.resume_intake.errors import DraftFailed
 from src.resume_intake.extract import ExtractionFailed, extract_text
 from src.resume_intake.interview import INTERVIEW_FIELDS, answers_to_patch, decode_answers
 from src.settings.documents import validate_document

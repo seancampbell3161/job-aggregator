@@ -679,12 +679,31 @@ to /board.
 
 `/kit` renders your recurring application-form answers (links, work
 authorization, EEO responses) with one-tap copy buttons — a cheat sheet to
-keep beside any application form.
+keep beside any application form. It's backed by the `kit_facts` settings
+document.
 
+**Easiest path:** draft your structured résumé at
+**Settings → Documents → Draft your structured résumé** (or
+`/settings/documents/draft`) and save it — if you don't already have a
+`kit_facts` document, saving scaffolds one for you: Links come from your
+résumé's contact info, Location and Desired salary are filled in from your
+filters (`filters.location`, `filters.comp_floor_usd`), the remaining
+eligibility answers (work authorization, sponsorship, relocation, start
+date) are left blank for you to fill in, and every EEO field is blank by
+construction — there is no code path by which it could be populated from
+model output. Fill in the blanks on **Settings → Documents** — including
+Desired salary, which comes out empty when you have no `comp_floor_usd` set,
+and is worth replacing with the figure you'd actually quote even when you do:
+`comp_floor_usd` is the floor below which you don't want to hear about a job,
+not a number to put on an application.
+
+**Hand-written path:** still works, and the EEO answers you'll want to fill
+in by hand regardless.
 `resume/facts.example.yaml` ships as a template — copy it to
-`resume/facts.yaml`, fill it in, and re-import — `/kit` shows it on the next
-refresh. Groups and labels are free-form: add any question you find yourself
-answering repeatedly.
+`resume/facts.yaml`, fill it in, and re-import (or paste/edit the YAML
+directly at `/settings/documents?kind=kit_facts`) — `/kit` shows it on the
+next refresh. Groups and labels are free-form: add any question you find
+yourself answering repeatedly.
 
 ### Gmail ingestion (optional)
 
@@ -853,8 +872,11 @@ ad-hoc, review-first imports.
 ### Apply bookmarklet (optional)
 
 The `/kit` page renders an **"📋 Apply Autofill"** bookmarklet built from your
-`resume/facts.yaml`. Drag it to your browser's bookmarks bar once; then, on a
+`kit_facts` (see [Apply kit](#apply-kit-optional) above for how that document
+gets filled in — scaffolded from a drafted résumé, or hand-written as
+`resume/facts.yaml`). Drag it to your browser's bookmarks bar once; then, on a
 Greenhouse / Lever / Ashby application form, click it to autofill the standard
 fields (name, email, links, work authorization) from your facts. It's a static
-`javascript:` bookmarklet — no extension and no network calls. Re-drag it after
-re-importing your facts to pick up new answers.
+`javascript:` bookmarklet — no extension and no network calls. Re-drag it
+after your facts change (a fresh save, a re-scaffold, or a re-import) to pick
+up new answers.

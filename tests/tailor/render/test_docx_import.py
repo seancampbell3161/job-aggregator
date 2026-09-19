@@ -4,10 +4,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.llm.providers import LlmBinding
 from src.tailor.render.docx_import import (
     DocxTemplateImporter, build_docx_importer, build_import_prompt, extract_docx,
 )
 from tests.conftest import requires_weasyprint
+
+_TEMPLATE = "<html><body>{{ doc.name }}</body></html>"
 
 
 def make_docx(*, with_font=True, font_entry="word/fonts/Play-regular.ttf") -> bytes:
@@ -58,10 +61,21 @@ def test_extract_docx_font_path_traversal_defused():
 
 @requires_weasyprint
 def test_prompt_includes_contract_html_and_fonts():
-    p = build_import_prompt(extract_docx(make_docx()))
-    assert "doc.experiences" in p          # contract present
-    assert "First Name Last Name" in p     # source html present
-    assert "Play-regular.ttf" in p         # font wiring instructions
+    system, user = build_import_prompt(extract_docx(make_docx()))
+    assert "doc.experiences" in system     # contract present, in the system turn
+    assert "First Name Last Name" in user  # source html present, in the user turn
+    assert "Play-regular.ttf" in user      # font wiring instructions, in the user turn
+
+
+def test_the_prompt_puts_the_rules_in_the_system_turn_and_the_document_in_the_user_turn():
+    """The source document comes out of a file the user uploaded. It belongs
+    in the user turn, not spliced into the instructions."""
+    ex = type("E", (), {"html": "<p>Acme</p>", "fonts": [], "hints": {}})()
+    system, user = build_import_prompt(ex)
+    assert "doc.experiences" in system        # the RenderDoc contract
+    assert "Output ONLY the complete HTML file" in system
+    assert "<p>Acme</p>" in user
+    assert "<p>Acme</p>" not in system
 
 
 class _FakeClient:
@@ -74,9 +88,14 @@ class _FakeClient:
 GOOD = "```html\n<!DOCTYPE html><html><body>{{ doc.name }}</body></html>\n```"
 
 
+def _ollama_binding(text: str, *, timeout_seconds: int = 5) -> LlmBinding:
+    return LlmBinding(provider="ollama", model="m", client=_FakeClient(text),
+                      timeout_seconds=timeout_seconds)
+
+
 @requires_weasyprint
 async def test_importer_strips_fences_and_returns_template():
-    imp = DocxTemplateImporter(client=_FakeClient(GOOD), model="m", timeout_seconds=5)
+    imp = DocxTemplateImporter(binding=_ollama_binding(GOOD))
     text, ex = await imp.to_template(make_docx())
     assert text.startswith("<!DOCTYPE html>")
     assert "{{ doc.name }}" in text
@@ -85,9 +104,32 @@ async def test_importer_strips_fences_and_returns_template():
 
 @requires_weasyprint
 async def test_importer_rejects_output_without_doc_refs():
-    imp = DocxTemplateImporter(client=_FakeClient("<html>static</html>"), model="m", timeout_seconds=5)
+    imp = DocxTemplateImporter(binding=_ollama_binding("<html>static</html>"))
     with pytest.raises(RuntimeError):
         await imp.to_template(make_docx())
+
+
+async def test_the_importer_runs_on_anthropic(monkeypatch):
+    class _FakeAnthropic:
+        def __init__(self):
+            self.messages, self.kwargs = self, None
+
+        async def create(self, **kwargs):
+            self.kwargs = kwargs
+            block = type("B", (), {"type": "text", "text": _TEMPLATE})()
+            return type("R", (), {"content": [block], "stop_reason": "end_turn"})()
+
+    client = _FakeAnthropic()
+    importer = DocxTemplateImporter(
+        binding=LlmBinding(provider="anthropic", model="m", client=client,
+                           timeout_seconds=120),
+    )
+    monkeypatch.setattr("src.tailor.render.docx_import.extract_docx",
+                        lambda data: type("E", (), {"html": "<p>x</p>", "fonts": [],
+                                                    "hints": {}})())
+    text, _ = await importer.to_template(b"fake docx bytes")
+    assert text == _TEMPLATE
+    assert client.kwargs["max_tokens"] == 16384
 
 
 def _cfg(*, tailoring_timeout: int) -> SimpleNamespace:
@@ -105,13 +147,13 @@ def test_build_docx_importer_floors_short_tailoring_timeout():
     starve it; the importer's timeout floors at 120s."""
     imp = build_docx_importer(_cfg(tailoring_timeout=60))
     assert imp is not None
-    assert imp._timeout == 120
+    assert imp._binding.timeout_seconds == 120
 
 
 def test_build_docx_importer_respects_longer_tailoring_timeout():
     imp = build_docx_importer(_cfg(tailoring_timeout=180))
     assert imp is not None
-    assert imp._timeout == 180
+    assert imp._binding.timeout_seconds == 180
 
 
 def test_build_docx_importer_uses_a_local_host_without_a_key(monkeypatch):
@@ -136,3 +178,16 @@ def test_build_docx_importer_cloud_host_requires_a_key():
     cfg = _cfg(tailoring_timeout=60)
     cfg.secrets.ollama_api_key = ""
     assert build_docx_importer(cfg) is None
+
+
+def test_the_factory_builds_for_a_non_ollama_provider():
+    from src.config import AppConfig, RelevanceConfig, Secrets, TailoringConfig
+    from src.tailor.render.docx_import import build_docx_importer
+
+    cfg = AppConfig(
+        tailoring=TailoringConfig(enabled=True, provider="anthropic"),
+        relevance=RelevanceConfig(provider="ollama", model="m",
+                                  ollama_host="https://ollama.com"),
+        secrets=Secrets(anthropic_api_key="sk-test"),
+    )
+    assert build_docx_importer(cfg) is not None

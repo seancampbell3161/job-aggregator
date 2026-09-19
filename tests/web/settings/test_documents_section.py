@@ -76,3 +76,8 @@ def test_document_body_is_escaped_in_the_textarea(tmp_path, monkeypatch):
     assert r.status_code == 200
     assert "<script>alert(1)</script>" not in r.text
     assert "</textarea><script>" not in r.text
+
+
+def test_the_documents_page_links_to_drafting(tmp_path, monkeypatch):
+    r = signed_in_client(_app(tmp_path, monkeypatch)).get("/settings/documents")
+    assert "/settings/documents/draft" in r.text

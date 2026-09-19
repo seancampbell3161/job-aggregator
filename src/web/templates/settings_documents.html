@@ -1,5 +1,7 @@
 {% extends "settings_base.html" %}
 {% block section %}
+<p class="muted">Have a résumé uploaded? <a href="/settings/documents/draft">Draft
+  your structured résumé from it</a> instead of writing the JSON by hand.</p>
 <form method="get" action="/settings/documents" class="doc-picker">
   <label>Document
     <select name="kind" onchange="this.form.submit()">
