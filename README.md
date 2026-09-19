@@ -2,9 +2,18 @@
 
 A personal job-alert pipeline. It polls public ATS endpoints and a few job-board aggregators on a schedule, filters new postings against your hard requirements, asks an LLM to score how well each survivor matches your written profile, and pushes the keepers to your phone (ntfy) and a Discord channel.
 
-It runs on a machine you own — Docker Compose with SQLite state, no cloud account required.
+It runs on a machine you own — Docker Compose with SQLite state, no cloud account required. No clone needed:
 
-> **Just want it running?** → **[GETTING_STARTED.md](GETTING_STARTED.md)** walks you through setup end-to-end and how to tailor it to your job preferences.
+```bash
+mkdir job-aggregator && cd job-aggregator
+curl -O https://raw.githubusercontent.com/seancampbell3161/job-aggregator/main/docker-compose.yml
+docker compose up -d
+```
+
+Then open <http://localhost:8000> and set a password. Full walkthrough —
+configuring filters, your profile, notifications, and everything else —
+is in **[GETTING_STARTED.md](GETTING_STARTED.md)**.
+
 > **Something broken?** → **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**.
 > **What changed?** → **[CHANGELOG.md](CHANGELOG.md)** (release process in [RELEASING.md](RELEASING.md)).
 
@@ -108,7 +117,7 @@ several pages over the same state as the pipeline:
 - **`/settings`** — edit every setting, secret, and document from the browser;
   changes apply live to the poller and scheduler with no restart.
 
-See [GETTING_STARTED.md](GETTING_STARTED.md#a4-open-the-web-ui) for how to open it.
+See [GETTING_STARTED.md](GETTING_STARTED.md#1-start-it) for how to open it.
 
 ## Repo layout
 
@@ -142,26 +151,44 @@ scripts/
   tune_thresholds.py        mine /audit verdicts into suggested score_low / title changes
   import_vc_portfolio.py    bulk-import a VC's portfolio into settings
   build_evidence_bank.py    Jira CSV → resume/evidence.json skeleton (for tailoring)
-docker-compose.yml    local stack: poller + web + (opt-in) ollama
+docker-compose.yml    local stack: poller + web + (opt-in) ollama — pulls the published image
+docker-compose.override.yml   clone only: builds from source instead of pulling the image; Compose loads it automatically, so `docker compose up -d` is the same command either way
+docker-entrypoint.sh  fixes ./data's ownership (a fresh bind mount is root-owned), then drops to an unprivileged user before exec'ing the app
+.github/workflows/publish.yaml   builds + smoke-tests + publishes the images to GHCR on a version tag (see RELEASING.md)
 config.yaml / profile.md   your settings files (gitignored) — load with python -m src.settings import
 resume.md.example     template résumé for gap analysis (copy to resume.md — gitignored)
 GETTING_STARTED.md    end-to-end setup and tailoring
 TROUBLESHOOTING.md    common setup and runtime issues
 ```
 
+Published as `ghcr.io/seancampbell3161/job-aggregator`, tagged `:X.Y.Z` / `:X.Y`
+/ `:latest` (slim, no browser). Boards on **Avature** need a real browser, so
+those need the `-headless` variant instead — `:X.Y.Z-headless` / `:X.Y-headless`
+/ `:latest-headless` (there is no bare `:headless` tag). Everything else,
+including **Phenom** boards, is fetched over plain HTTP and runs fine on the
+slim image. See [GETTING_STARTED.md § Run it with Docker Compose](GETTING_STARTED.md#run-it-with-docker-compose)
+for pinning and upgrading.
+
 ## Configuration
 
-Two files do almost all the customization — you edit them, then import them
-into the app database (`python -m src.settings import`); changes apply live:
+Almost everything is configured from the web UI's **Settings** pages — filters,
+your relevance profile, LLM provider and key, companies, notification sinks,
+and schedules — and changes apply live, no restart:
 
-- **`config.yaml`** — hard filters (titles, seniority, location, comp, stack, freshness), the source lists (companies per ATS + aggregator toggles), LLM provider + score thresholds, quiet hours, schedules, and feature toggles (gap analysis, tailoring, board automation, audit retention, ops alerts, board discovery).
-- **`profile.md`** — the prose the LLM grades each surviving posting against (0–10). This is the highest-leverage knob for match quality.
-- **`resume.md`** (optional, gitignored) — your markdown résumé, used only by gap analysis.
+- **Filters** — titles, seniority, location, comp, stack, freshness.
+- **Profile** — the prose the LLM grades each surviving posting against
+  (0–10). This is the highest-leverage knob for match quality.
+- **Documents** — your résumé (`resume.md`, optional), used only by gap
+  analysis.
 
-Seed them once with `cp config.example.yaml config.yaml && cp profile.example.md profile.md`
-— both are gitignored, so `git pull` never touches them.
+For bulk edits or scripting, a `config.yaml` (plus `profile.md`/`resume.md`)
+in the same shape still imports (`python -m src.settings import`) and applies
+live the same way — seed one with `cp config.example.yaml config.yaml && cp
+profile.example.md profile.md` (both gitignored, so `git pull` never touches
+them). Neither file is required to get started — **/setup** on first boot
+offers Settings directly.
 
-Step-by-step tuning — filters, the relevance profile, providers and calibration, adding companies, gap analysis — is in **[GETTING_STARTED.md §2](GETTING_STARTED.md#2-tailor-it-to-your-job-preferences)**.
+Step-by-step tuning — filters, the relevance profile, providers and calibration, adding companies, gap analysis — is in **[GETTING_STARTED.md §2](GETTING_STARTED.md#2-configure-it)**.
 
 The complete flag-by-flag reference (every knob, default, and env secret) is **[docs/CONFIG.md](docs/CONFIG.md)**.
 
@@ -173,8 +200,8 @@ The codebase is ~13,000 lines of Python with strict typing (Pydantic) and a larg
 
 | You want to… | Skill needed | Where |
 |---|---|---|
-| Change titles, stack, comp, locations, companies, quiet hours, LLM provider/thresholds, the LLM judgment criteria, résumé gap analysis | None — edit + import | `config.yaml`, `profile.md`, `resume.md` ([Getting Started §2](GETTING_STARTED.md#2-tailor-it-to-your-job-preferences)) |
-| Change polling cadence | None — YAML only | `config.yaml` `schedules:` |
+| Change titles, stack, comp, locations, companies, quiet hours, LLM provider/thresholds, the LLM judgment criteria, résumé gap analysis | None — the Settings UI | **Settings** in the web UI — changes apply live, no restart; a `config.yaml` (plus `profile.md`/`resume.md`) import still works for bulk edits or scripting ([Getting Started §2](GETTING_STARTED.md#2-configure-it)) |
+| Change polling cadence | None — the Settings UI | **Settings → Schedules**, or `config.yaml` `schedules:` |
 | Add a new notification target (Slack, email, SMS, Telegram) | Beginner Python | `src/notify/` |
 | Add a new filter (reject by company, require remote-only) | Beginner Python | `src/filters.py` |
 | Tweak the notification message format | Beginner Python | `src/notify/format.py` |

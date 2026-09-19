@@ -25,6 +25,11 @@
   <p class="muted">For a board the check above can't identify on its own — e.g. a
     branded Phenom or Avature careers domain — pick its family and fill in the
     details directly.</p>
+  {% if not headless_ok %}
+  <p class="bad">Avature boards need a browser, which this image does not
+    include. Add one here and it will never be polled — switch to the
+    <code>-headless</code> image tag first. (Phenom boards are unaffected.)</p>
+  {% endif %}
   <ul class="manual-add-list">
     {% for family in board_families %}
     <li><a href="/settings/rows/sources.{{ family }}/new">{{ family }}</a></li>

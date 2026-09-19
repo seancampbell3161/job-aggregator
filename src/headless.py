@@ -1,8 +1,10 @@
 """Playwright/Chromium session for the headless connector tier. This is the
 ONLY module that imports Playwright, and it does so lazily (inside
 browser_session) so the fast tiers, the web app, and CI never load it. A missing
-Playwright/Chromium (image built without the [headless] extra) surfaces as an
-ImportError from browser_session, which the headless cycle catches and no-ops.
+Playwright/Chromium (the slim image, built without the [headless]
+extra) is detected up front by headless_available(); src.handler skips the
+headless cycle with a named log rather than letting an ImportError surface
+from browser_session.
 
 This tier exists because some careers sites render their listings with
 JavaScript, so a plain HTTP client sees nothing. It drives a real browser and
@@ -13,12 +15,19 @@ hiding.
 """
 from __future__ import annotations
 
+import importlib.util
 import logging
 from contextlib import asynccontextmanager
 
 from src.user_agent import user_agent
 
 log = logging.getLogger(__name__)
+
+
+def headless_available() -> bool:
+    """Whether this image can drive a browser. A spec lookup, never an import:
+    importing Playwright here would defeat the laziness described above."""
+    return importlib.util.find_spec("playwright") is not None
 
 
 class HeadlessBrowser:
@@ -46,8 +55,8 @@ async def browser_session():
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=True,
-            # --no-sandbox is required to run Chromium as root inside the
-            # container image; it is not an anti-detection measure.
+            # Chromium's sandbox needs kernel privileges the container does not
+            # grant; this is not an anti-detection measure.
             args=["--no-sandbox"],
         )
         try:

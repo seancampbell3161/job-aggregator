@@ -85,3 +85,16 @@ def test_the_page_offers_a_manual_add_link_for_every_board_family(tmp_path, monk
     r = signed_in_client(_app(tmp_path, monkeypatch)).get("/settings/companies")
     assert 'href="/settings/rows/sources.phenom/new"' in r.text
     assert 'href="/settings/rows/sources.avature/new"' in r.text
+
+
+def test_manual_add_warns_when_the_image_has_no_browser(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.web.settings.companies.headless_available", lambda: False)
+    r = signed_in_client(_app(tmp_path, monkeypatch)).get("/settings/companies")
+    assert "-headless" in r.text
+
+
+def test_manual_add_is_quiet_when_the_image_has_a_browser(tmp_path, monkeypatch):
+    """Control: without this, a template that always warns would pass above."""
+    monkeypatch.setattr("src.web.settings.companies.headless_available", lambda: True)
+    r = signed_in_client(_app(tmp_path, monkeypatch)).get("/settings/companies")
+    assert "-headless" not in r.text

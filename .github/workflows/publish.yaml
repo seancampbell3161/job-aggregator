@@ -1,0 +1,213 @@
+name: publish
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  build:
+    # Native runners, not QEMU: installing Chromium under emulation is the
+    # difference between a job that takes minutes and one that may not finish.
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # cache_mode: headless images are ~2.17 GB; `mode=max` on both
+          # headless legs would blow past the 10 GB per-repo Actions cache
+          # and evict the slim/test caches. `mode=min` (layers reachable
+          # from the final image only) still caches the expensive apt/pip/
+          # playwright-install layers, which is what matters here.
+          - {variant: slim,     target: runtime,  platform: linux/amd64, runner: ubuntu-latest,   arch: amd64, cache_mode: max}
+          - {variant: slim,     target: runtime,  platform: linux/arm64, runner: ubuntu-24.04-arm, arch: arm64, cache_mode: max}
+          - {variant: headless, target: headless, platform: linux/amd64, runner: ubuntu-latest,   arch: amd64, cache_mode: min}
+          - {variant: headless, target: headless, platform: linux/arm64, runner: ubuntu-24.04-arm, arch: arm64, cache_mode: min}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Smoke-test this architecture's image BEFORE any manifest tag can point
+      # at it: load it locally, boot it, then push by digest.
+      - name: Build for local testing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: smoke:${{ matrix.variant }}
+          cache-from: type=gha,scope=${{ matrix.variant }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=${{ matrix.cache_mode }},scope=${{ matrix.variant }}-${{ matrix.arch }}
+
+      - name: Smoke-test
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /tmp/ja-data && sudo chown 0:0 /tmp/ja-data
+          docker run -d --name ja -p 18000:8000 -v /tmp/ja-data:/data smoke:${{ matrix.variant }}
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18000/healthz >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          test "$(curl -fsS http://127.0.0.1:18000/healthz)" = "ok"
+          # /welcome proves templates and the database really came up, rather
+          # than a socket merely answering. NOTE: /login is NOT a valid check
+          # here — with no password set it 303s to /welcome.
+          test "$(curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:18000/welcome)" = "200"
+          # PID 1's real UID, NOT `docker exec ... id -u`: exec does not run the
+          # ENTRYPOINT, so it starts as the image's user (root, by design — the
+          # entrypoint needs root to chown /data before dropping privileges).
+          test "$(docker exec ja awk '/^Uid:/{print $2}' /proc/1/status)" = "1000"
+          # /data itself, not just the file inside it: this is what proves the
+          # entrypoint's recursive chown of a pre-existing root-owned mount
+          # actually ran, rather than the file merely being created by a
+          # process that was already unprivileged.
+          test "$(docker exec ja stat -c %u /data)" = "1000"
+          test "$(docker exec ja stat -c %u /data/job_aggregator.db)" = "1000"
+          docker rm -f ja
+
+      - name: Assert the variant is what it claims
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.variant }}" = "slim" ]; then
+            docker run --rm smoke:slim python -c \
+              "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('playwright') is None else 1)"
+          else
+            # Actually launch it, as the unprivileged user the entrypoint drops
+            # to. Checking only that `playwright` imports would pass even with
+            # Chromium installed somewhere that user cannot read.
+            # One line on purpose: indenting a python -c body to satisfy the
+            # YAML block scalar would make it an IndentationError.
+            docker run --rm smoke:headless python -c "from playwright.sync_api import sync_playwright; p = sync_playwright().start(); b = p.chromium.launch(headless=True, args=['--no-sandbox']); print(b.version); b.close(); p.stop()"
+          fi
+
+      - name: Push by digest
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: ${{ matrix.platform }}
+          cache-from: type=gha,scope=${{ matrix.variant }}-${{ matrix.arch }}
+          provenance: true
+          sbom: true
+          # docker buildx imagetools create (the merge job) does not consume
+          # metadata-action's `labels` output, so these have to land on the
+          # per-arch image here, at the only point that actually pushes it.
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=Job aggregator — ${{ matrix.variant }} image
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.ref_name }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export the digest
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/digests
+          # The digest output is "sha256:<hex>", but actions/upload-artifact
+          # rejects ':' in an uploaded file's path (not just the artifact
+          # name) — so the colon becomes a hyphen here and is restored when
+          # the merge job rebuilds the "name@sha256:<hex>" reference.
+          digest="${{ steps.push.outputs.digest }}"
+          # An empty digest would otherwise write a file ending "-sha256-"
+          # that upload-artifact accepts silently, surfacing only much later
+          # as an invalid image reference in the merge job.
+          test -n "$digest"
+          touch "/tmp/digests/${{ matrix.variant }}-${{ matrix.arch }}-sha256-${digest#sha256:}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.variant }}-${{ matrix.arch }}
+          path: /tmp/digests/*
+          retention-days: 1
+
+      # Last on purpose: a failure anywhere earlier in the job (smoke-test,
+      # the variant assertion, the push) should still get diagnostics. `ja`
+      # may already be gone by the time this runs (the smoke-test step
+      # removes it on success) — that's fine, `|| true` makes the no-op safe.
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs ja || true
+
+  merge:
+    needs: [build]
+    runs-on: ubuntu-latest
+    strategy:
+      # Without this, a transient failure on one variant's merge cancels the
+      # other's in-flight run, leaving a release with (say) slim tags
+      # published and headless tags missing.
+      fail-fast: false
+      matrix:
+        include:
+          - variant: slim
+            flavor: latest=auto
+          - variant: headless
+            # An inline `suffix=${{ ... || '' }}` would emit a bare `suffix=`
+            # for the slim variant; carry the whole flavor per variant instead.
+            flavor: |
+              latest=auto
+              suffix=-headless,onlatest=true
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digests-${{ matrix.variant }}-*
+          merge-multiple: true
+          path: /tmp/digests
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          # metadata-action appends flavor.suffix to every generated tag,
+          # including the literal `latest` (that's what onlatest=true buys
+          # here) — so the headless variant's `latest` publishes as
+          # `latest-headless`, not a bare `headless`. There's no code path in
+          # the action that produces the latter from a flavor suffix.
+          flavor: ${{ matrix.flavor }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=dispatch-${{ github.sha }},enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Create the manifest list
+        run: |
+          set -euo pipefail
+          cd /tmp/digests
+          # DOCKER_METADATA_OUTPUT_JSON (set by the metadata-action step
+          # above) rather than splicing ${{ steps.meta.outputs.json }} into a
+          # single-quoted shell string: that JSON embeds the repo description
+          # fetched from the GitHub API, and a description containing an
+          # apostrophe would break this line at release time. Assigning to a
+          # variable first also means `set -e` catches a `jq` failure, which
+          # it would not if the substitution sat directly in argument position.
+          tags=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          # A non-semver `v*` tag (e.g. `vtest`) matches neither `tags:`
+          # pattern above, so metadata-action emits no tags at all and
+          # `imagetools create` below would otherwise fail obscurely on a
+          # bare `-t` with no value.
+          test -n "$tags" || { echo "::error::no tags computed for ${{ matrix.variant }} — is this a real vX.Y.Z release tag?"; exit 1; }
+          docker buildx imagetools create \
+            $tags \
+            $(for f in ${{ matrix.variant }}-*; do echo "${{ env.IMAGE }}@sha256:${f##*-sha256-}"; done)
+
+      - name: Show what was published
+        run: docker buildx imagetools inspect ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}

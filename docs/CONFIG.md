@@ -299,9 +299,11 @@ How the poller identifies itself to every site it fetches.
 
 Never part of the settings document. Each secret resolves in this order:
 
-1. a non-empty `JOB_AGG_*` environment variable (Docker Compose reads `.env` and
-   snapshots it at container creation — run `docker compose up -d --force-recreate`
-   after editing);
+1. a non-empty `JOB_AGG_*` environment variable (Docker Compose reads `.env` via
+   `env_file:` in `docker-compose.yml`, and Compose hashes an `env_file`'s
+   *content* into the service's config hash — so editing `.env` changes that
+   hash and a plain `docker compose up -d` already recreates the container;
+   no `--force-recreate` needed);
 2. the value stored in the database — `python -m src.settings set-secret NAME`
    (prompts; values are never taken from the command line), or
    `python -m src.settings import-env-secrets` to copy every non-empty

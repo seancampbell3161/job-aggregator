@@ -30,3 +30,52 @@ jobs:
         # Fail loudly here rather than letting the render tests skip silently.
         run: python -c "import weasyprint; print(weasyprint.__version__)"
       - run: pytest -v
+  image:
+    # The entrypoint is shell that only runs inside a container, and the
+    # publish workflow only fires on tags — without this job a broken
+    # entrypoint would surface while cutting a release.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the slim image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          load: true
+          tags: job-aggregator:ci
+          cache-from: type=gha,scope=ci-runtime
+          cache-to: type=gha,mode=max,scope=ci-runtime
+      - name: Boot it on a root-owned data directory
+        run: |
+          set -euo pipefail
+          # Docker creates a missing bind-mount source as root; reproduce that.
+          sudo mkdir -p /tmp/ja-data
+          sudo chown 0:0 /tmp/ja-data
+          docker run -d --name ja -p 18000:8000 -v /tmp/ja-data:/data job-aggregator:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18000/healthz >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          test "$(curl -fsS http://127.0.0.1:18000/healthz)" = "ok"
+          # /healthz deliberately bypasses the snapshot middleware, so it never
+          # touches the database. Hit a page that does, or the ownership
+          # assertion below may run before the database file exists.
+          test "$(curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:18000/welcome)" = "200"
+      - name: Assert privileges were dropped
+        run: |
+          set -euo pipefail
+          # PID 1's real UID, NOT `docker exec ... id -u`: exec does not run the
+          # ENTRYPOINT, so it starts as the image's user (root, by design — the
+          # entrypoint needs root to chown /data before dropping privileges).
+          test "$(docker exec ja awk '/^Uid:/{print $2}' /proc/1/status)" = "1000"
+          test "$(docker exec ja stat -c %u /data)" = "1000"
+          test "$(docker exec ja stat -c %u /data/job_aggregator.db)" = "1000"
+      - name: Assert the slim image has no browser
+        run: |
+          docker run --rm job-aggregator:ci python -c \
+            "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('playwright') is None else 1)"
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs ja

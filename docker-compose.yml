@@ -1,6 +1,6 @@
 services:
   poller:
-    build: .
+    image: ghcr.io/seancampbell3161/job-aggregator:latest
     command: ["python", "-m", "src.scheduler"]
     restart: unless-stopped
     # Optional. Secrets can live in .env (a non-empty JOB_AGG_* value wins) or
@@ -14,12 +14,13 @@ services:
       JOB_AGG_TEMPLATES_DIR: /data/templates
     volumes:
       # Everything persistent — settings, documents, secrets, jobs, tailored
-      # PDFs, résumé template packs — lives in ./data. Load settings with:
+      # PDFs, résumé template packs — lives in ./data. In a clone, load settings with:
       #   docker compose run --rm -v "$PWD:/import:ro" web python -m src.settings import /import
+      # A newcomer configures in the UI after logging in.
       - ./data:/data
 
   web:
-    build: .
+    image: ghcr.io/seancampbell3161/job-aggregator:latest
     command: ["python", "-m", "src.web"]
     restart: unless-stopped
     env_file:
@@ -39,6 +40,15 @@ services:
       # SSH tunnel, or put an HTTPS reverse proxy in front. Never port-forward
       # plain HTTP to the internet.
       - "8000:8000"
+    healthcheck:
+      # /healthz answers 200 whether or not the instance is set up, so an
+      # unhealthy badge means the process is genuinely broken.
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 60s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     volumes:
       - ./data:/data
 

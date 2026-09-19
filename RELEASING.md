@@ -10,6 +10,12 @@ by [git-cliff](https://git-cliff.org/) (`cliff.toml`). Releases are cut at
 > their tags do not exist here. `git-cliff --unreleased` and the compare links
 > work normally from `v0.12.0` onward.
 
+> **`publish.yaml` runs from the tagged commit.** GitHub Actions checks out
+> `.github/workflows/publish.yaml` as it exists **at the pushed tag**, not
+> whatever is on `main` when you push it. Merge any workflow change through
+> its own PR first — pushing a tag can never pick up a workflow edit that
+> hasn't landed on `main` yet.
+
 git-cliff is not a project dependency and does not need installing —
 `uv tool run git-cliff` fetches and runs it. (If you have it on `$PATH`, plain
 `git-cliff` works too.)
@@ -91,7 +97,24 @@ sense to whoever wrote them. Budget for that edit; it's most of the work.
    git rev-parse vX.Y.Z origin/main     # two identical SHAs
    ```
 
-7. **Publish a GitHub Release** from the tag so it shows on the repo's Releases
+7. **Watch the image publish.** Pushing the tag triggers
+   `.github/workflows/publish.yaml`, which builds slim and `-headless` for
+   amd64 and arm64, smoke-tests each, and assembles the manifest lists.
+
+   ```bash
+   gh run watch "$(gh run list --workflow=publish.yaml --limit 1 --json databaseId -q '.[0].databaseId')"
+   docker buildx imagetools inspect ghcr.io/seancampbell3161/job-aggregator:X.Y.Z
+   ```
+
+   The inspect output must list both `linux/amd64` and `linux/arm64`. A tag
+   whose manifest has one architecture means one leg's digest never reached
+   the merge — check the build matrix before announcing the release.
+
+   > **One-time, on the first publish only:** GHCR creates the package
+   > **private**, even for a public repository. Set its visibility to public in
+   > the package settings or every `docker pull` in the docs fails with a 404.
+
+8. **Publish a GitHub Release** from the tag so it shows on the repo's Releases
    page, using the `gh` CLI (`brew install gh && gh auth login` once).
 
    Publish the **`CHANGELOG.md` section you just edited**, not a fresh
