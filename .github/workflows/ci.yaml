@@ -66,7 +66,10 @@ jobs:
       - name: Assert privileges were dropped
         run: |
           set -euo pipefail
-          test "$(docker exec ja id -u)" = "1000"
+          # PID 1's real UID, NOT `docker exec ... id -u`: exec does not run the
+          # ENTRYPOINT, so it starts as the image's user (root, by design — the
+          # entrypoint needs root to chown /data before dropping privileges).
+          test "$(docker exec ja awk '/^Uid:/{print $2}' /proc/1/status)" = "1000"
           test "$(docker exec ja stat -c %u /data)" = "1000"
           test "$(docker exec ja stat -c %u /data/job_aggregator.db)" = "1000"
       - name: Assert the slim image has no browser
