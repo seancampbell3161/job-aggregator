@@ -1,4 +1,5 @@
 """Guards on the deploy files: settings live in ./data, nothing else is mounted."""
+import re
 from pathlib import Path
 
 import yaml
@@ -57,17 +58,27 @@ def _dockerfile() -> str:
 def test_dockerfile_has_a_slim_default_and_a_headless_variant():
     text = _dockerfile()
     assert "AS runtime" in text
-    assert "FROM runtime AS headless" in text
+    assert "FROM base AS headless" in text
     # Chromium belongs only to the variant: the base must not install it.
-    base, _, variant = text.partition("FROM runtime AS headless")
+    base, _, variant = text.partition("FROM base AS headless")
     assert "playwright install" not in base
     assert "playwright install" in variant
 
 
 def test_base_image_omits_the_headless_extra():
-    base, _, _ = _dockerfile().partition("FROM runtime AS headless")
+    base, _, _ = _dockerfile().partition("FROM base AS headless")
     assert '"/app[web,render]"' in base
     assert "headless]" not in base
+
+
+def test_bare_docker_build_defaults_to_the_slim_runtime_stage():
+    """Docker builds the LAST stage in the file when no --target is given.
+    `runtime` (the slim default) must therefore be the last `FROM ... AS
+    <name>` line, or a bare `docker build .` silently produces the ~2 GB
+    headless image instead."""
+    stage_names = re.findall(r"^FROM\s+\S+\s+AS\s+(\S+)", _dockerfile(), re.MULTILINE)
+    assert stage_names, "no named build stages found"
+    assert stage_names[-1] == "runtime"
 
 
 def test_dockerfile_does_not_ship_personal_resume_files():

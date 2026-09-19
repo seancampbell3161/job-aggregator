@@ -1,10 +1,13 @@
 # Shared app image for the local runtime (poller daemon + web UI).
 #
-# Two targets: `runtime` (the default, ~1.15 GB) and `headless`, which adds
-# Playwright and Chromium (~1 GB more) for the Phenom/Avature board tier.
-# `headless` builds FROM `runtime`, so a registry client that already has the
-# slim image pulls only the browser layer.
-FROM python:3.12-slim AS runtime
+# Two targets: `runtime` (the default, slim, ~494 MB) and `headless`, which
+# adds Playwright and Chromium (~2.17 GB total) for the Avature board tier.
+# Both extend a common `base`, so `runtime` adds nothing on top of it and a
+# registry client that already has one image pulls only the difference for
+# the other. `runtime` is defined LAST on purpose: Docker builds the final
+# stage when no `--target` is given, so a bare `docker build .` must land on
+# the slim image, not the 2 GB browser one.
+FROM python:3.12-slim AS base
 
 # WeasyPrint native deps (Debian) for the tailor PDF render path.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -44,7 +47,7 @@ CMD ["python", "-m", "src.web"]
 
 # The browser tier. Kept out of the default image because the only board
 # family it serves (sources.avature) defaults to empty.
-FROM runtime AS headless
+FROM base AS headless
 # `playwright install` runs as root and would otherwise drop Chromium in
 # /root/.cache/ms-playwright, which the unprivileged app user cannot read — the
 # browser would then fail to launch at runtime with a path error, long after
@@ -53,3 +56,8 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN pip install --no-cache-dir "/app[headless]" \
     && python -m playwright install --with-deps chromium \
     && chmod -R a+rX /ms-playwright
+
+# The default image: base, with no browser. LAST on purpose — Docker builds the
+# final stage when no --target is given, so a bare `docker build .` must land
+# here and not on the 2 GB browser image.
+FROM base AS runtime
