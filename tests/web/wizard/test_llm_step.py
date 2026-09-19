@@ -22,6 +22,38 @@ FORM = {
 }
 
 
+def _enabled_checkbox(html: str) -> str:
+    """The rendered `relevance.enabled` input, so a test can see whether the
+    box arrives ticked without depending on the rest of the markup."""
+    import re
+    m = re.search(r'<input[^>]*name="relevance\.enabled"[^>]*>', html)
+    assert m, "no relevance.enabled input on the page"
+    return m.group(0)
+
+
+def test_the_enabled_box_arrives_ticked_on_a_first_visit(tmp_path, monkeypatch):
+    """Scoring stays opt-in in the shipped config — flipping that default would
+    make _llm_done() read this step as already complete and skip it. The wizard
+    instead pre-ticks the box, so the recommended path is the one in front of
+    the user while the default stays honest."""
+    app = _app(tmp_path, monkeypatch)
+    r = signed_in_client(app).get("/wizard/llm")
+    assert r.status_code == 200
+    assert "checked" in _enabled_checkbox(r.text)
+
+
+def test_the_enabled_box_is_not_re_ticked_after_the_step_is_skipped(
+        tmp_path, monkeypatch):
+    """Skipping is how a user says they want no LLM — the only way past this
+    step without enabling one. Re-ticking the box on a revisit would quietly
+    talk them back into it."""
+    app = _app(tmp_path, monkeypatch)
+    client = signed_in_client(app)
+    client.post("/wizard/llm/skip")
+    r = client.get("/wizard/llm")
+    assert "checked" not in _enabled_checkbox(r.text)
+
+
 def test_saves_provider_and_key_then_advances(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
     r = signed_in_client(app).post("/wizard/llm", data=FORM, follow_redirects=False)

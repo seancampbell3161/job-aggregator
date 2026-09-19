@@ -127,9 +127,11 @@ def test_build_relevance_scorer_returns_none_when_disabled():
 
 
 def test_build_relevance_scorer_returns_none_when_api_key_missing():
+    # provider pinned: the default is ollama, which needs no key, so leaving it
+    # implicit would build a scorer and test nothing.
     from src.handler import _build_relevance_scorer
     cfg = _minimal_app_config(
-        relevance_kwargs={"enabled": True},
+        relevance_kwargs={"enabled": True, "provider": "anthropic"},
         secrets_kwargs={"anthropic_api_key": ""},
     )
     assert _build_relevance_scorer(cfg, "# profile") is None
@@ -148,13 +150,14 @@ def test_build_relevance_scorer_returns_none_when_profile_missing():
     assert _build_relevance_scorer(cfg, None) is None
 
 
-def test_build_relevance_scorer_returns_anthropic_scorer_by_default():
-    """provider unspecified → AnthropicRelevanceScorer (the current default)."""
+def test_build_relevance_scorer_returns_anthropic_scorer_when_provider_anthropic():
+    """provider: anthropic → AnthropicRelevanceScorer. The default provider is
+    ollama; that path is covered by ..._when_provider_ollama below."""
     from src.handler import _build_relevance_scorer
     from src.relevance import RelevanceScorer
 
     cfg = _minimal_app_config(
-        relevance_kwargs={"enabled": True},
+        relevance_kwargs={"enabled": True, "provider": "anthropic"},
         secrets_kwargs={"anthropic_api_key": "sk-ant-test"},
     )
     scorer = _build_relevance_scorer(cfg, "# profile")
@@ -256,9 +259,12 @@ def test_build_gap_analyzer_none_when_resume_missing():
 
 
 def test_build_gap_analyzer_none_when_key_missing():
+    # gap_analysis falls back to relevance.provider, which now defaults to
+    # ollama and needs no key — pin the keyed provider to keep the intent.
     from src.handler import _build_gap_analyzer
     cfg = _minimal_app_config_with_gaps(
         gap_kwargs={"enabled": True},
+        relevance_kwargs={"provider": "anthropic"},
         secrets_kwargs={"anthropic_api_key": ""},
     )
     assert _build_gap_analyzer(cfg, "# resume") is None

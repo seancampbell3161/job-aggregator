@@ -187,8 +187,8 @@ threshold calibration: GETTING_STARTED §2c and
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
 | `relevance.enabled` | `false` | Master switch. Off, every filtered posting alerts (no scoring). |
-| `relevance.provider` | `anthropic` | `anthropic`, `gemini`, or `ollama` (Ollama covers both local and hosted cloud — the base URL is `relevance.ollama_host`). |
-| `relevance.model` | `claude-haiku-4-5` | Model name passed to the provider. |
+| `relevance.provider` | `ollama` | `anthropic`, `gemini`, or `ollama` (Ollama covers both local and hosted cloud — the base URL is `relevance.ollama_host`). |
+| `relevance.model` | `gpt-oss:120b` | Model name passed to the provider. |
 | `relevance.ollama_host` | `http://ollama:11434` | Ollama base URL for every Ollama-backed feature (scoring, gap analysis, coach, tailoring, .docx template import). `https://ollama.com` is hosted Ollama Cloud and needs `secrets.ollama_api_key`; any other host is treated as a local server and needs no key. A non-empty `JOB_AGG_OLLAMA_HOST` env var overrides it. |
 | `relevance.score_high` | `7` | Scores ≥ this get the instant phone push; below it (but above `score_low`) postings go to Discord/inbox only. |
 | `relevance.score_low` | `3` | Scores ≤ this are suppressed (still recorded — visible in `/audit`). Shipped: 4. Re-calibrate after any provider/model change. |

@@ -2,7 +2,7 @@
 {% import "_settings_macros.html" as w %}
 {% block step %}
 <form method="post" action="/wizard/llm">
-  {% for spec in fields %}{{ w.field(spec, shown(submitted, cfg, spec), errors) }}{% endfor %}
+  {% for spec in fields %}{{ w.field(spec, prefilled_shown(submitted, cfg, spec, prefill), errors) }}{% endfor %}
   {% for s in secrets %}{{ w.secret_field(s, errors, {}, "") }}{% endfor %}
   <p>
     <button type="button" class="btn" hx-post="/wizard/llm/test"
