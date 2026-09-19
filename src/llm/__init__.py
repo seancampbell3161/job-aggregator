@@ -3,3 +3,4 @@
 from src.llm.providers import (  # noqa: F401
     PROVIDER_KEYS, LlmBinding, build_binding, build_client, needs_key, resolve,
 )
+from src.llm.structured import complete_json  # noqa: F401,E402
