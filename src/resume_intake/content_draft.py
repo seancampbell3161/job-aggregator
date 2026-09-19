@@ -36,11 +36,18 @@ NO_RESUME = "Upload your résumé first — there is nothing to draft from."
 # every bullet, skills, projects, education.
 _MAX_OUTPUT_TOKENS = 16384
 # resume_draft.timeout_seconds defaults to 60, tuned for the profile draft.
-# This call is several times longer; never let that default starve it. Same
-# floor the docx importer uses for the same reason.
+# This call is several times longer; never let that default starve it. The
+# docx importer floors its own call at 120 for the same reason
+# (src/tailor/render/docx_import.py:121); this one answers with far more
+# tokens than a docx template, hence the higher floor.
 _MIN_TIMEOUT_SECONDS = 180
 
 _DIGIT = re.compile(r"\d")
+
+# The only keys ContentDraft.contact is allowed to carry -- assign_ids drops
+# everything else, including nested values that would otherwise stringify
+# into gibberish like "{'x': 1}".
+_CONTACT_FIELDS = ("email", "phone", "location", "github", "linkedin", "website")
 
 _DRAFT_BULLET: dict = {
     "type": "object",
@@ -198,15 +205,29 @@ def assign_ids(raw: Mapping[str, Any]) -> dict:
     def bullets_of(item: Mapping[str, Any], entry_id: str) -> list[dict]:
         out: list[dict] = []
         for raw_bullet in item.get("bullets") or []:
+            # Ollama gets no schema enforcement (src/llm/structured.py), so a
+            # bullet answered as a bare string ("Cut p95 latency 40%") rather
+            # than {"text": ...} is a realistic answer, not a hypothetical
+            # one. Salvage it instead of silently dropping the accomplishment.
+            if isinstance(raw_bullet, str):
+                raw_bullet = {"text": raw_bullet}
             if not isinstance(raw_bullet, Mapping):
                 continue
             text = _text_of(raw_bullet.get("text"))
             if not text:
                 continue
+            raw_tags = raw_bullet.get("tags")
+            if isinstance(raw_tags, str):
+                # "tags": "latency" -- a bare string iterates as characters
+                # ('l', 'a', 't', ...) rather than one tag. Same schema-less
+                # realism as the bullet coercion above.
+                raw_tags = [raw_tags]
+            elif not isinstance(raw_tags, list):
+                raw_tags = []
             out.append({
                 "id": unique(f"{entry_id}-b{len(out) + 1}"),
                 "text": text,
-                "tags": [_text_of(t) for t in (raw_bullet.get("tags") or []) if _text_of(t)],
+                "tags": [_text_of(t) for t in raw_tags if _text_of(t)],
                 "metric_bearing": bool(_DIGIT.search(text)),
                 "evidence_refs": [],
             })
@@ -264,9 +285,13 @@ def assign_ids(raw: Mapping[str, Any]) -> dict:
     ]
 
     contact = raw.get("contact")
+    contact_out = {
+        field_name: _text_of(contact.get(field_name)) if isinstance(contact, Mapping) else ""
+        for field_name in _CONTACT_FIELDS
+    }
     return {
         "name": _text_of(raw.get("name")),
-        "contact": {k: _text_of(v) for k, v in contact.items()} if isinstance(contact, Mapping) else {},
+        "contact": contact_out,
         "skills": skills,
         "experiences": experiences,
         "projects": projects,
@@ -322,6 +347,17 @@ async def draft_content(cfg: AppConfig, *, resume_text: str) -> ContentDraft:
             "No work history could be read out of that résumé. If it is a "
             "scan or an unusual layout, paste the text instead, or write "
             "content.json by hand."
+        )
+    # A résumé of job titles and dates with zero accomplishments passes every
+    # check above -- company, role and name are all present -- and would look
+    # exactly like a successful draft to the review form. It is not one:
+    # /tailor would have nothing to select from. This is the same silent-
+    # success failure mode the two guards above exist to catch.
+    if not any(e["bullets"] for e in document["experiences"]):
+        raise DraftFailed(
+            "That résumé's job titles and dates came through, but no "
+            "accomplishments did. A résumé with no bullets isn't worth "
+            "approving -- add detail and retry, or write content.json by hand."
         )
 
     # Defence in depth behind the two checks above: whatever assign_ids built
