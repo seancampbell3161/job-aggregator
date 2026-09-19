@@ -3,7 +3,7 @@ import json
 from src.config import AppConfig, RelevanceConfig, Secrets, TailoringConfig
 from src.tailor import build_tailor_engine
 from src.tailor.content import load_content
-from src.tailor.engine import OllamaTailorEngine
+from src.tailor.engine import TailorEngine
 from src.tailor.evidence import parse_evidence
 
 CONTENT = load_content("resume/content.example.json")
@@ -20,8 +20,8 @@ def _cfg(*, enabled=True, key="k", host="https://ollama.com"):
 
 def test_factory_builds_ollama_engine():
     engine = build_tailor_engine(_cfg(), CONTENT, EVIDENCE)
-    assert isinstance(engine, OllamaTailorEngine)
-    assert engine._model == "gpt-oss:120b"
+    assert isinstance(engine, TailorEngine)
+    assert engine._binding.model == "gpt-oss:120b"
 
 
 def test_factory_none_when_disabled():

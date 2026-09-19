@@ -1,23 +1,23 @@
-"""Tailoring engine: Ollama call + grounding-guarded result parser.
+"""Tailoring engine: provider-agnostic LLM call + grounding-guarded result parser.
 
-Reuses the relevance module's tolerant JSON extraction and ollama response
-helpers (DRY). The parser enforces the no-fabrication policy DETERMINISTICALLY,
-regardless of model compliance: parsing is content-driven — entries come from
-content.json in content order; bullets without a real source_bullet_id for
-THEIR entry are dropped (fabricated, duplicated, or emitted under the wrong
-entry), evidence_refs are filtered to ticket ids that exist in the bank, and
-any content bullet or entry the model omitted is restored in its original
+Calls the shared LLM seam (src.llm.structured.complete_json) rather than
+Ollama directly, so tailoring works on any configured provider. The parser
+enforces the no-fabrication policy DETERMINISTICALLY, regardless of model
+compliance: parsing is content-driven — entries come from content.json in
+content order; bullets without a real source_bullet_id for THEIR entry are
+dropped (fabricated, duplicated, or emitted under the wrong entry),
+evidence_refs are filtered to ticket ids that exist in the bank, and any
+content bullet or entry the model omitted is restored in its original
 wording. A non-fallback result therefore covers every content bullet exactly
 once per entry. Same fail-open contract as relevance/gaps — tailor() never
 raises."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from typing import Any
 
-from src.relevance import _extract_json_object, _ollama_response_text
+from src.llm.providers import LlmBinding
+from src.llm.structured import complete_json
 from src.sanitize import wrap_untrusted
 from src.tailor.prompts import build_system_text
 from src.tailor.models import (
@@ -73,10 +73,67 @@ def _restore_omitted(bullets: list[TailoredBullet], content_bullets: list[Bullet
     return restored
 
 
-def parse_tailor_json(
-    raw_text: str | None, *, content: ResumeContent, evidence: EvidenceBank, job_id: str,
+_BULLET_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "source_bullet_id": {"type": "string"},
+        "text": {"type": "string"},
+        "evidence_refs": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["source_bullet_id", "text"],
+}
+
+TAILOR_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "fit": {
+            "type": "object",
+            "properties": {
+                "matches": {"type": "array", "items": {"type": "string"}},
+                "gaps": {"type": "array", "items": {"type": "string"}},
+                "overall": {"type": "string"},
+            },
+        },
+        "experiences": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "experience_id": {"type": "string"},
+                    "bullets": {"type": "array", "items": _BULLET_SCHEMA},
+                },
+                "required": ["experience_id", "bullets"],
+            },
+        },
+        "projects": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "project_id": {"type": "string"},
+                    "bullets": {"type": "array", "items": _BULLET_SCHEMA},
+                },
+                "required": ["project_id", "bullets"],
+            },
+        },
+        "skills_ordered": {"type": "array", "items": {"type": "string"}},
+        "summary_placeholder": {"type": "string"},
+        "cover_letter": {"type": "string"},
+    },
+    "required": ["fit", "experiences", "skills_ordered", "cover_letter"],
+}
+
+
+def parse_tailor_result(
+    obj: dict | None, *, content: ResumeContent, evidence: EvidenceBank, job_id: str,
 ) -> TailorResult:
-    obj = _extract_json_object(raw_text or "")
+    """Grounding-guarded result from the provider's parsed object.
+
+    Takes the object rather than raw text: src.llm.structured.complete_json
+    already does the tolerant extraction (plain JSON, fenced JSON, JSON in
+    prose) this function used to open with, and on Anthropic the forced tool
+    returns a dict with no text stage at all. None means the provider answered
+    with nothing usable."""
     if obj is None:
         log.warning("tailor_malformed_response", extra={"job_id": job_id, "reason": "no json object"})
         return TailorResult.fallback()
@@ -151,45 +208,39 @@ def parse_tailor_json(
 _TAILOR_NUM_PREDICT = 16384  # rewrite-all returns EVERY bullet + cover letter + fit; gpt-oss also reasons first. 8192 was marginal — verbose runs peaked at ~7500 tok (91% of cap) and unlucky ones truncated mid-JSON -> tailor_malformed_response
 
 
-class OllamaTailorEngine:
-    """Ollama Cloud tailoring engine. Same shape + fail-open contract as
-    OllamaRelevanceScorer. num_predict is large because the output (rewritten
-    bullets + cover letter + fit) far exceeds a relevance score, and gpt-oss
-    spends budget reasoning before answering."""
+class TailorEngine:
+    """Provider-agnostic tailoring. Same fail-open contract as before: tailor()
+    never raises, and a provider failure returns TailorResult.fallback() with
+    is_fallback=True — the sentinel src/web/settings/probes.py:147-149 detects
+    failure by. complete_json deliberately does NOT fail open, so absorbing
+    that is this class's job."""
 
-    def __init__(self, *, client: Any, model: str, content: ResumeContent,
-                 evidence: EvidenceBank, timeout_seconds: int) -> None:
-        self._client = client
-        self._model = model
+    def __init__(self, *, binding: LlmBinding, content: ResumeContent,
+                 evidence: EvidenceBank) -> None:
+        self._binding = binding
         self._content = content
         self._evidence = evidence
-        self._timeout = timeout_seconds
         self._system = build_system_text(content, evidence)
 
     async def tailor(self, *, job_id: str, jd_text: str) -> TailorResult:
         try:
-            resp = await asyncio.wait_for(
-                self._client.chat(
-                    model=self._model,
-                    messages=[
-                        {"role": "system", "content": self._system},
-                        # Fenced, and the fence is breakout-proof — see
-                        # sanitize.wrap_untrusted. The policy prompt names this
-                        # exact tag as the untrusted region.
-                        {"role": "user", "content": wrap_untrusted(jd_text, "job_posting")},
-                    ],
-                    think=False,
-                    options={"temperature": 0, "num_predict": _TAILOR_NUM_PREDICT},
-                ),
-                timeout=self._timeout,
+            obj = await complete_json(
+                self._binding,
+                system=self._system,
+                # Fenced, and the fence is breakout-proof — see
+                # sanitize.wrap_untrusted. The policy prompt names this exact
+                # tag as the untrusted region.
+                user=wrap_untrusted(jd_text, "job_posting"),
+                schema=TAILOR_SCHEMA,
+                max_output_tokens=_TAILOR_NUM_PREDICT,
             )
         except Exception as exc:  # noqa: BLE001 — fail-open is the contract
             log.warning(
                 "tailor_llm_call_failed",
-                extra={"job_id": job_id, "provider": "ollama",
+                extra={"job_id": job_id, "provider": self._binding.provider,
                        "error": str(exc), "error_type": type(exc).__name__},
             )
             return TailorResult.fallback()
 
-        text = _ollama_response_text(resp)
-        return parse_tailor_json(text, content=self._content, evidence=self._evidence, job_id=job_id)
+        return parse_tailor_result(obj, content=self._content,
+                                   evidence=self._evidence, job_id=job_id)

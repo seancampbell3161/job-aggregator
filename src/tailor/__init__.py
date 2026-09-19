@@ -11,7 +11,7 @@ import logging
 
 from src.config import AppConfig
 from src.llm.providers import build_binding, missing_key, resolve
-from src.tailor.engine import OllamaTailorEngine
+from src.tailor.engine import TailorEngine
 from src.tailor.models import EvidenceBank, ResumeContent
 
 log = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 
 def build_tailor_engine(
     cfg: AppConfig, content: ResumeContent | None, evidence: EvidenceBank | None,
-) -> OllamaTailorEngine | None:
+) -> TailorEngine | None:
     t = cfg.tailoring
     if not t.enabled:
         return None
@@ -46,7 +46,4 @@ def build_tailor_engine(
         log.warning("tailoring_disabled_at_runtime", extra={"reason": "no provider binding"})
         return None
 
-    return OllamaTailorEngine(
-        client=binding.client, model=binding.model, content=content, evidence=evidence,
-        timeout_seconds=binding.timeout_seconds,
-    )
+    return TailorEngine(binding=binding, content=content, evidence=evidence)
