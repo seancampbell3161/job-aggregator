@@ -20,10 +20,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {variant: slim,     target: runtime,  platform: linux/amd64, runner: ubuntu-latest,   arch: amd64}
-          - {variant: slim,     target: runtime,  platform: linux/arm64, runner: ubuntu-24.04-arm, arch: arm64}
-          - {variant: headless, target: headless, platform: linux/amd64, runner: ubuntu-latest,   arch: amd64}
-          - {variant: headless, target: headless, platform: linux/arm64, runner: ubuntu-24.04-arm, arch: arm64}
+          # cache_mode: headless images are ~2.17 GB; `mode=max` on both
+          # headless legs would blow past the 10 GB per-repo Actions cache
+          # and evict the slim/test caches. `mode=min` (layers reachable
+          # from the final image only) still caches the expensive apt/pip/
+          # playwright-install layers, which is what matters here.
+          - {variant: slim,     target: runtime,  platform: linux/amd64, runner: ubuntu-latest,   arch: amd64, cache_mode: max}
+          - {variant: slim,     target: runtime,  platform: linux/arm64, runner: ubuntu-24.04-arm, arch: arm64, cache_mode: max}
+          - {variant: headless, target: headless, platform: linux/amd64, runner: ubuntu-latest,   arch: amd64, cache_mode: min}
+          - {variant: headless, target: headless, platform: linux/arm64, runner: ubuntu-24.04-arm, arch: arm64, cache_mode: min}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -44,7 +49,7 @@ jobs:
           load: true
           tags: smoke:${{ matrix.variant }}
           cache-from: type=gha,scope=${{ matrix.variant }}-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.variant }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=${{ matrix.cache_mode }},scope=${{ matrix.variant }}-${{ matrix.arch }}
 
       - name: Smoke-test
         run: |
@@ -71,9 +76,6 @@ jobs:
           test "$(docker exec ja stat -c %u /data)" = "1000"
           test "$(docker exec ja stat -c %u /data/job_aggregator.db)" = "1000"
           docker rm -f ja
-      - name: Container logs on failure
-        if: failure()
-        run: docker logs ja || true
 
       - name: Assert the variant is what it claims
         run: |
@@ -130,6 +132,14 @@ jobs:
           name: digests-${{ matrix.variant }}-${{ matrix.arch }}
           path: /tmp/digests/*
           retention-days: 1
+
+      # Last on purpose: a failure anywhere earlier in the job (smoke-test,
+      # the variant assertion, the push) should still get diagnostics. `ja`
+      # may already be gone by the time this runs (the smoke-test step
+      # removes it on success) — that's fine, `|| true` makes the no-op safe.
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs ja || true
 
   merge:
     needs: [build]
@@ -190,6 +200,11 @@ jobs:
           # variable first also means `set -e` catches a `jq` failure, which
           # it would not if the substitution sat directly in argument position.
           tags=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          # A non-semver `v*` tag (e.g. `vtest`) matches neither `tags:`
+          # pattern above, so metadata-action emits no tags at all and
+          # `imagetools create` below would otherwise fail obscurely on a
+          # bare `-t` with no value.
+          test -n "$tags" || { echo "::error::no tags computed for ${{ matrix.variant }} — is this a real vX.Y.Z release tag?"; exit 1; }
           docker buildx imagetools create \
             $tags \
             $(for f in ${{ matrix.variant }}-*; do echo "${{ env.IMAGE }}@sha256:${f##*-sha256-}"; done)
