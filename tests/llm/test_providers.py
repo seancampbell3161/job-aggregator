@@ -1,6 +1,4 @@
 """The one place that turns settings into an LLM client."""
-import pytest
-
 from src.config import AppConfig, Secrets
 from src.llm.providers import (
     PROVIDER_KEYS, LlmBinding, build_binding, needs_key, resolve,
