@@ -1,1 +1,55 @@
 {% extends "wizard_base.html" %}
+{% import "_settings_macros.html" as w %}
+{% block step %}
+{% set vals = (submitted if submitted is not none else answers) or {} %}
+<form method="post" action="/wizard/resume" enctype="multipart/form-data">
+  <section class="panel">
+    <h2>Your résumé</h2>
+    <p>Upload a PDF, a .docx, or a plain-text file — or paste its text below.
+      Only the text is kept; nothing about layout or styling is used.</p>
+    <div class="field">
+      <label class="field-label" for="i-upload">Upload a file</label>
+      <input id="i-upload" type="file" name="upload" accept=".pdf,.docx,.txt,.md,.markdown,.text">
+    </div>
+    <div class="field">
+      <label class="field-label" for="i-pasted">…or paste it here</label>
+      <textarea id="i-pasted" name="pasted" rows="12" placeholder="Paste your résumé text…"></textarea>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>A few questions</h2>
+    <p class="muted">A résumé says what you did. These are the things it
+      can't say — what you want next.</p>
+    {% for f in interview_fields %}
+    {% set v = vals.get(f.name, []) %}
+    <div class="field">
+      <label class="field-label" for="i-{{ f.name }}">{{ f.label }}</label>
+      {% if f.kind == 'chips' %}
+        {{ w.chips(f.name, v) }}
+      {% elif f.kind == 'multi' %}
+        <div class="checks">
+        {% for c in f.choices %}
+          <label class="check"><input type="checkbox" name="{{ f.name }}" value="{{ c }}"
+            {% if c in v %}checked{% endif %}> {{ c.replace('_', ' ') }}</label>
+        {% endfor %}
+        </div>
+      {% elif f.kind == 'choice' %}
+        <select id="i-{{ f.name }}" name="{{ f.name }}">
+          <option value="">(choose)</option>
+          {% for c in f.choices %}
+          <option value="{{ c }}" {% if v and v[0] == c %}selected{% endif %}>{{ c.replace('_', ' ') }}</option>
+          {% endfor %}
+        </select>
+      {% elif f.kind == 'int' %}
+        <input id="i-{{ f.name }}" type="number" name="{{ f.name }}" min="0"
+               value="{{ v[0] if v else '' }}" placeholder="unset">
+      {% endif %}
+      {% if f.help %}<p class="field-help">{{ f.help }}</p>{% endif %}
+    </div>
+    {% endfor %}
+  </section>
+
+  <button type="submit" class="btn primary">Save and continue</button>
+</form>
+{% endblock %}

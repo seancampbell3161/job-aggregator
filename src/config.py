@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import warnings
 from datetime import time
-from typing import Literal
+from typing import Literal, get_args
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -16,6 +16,10 @@ from src import geo
 EmploymentType = Literal[
     "full_time", "part_time", "contract", "contract_to_hire", "temporary", "internship"
 ]
+# Derived, not hand-copied — a hand-written tuple would silently drift from
+# the Literal above. Not a config flag itself, so it carries no docs/CONFIG.md
+# row (tests/test_config_docs.py walks the model tree, not module constants).
+EMPLOYMENT_TYPES: tuple[str, ...] = get_args(EmploymentType)
 
 
 def _check_crontab(value: str) -> str:

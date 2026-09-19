@@ -11,9 +11,12 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.config import SLUG_SOURCE_FAMILIES
+from src.resume_intake.extract import ExtractionFailed, extract_text
+from src.resume_intake.interview import INTERVIEW_FIELDS, decode_answers
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import field_map, value_at
 from src.settings.service import canonical_doc
+from src.web.settings.backup import MAX_UPLOAD_BYTES
 from src.web.settings.forms import apply_patch, decode, decode_secrets, errors_by_path
 from src.web.settings.probes import ProbeResult, probe_discord, probe_llm, probe_ntfy
 from src.web.settings.shell import secret_rows
@@ -118,6 +121,17 @@ def companies_extra(request: Request) -> dict:
     }
 
 
+def resume_extra(request: Request) -> dict:
+    """The résumé step's own context: the interview question list (fixed,
+    never per-request) and whatever answers were last stored for it — either
+    from an earlier visit to this step, or just-written by wizard_resume_save
+    before re-rendering on a failed extraction."""
+    return {
+        "interview_fields": INTERVIEW_FIELDS,
+        "answers": request.app.state.stores.wizard.get("answers") or {},
+    }
+
+
 def notifications_extra(request: Request) -> dict:
     """The notifications step's own context: probe_targets (for
     secret_field's Test buttons, same shape settings pages use) always, and a
@@ -147,6 +161,8 @@ def render_step(request: Request, step, **extra) -> HTMLResponse:
         extra = {**companies_extra(request), **extra}
     elif step.slug == "notifications":
         extra = {**notifications_extra(request), **extra}
+    elif step.slug == "resume":
+        extra = {**resume_extra(request), **extra}
     return request.app.state.templates.TemplateResponse(
         request, TEMPLATES[step.slug],
         wizard_ctx(request, step, paths=paths, secrets=secrets, **extra)
@@ -254,6 +270,40 @@ def register_wizard_routes(app: FastAPI) -> None:
             merged[name] = ""
         cfg = cfg.model_copy(update={"secrets": cfg.secrets.model_copy(update=merged)})
         return _probe_partial(request, await probe_llm(cfg, snap.documents.profile))
+
+    @app.post("/wizard/resume")
+    async def wizard_resume_save(request: Request):
+        step = step_by_slug("resume")
+        form = await request.form()
+        raw = {k: form.getlist(k) for k in form.keys()}
+        answers = decode_answers(raw)
+
+        upload = form.get("upload")
+        pasted = (form.get("pasted") or "").strip()
+        try:
+            if upload is not None and getattr(upload, "filename", ""):
+                data = await upload.read()
+                if len(data) > MAX_UPLOAD_BYTES:
+                    raise ExtractionFailed("That file is too large.")
+                text = extract_text(data, upload.filename)
+            elif pasted:
+                text = extract_text(pasted.encode("utf-8"), "pasted.txt")
+            else:
+                raise ExtractionFailed(
+                    "Upload a résumé or paste its text to continue — or skip "
+                    "this step and fill the next one in by hand."
+                )
+        except ExtractionFailed as exc:
+            # Remember the answers even though the résumé failed, so a retry
+            # does not re-ask all eight questions.
+            request.app.state.stores.wizard.put("answers", answers)
+            return render_step(request, step, form_errors=[str(exc)], submitted=raw)
+
+        request.app.state.service.save_document("resume_text", text, source="wizard")
+        request.app.state.stores.wizard.put("answers", answers)
+        # A new résumé invalidates any draft made from the previous one.
+        request.app.state.stores.wizard.delete("draft")
+        return RedirectResponse("/wizard", status_code=303)
 
     @app.post("/wizard/notifications")
     async def wizard_notifications_save(request: Request):
