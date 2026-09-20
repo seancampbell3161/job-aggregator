@@ -3,6 +3,22 @@
 {% block step %}
 {% set profile_value = submitted.get('profile', [''])[0] if submitted is not none
    else (saved_profile if saved_profile else (draft.profile_md if draft and draft.status == 'ok' else '')) %}
+{# This step is the last chance to correct a machine-written profile and
+   filter set, but it read like any other form. Say plainly that it is a
+   review, and that walking away costs nothing. Only claim a draft when one
+   was actually produced — with no LLM these are the user's own answers and
+   stock defaults. #}
+<div class="panel review-intro">
+  <p><strong>Check this over before saving.</strong>
+  {% if draft and draft.status == 'ok' %}
+  The profile and filters below were <strong>drafted from your résumé</strong>
+  and are very likely to need correcting — read every line.
+  {% else %}
+  The filters below come from your answers and the shipped defaults.
+  {% endif %}
+  Nothing is saved until you press <strong>Save and continue</strong>.</p>
+</div>
+
 <form method="post" action="/wizard/review">
   <section class="panel">
     <h2>Your profile</h2>
@@ -14,7 +30,7 @@
     <p class="muted field-help">{{ note }}</p>
     {% endfor %}
     {% endif %}
-    <textarea id="i-profile" name="profile" rows="16"
+    <textarea id="i-profile" class="doc-edit" name="profile" rows="18"
               placeholder="## Quick summary…">{{ profile_value }}</textarea>
   </section>
 
@@ -22,7 +38,7 @@
     <h2>Filters</h2>
     <p class="muted">Hard gates every posting passes before it is scored.</p>
     {% for spec in fields %}
-      {{ w.field(spec, prefilled_shown(submitted, cfg, spec, prefill), errors) }}
+      {{ w.field(spec, prefilled_shown(submitted, cfg, spec, prefill), errors, required) }}
     {% endfor %}
   </section>
 

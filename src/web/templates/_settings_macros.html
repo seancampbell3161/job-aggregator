@@ -42,8 +42,15 @@
 </div>
 {% endmacro %}
 
-{% macro field(spec, value, errors) %}
-<div class="field {{ 'has-error' if spec.path in errors }}">
+{# `required` maps a config path to WHY it is required — a step passes the
+   fields it will refuse to save without, so the form says so on arrival
+   instead of after a rejected submit. Defaulted, so the settings pages call
+   this exactly as before. #}
+{% macro field(spec, value, errors, required=None) %}
+{% set why = (required or {}).get(spec.path) %}
+<div class="field {{ 'has-error' if spec.path in errors }}{{ ' is-required' if why is not none }}"
+     data-path="{{ spec.path }}">
+  {% if why is not none %}<span class="req">required</span>{% endif %}
   {% if spec.kind == 'bool' %}
     <label class="check"><input type="checkbox" name="{{ spec.path }}"
       {% if value %}checked{% endif %}> {{ spec.label }}</label>
@@ -86,6 +93,7 @@
     </span>
   {% endif %}
   {{ help_for(spec.path) }}
+  {% if why %}<p class="field-required-why">{{ why }}</p>{% endif %}
   {% if spec.path in errors %}<p class="bad field-error">{{ errors[spec.path] }}</p>{% endif %}
 </div>
 {% endmacro %}

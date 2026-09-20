@@ -321,7 +321,8 @@ header { display: flex; align-items: baseline; gap: 16px; }
 .probe-ok { color: var(--probe-ok); }
 .probe-bad { color: var(--probe-bad); }
 @media (max-width: 40rem) { .settings { grid-template-columns: 1fr; } }
-.doc-edit { width: 100%; font-family: ui-monospace, monospace; font-size: .85rem; }
+.doc-edit { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace;
+  font-size: .85rem; }
 .doc-picker { margin-bottom: .75rem; }
 .actions { display: flex; gap: .5rem; align-items: center; margin-top: 1rem; }
 .group-list { list-style: none; padding: 0; }
@@ -343,9 +344,24 @@ header { display: flex; align-items: baseline; gap: 16px; }
 /* Wizard polish: confirmation on a chosen résumé file, a paste box wide
    enough to paste a résumé into, and a QR big enough to scan off the screen. */
 .upload-chosen { color: var(--probe-ok); margin: .4rem 0 0; font-size: .9rem; }
-.resume-paste { width: 100%; box-sizing: border-box; min-height: 14rem;
-  font-family: ui-monospace, monospace; font-size: .85rem; }
+.resume-paste { min-height: 14rem; }   /* the rest comes from .doc-edit */
 .qr svg { width: 220px; height: auto; display: block; margin: .5rem 0;
   /* A dark-on-dark QR is hard for a phone camera to lock onto — the quiet
      zone has to be light, so give the code its own white plate. */
   background: #fff; padding: 10px; border-radius: 6px; }
+
+/* A form control that has been submitted and is waiting on the server. */
+.btn.is-busy { position: relative; color: transparent; pointer-events: none; }
+.btn.is-busy::after { content: ""; position: absolute; inset: 0; margin: auto;
+  width: 14px; height: 14px; border: 2px solid currentColor;
+  border-top-color: transparent; border-radius: 50%;
+  color: var(--text); animation: spin .6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .btn.is-busy::after { animation: none; } }
+
+/* A field a step will refuse to save without, said before the submit. */
+.field.is-required .field-label { font-weight: 600; }
+.req { float: right; font-size: .7rem; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--readiness-warn); }
+.field-required-why { color: var(--readiness-warn); font-size: .85rem; margin: .3rem 0 0; }
+.review-intro { border-left: 3px solid var(--accent); }
