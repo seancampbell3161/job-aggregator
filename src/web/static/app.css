@@ -365,3 +365,8 @@ header { display: flex; align-items: baseline; gap: 16px; }
   letter-spacing: .05em; color: var(--readiness-warn); }
 .field-required-why { color: var(--readiness-warn); font-size: .85rem; margin: .3rem 0 0; }
 .review-intro { border-left: 3px solid var(--accent); }
+
+/* One-click variant sets beside a chips field. */
+.chip-sets { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center;
+  margin: .4rem 0 .2rem; }
+.chip-sets .muted { font-size: .85rem; margin-right: .2rem; }

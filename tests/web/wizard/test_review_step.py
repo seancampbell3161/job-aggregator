@@ -309,8 +309,14 @@ def test_approving_clears_the_draft_so_a_revisit_shows_what_was_saved(tmp_path, 
         "filters.location.remote_policy": "allowed_countries",
     })
     r = client.get("/wizard/review")
-    assert "staff engineer" in r.text
-    assert "platform engineer" not in r.text
+    # Scoped to the titles box: "platform engineer" also appears as a value in
+    # the one-click title sets offered beside the field, which says nothing
+    # about whether the stale draft survived.
+    import re
+    box = re.search(r'<div class="chips" data-path="filters\.titles">.*?</div>',
+                    r.text, re.S).group(0)
+    assert "staff engineer" in box
+    assert "platform engineer" not in box
 
 
 def test_the_review_step_says_it_is_a_review_and_nothing_is_saved_yet(

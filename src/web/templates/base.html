@@ -28,6 +28,39 @@
     // via the `w.chips` macro) need no JS to work -- blank inputs are
     // dropped on save -- this just saves a round trip when adding several
     // at once. Defined once here so neither page needs its own copy.
+    // Fill a chips box from a one-click set. Skips values already present —
+    // clicking two overlapping sets, or the same one twice, must not produce
+    // duplicate chips (filters.titles is an allowlist; a repeat is noise).
+    function addChipValues(btn) {
+      var box = document.querySelector('.chips[data-path="' + CSS.escape(btn.dataset.target) + '"]');
+      if (!box) { return; }
+      var inputs = Array.from(box.querySelectorAll("input"));
+      var have = inputs.map(function (i) { return i.value.trim().toLowerCase(); });
+      JSON.parse(btn.dataset.values).forEach(function (value) {
+        if (have.indexOf(value.toLowerCase()) !== -1) { return; }
+        var blank = inputs.filter(function (i) { return !i.value.trim(); })[0];
+        if (!blank) {
+          blank = inputs[inputs.length - 1].cloneNode();
+          blank.value = "";
+          box.appendChild(blank);
+          inputs.push(blank);
+        }
+        blank.value = value;
+        have.push(value.toLowerCase());
+        // that blank is spoken for; make sure a trailing empty one remains
+        if (!inputs.some(function (i) { return !i.value.trim(); })) {
+          var spare = blank.cloneNode();
+          spare.value = "";
+          box.appendChild(spare);
+          inputs.push(spare);
+        }
+      });
+    }
+    document.addEventListener("click", function (e) {
+      var btn = e.target.closest && e.target.closest(".chip-set");
+      if (btn) { addChipValues(btn); }
+    });
+
     function addChip(btn) {
       var box = btn.previousElementSibling;
       var last = box.lastElementChild;
