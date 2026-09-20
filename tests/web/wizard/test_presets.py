@@ -108,3 +108,12 @@ def test_the_llm_step_offers_the_local_recipe_commands(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
     r = signed_in_client(app).get("/wizard/llm")
     assert "docker compose --profile ollama up -d" in r.text
+
+
+def test_the_ollama_cloud_recipe_mentions_its_free_tier():
+    """Cost is the line people choose on, and "flat monthly subscription"
+    alone reads as "card required" — the free tier covers ordinary ranking
+    and tailoring, which is most of what this app does."""
+    cloud = next(p for p in LLM_PRESETS if p.key == "ollama_cloud")
+    assert "free" in cloud.cost.lower()
+    assert "free" in cloud.summary.lower()

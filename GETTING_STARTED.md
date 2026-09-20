@@ -156,7 +156,7 @@ everything that passes your filters notifies **unscored**.
 |---|---|---|
 | **Anthropic** (Claude Haiku) | [console.anthropic.com](https://console.anthropic.com/) | Per-token; a few $/day while clearing a backlog, pennies/day at steady state |
 | **Google Gemini** | [aistudio.google.com](https://aistudio.google.com) (no card) | Free tier (~1,500 req/day) |
-| **Ollama Cloud** | [ollama.com/settings/keys](https://ollama.com/settings/keys) | Flat monthly subscription (GPU-time, not per token) |
+| **Ollama Cloud** | [ollama.com/settings/keys](https://ollama.com/settings/keys) | Free tier typically covers ranking and tailoring; paid plans are a flat monthly subscription (GPU-time, not per token) |
 | **Ollama, fully local** | none — runs on your box | $0 (needs `--profile ollama`, [§3](#run-it-with-docker-compose)) |
 
 Companies are 2d, résumé gap analysis is 2f — both below.

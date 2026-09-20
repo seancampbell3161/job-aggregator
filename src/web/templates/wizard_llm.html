@@ -35,7 +35,10 @@
             hx-include="closest form" hx-target="#probe-llm">Test scoring</button>
   </p>
   <div id="probe-llm"></div>
-  <button type="submit" class="btn primary">Save and continue</button>
+  <div class="actions">
+    <button type="submit" class="btn primary">Save and continue</button>
+    <button type="submit" form="wizard-skip" class="btn">Skip this step</button>
+  </div>
 </form>
 <script>
 // A recipe fills the form and opens its own instructions. It writes nothing to
