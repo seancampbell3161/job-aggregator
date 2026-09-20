@@ -5,6 +5,64 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-09-20
+
+Everything here came from walking the guided setup as a stranger would, rather
+than from a checkout. The wizard worked; it just kept its reasoning to itself —
+refusing a save without saying beforehand what it needed, sitting silently
+through a slow LLM call, offering two buttons that did the same thing, and
+asking for job titles in a box that punishes you for naming only one.
+
+### Added
+
+- **One-click job-title sets** (#21), beside the titles box on the interview
+  and review steps. `filters.titles` is an exact-phrase allowlist, so a user
+  who lists only the wording their own employer used silently filters out most
+  of the market. Eight sets — software, backend, frontend, full stack,
+  platform, data, mobile, engineering management — add every variant at once,
+  skipping anything already there so overlapping sets cannot produce
+  duplicates. Everything added is an ordinary chip you can edit or delete.
+- **Required fields say so before you submit** (#20). The review step refuses
+  to save without titles and a posting-age bound; it now marks both on arrival
+  with the reason rather than rejecting a filled form. The reason is the point:
+  a posting-age bound is not inherently mandatory, it is mandatory because
+  leaving it unset makes the first run alert on every posting already on every
+  board. The marked fields derive from the same readiness codes the step
+  reports failures from, so the two cannot drift apart.
+- **A submitted button shows it is working** (#20). Several steps call an LLM
+  or poll a live board and sat for seconds looking dead.
+- **The companies step says what is already being polled** (#19). Three
+  aggregator feeds ship enabled, so continuing without adding a company is not
+  "nothing is polled" — but the step read as though it were. Taken from live
+  config, so an install that turned them off is not told they are running.
+
+### Changed
+
+- **The review step reads as a review** (#20): it opens by saying that what
+  follows was drafted and needs checking, and that nothing is saved until you
+  press the button — and only claims a draft when one was actually produced.
+- **First-run steps polished** (#19): a green ✓ when a résumé file is chosen,
+  a paste box and profile editor that are actually wide enough to read, a QR
+  code big enough for a phone camera, and each step's primary action and skip
+  on one row instead of stacked.
+- **Ollama Cloud's free tier is named** (#19) in the recipe and the provider
+  table — "flat monthly subscription" alone read as "card required", when the
+  free tier covers ordinary ranking and tailoring.
+
+### Fixed
+
+- **Two buttons that did the same thing** (#19). On the companies and preview
+  steps, Continue/Finish already posted to the step's own skip endpoint when
+  incomplete, while the shared "Skip this step" posted to the identical URL —
+  so the page offered the same action twice under different names.
+
+### Upgrading
+
+**Nothing to do.** Every change in this release is interface and copy: no new
+environment variables, no migrations, no configuration defaults moved, no
+behaviour change in polling, scoring or delivery. `docker compose pull &&
+docker compose up -d` and carry on.
+
 ## [0.14.0] - 2026-09-19
 
 v0.13.0 shipped the guided setup; running it as a stranger would is what found
@@ -1485,6 +1543,7 @@ entries below are kept for the record. From 0.12.0 on, the usual
 compare/vP.R.E..vX.Y.Z links resume (see RELEASING.md).
 -->
 
+[0.15.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.14.0..v0.15.0
 [0.14.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.13.0..v0.14.0
 [0.13.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.12.0..v0.13.0
 [0.12.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.11.0..v0.12.0
