@@ -14,7 +14,10 @@ from src.llm.providers import PROVIDER_KEYS as _PROVIDER_KEYS
 STRUCTURED_FAMILIES = (
     "workday", "oraclecloud", "eightfold", "jsonld_boards", "phenom", "taleo", "avature",
 )
-_AGGREGATORS = ("hn_who_is_hiring", "remotive", "remoteok", "hiringcafe", "adzuna")
+# Feeds that poll without any company being added. Public: the wizard's
+# companies step tells the user which of these are already running, so
+# "I added nothing" does not read as "nothing is polled".
+AGGREGATOR_FAMILIES = ("hn_who_is_hiring", "remotive", "remoteok", "hiringcafe", "adzuna")
 
 
 @dataclass(frozen=True)
@@ -28,7 +31,7 @@ def _has_sources(cfg: AppConfig) -> bool:
     for family in (*SLUG_SOURCE_FAMILIES, *STRUCTURED_FAMILIES):
         if getattr(cfg.sources, family, None):
             return True
-    return any(getattr(cfg.sources, name).enabled for name in _AGGREGATORS)
+    return any(getattr(cfg.sources, name).enabled for name in AGGREGATOR_FAMILIES)
 
 
 def check(

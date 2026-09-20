@@ -339,3 +339,13 @@ header { display: flex; align-items: baseline; gap: 16px; }
 .recipe-commands { background: var(--surface-2); border: 1px solid var(--border);
   border-radius: 6px; padding: .6rem .8rem; overflow-x: auto;
   font-family: ui-monospace, monospace; font-size: .8rem; margin: .5rem 0 0; }
+
+/* Wizard polish: confirmation on a chosen résumé file, a paste box wide
+   enough to paste a résumé into, and a QR big enough to scan off the screen. */
+.upload-chosen { color: var(--probe-ok); margin: .4rem 0 0; font-size: .9rem; }
+.resume-paste { width: 100%; box-sizing: border-box; min-height: 14rem;
+  font-family: ui-monospace, monospace; font-size: .85rem; }
+.qr svg { width: 220px; height: auto; display: block; margin: .5rem 0;
+  /* A dark-on-dark QR is hard for a phone camera to lock onto — the quiet
+     zone has to be light, so give the code its own white plate. */
+  background: #fff; padding: 10px; border-radius: 6px; }

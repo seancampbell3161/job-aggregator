@@ -30,5 +30,5 @@ def topic_qr_svg(url: str) -> str:
     import segno
 
     buf = io.BytesIO()
-    segno.make(url, error="m").save(buf, kind="svg", scale=4, border=2)
+    segno.make(url, error="m").save(buf, kind="svg", scale=7, border=2)
     return buf.getvalue().decode("utf-8")

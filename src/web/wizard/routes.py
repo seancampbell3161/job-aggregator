@@ -24,7 +24,7 @@ from src.settings.service import canonical_doc
 from src.web.settings.backup import MAX_UPLOAD_BYTES, _read_bounded
 from src.web.settings.forms import apply_patch, decode, decode_secrets, errors_by_path
 from src.web.settings.probes import ProbeResult, probe_discord, probe_llm, probe_ntfy
-from src.web.settings.readiness import check
+from src.web.settings.readiness import AGGREGATOR_FAMILIES, check
 from src.web.settings.routes import _probe_partial, shown
 from src.web.settings.sections import section_by_slug
 from src.web.settings.shell import secret_rows
@@ -123,6 +123,15 @@ def wizard_ctx(request: Request, step, *, paths: tuple[str, ...] = (),
     return ctx
 
 
+AGGREGATOR_LABELS = {
+    "hn_who_is_hiring": "Hacker News Who's Hiring",
+    "remotive": "Remotive",
+    "remoteok": "RemoteOK",
+    "hiringcafe": "hiring.cafe",
+    "adzuna": "Adzuna",
+}
+
+
 def companies_extra(request: Request) -> dict:
     """Slug-family boards already configured, for the companies step's
     "Already configured" nudge. Only SLUG_SOURCE_FAMILIES (src/config.py) --
@@ -138,7 +147,14 @@ def companies_extra(request: Request) -> dict:
             (family, slug)
             for family in SLUG_SOURCE_FAMILIES
             for slug in getattr(cfg.sources, family, ()) or ()
-        ]
+        ],
+        # Read from config rather than hardcoded: an install that switched the
+        # aggregators off must not be told they are running.
+        "always_on": [
+            AGGREGATOR_LABELS[family]
+            for family in AGGREGATOR_FAMILIES
+            if getattr(getattr(cfg.sources, family, None), "enabled", False)
+        ],
     }
 
 
@@ -319,8 +335,16 @@ async def _ensure_draft(request: Request) -> tuple[dict | None, str | None]:
     return record, None
 
 
+# Steps whose own primary button posts straight at /wizard/<slug>/skip when
+# they are incomplete (see wizard_companies.html / wizard_preview.html): for
+# these the shared "Skip this step" form would be a second button pointing at
+# the identical URL, so the base template renders none.
+OWN_SKIP_STEPS = frozenset({"companies", "preview"})
+
+
 def render_step(request: Request, step, **extra) -> HTMLResponse:
     paths, secrets = STEP_FIELDS.get(step.slug, ((), ()))
+    extra = {"own_skip": step.slug in OWN_SKIP_STEPS, **extra}
     if step.slug == "llm":
         extra = {**llm_extra(request), **extra}
     elif step.slug == "companies":

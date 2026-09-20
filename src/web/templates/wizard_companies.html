@@ -1,5 +1,10 @@
 {% extends "wizard_base.html" %}
 {% block step %}
+{% if always_on %}
+<p class="muted">Already polling without any company added:
+  {% for name in always_on %}<strong>{{ name }}</strong>{% if not loop.last %}, {% endif %}{% endfor %}.
+  Adding company boards below narrows the search to employers you care about.</p>
+{% endif %}
 <section class="panel">
   <h2>Add a company by careers URL</h2>
   <p>Paste a careers page and it is identified automatically. Nothing is saved

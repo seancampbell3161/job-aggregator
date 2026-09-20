@@ -15,10 +15,14 @@
 {% endif %}
 {% for msg in form_errors %}<p class="bad">{{ msg }}</p>{% endfor %}
 {% block step %}{% endblock %}
-{% if step %}
-<form method="post" action="/wizard/{{ step.slug }}/skip" class="wizard-skip">
-  <button type="submit" class="btn">Skip this step</button>
-</form>
+{# The skip form carries no button of its own: each step puts a
+   <button form="wizard-skip"> in its own actions row, so the primary action
+   and the skip sit on one line instead of stacking as two block forms.
+   Steps whose primary button already posts to this endpoint (companies,
+   preview, when incomplete) set own_skip and render nothing here — two
+   buttons pointing at the same URL is not a choice, it is a duplicate. #}
+{% if step and not own_skip %}
+<form id="wizard-skip" method="post" action="/wizard/{{ step.slug }}/skip" hidden></form>
 {% endif %}
 {# addChip() lives in base.html now — shared with settings_base.html. #}
 {% endblock %}

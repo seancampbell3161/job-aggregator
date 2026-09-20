@@ -58,8 +58,10 @@ LLM_PRESETS: tuple[LLMPreset, ...] = (
     LLMPreset(
         key="ollama_cloud",
         label="Ollama Cloud",
-        summary="hosted · needs an ollama api key",
-        cost="Flat monthly subscription (GPU-time, not per token).",
+        summary="hosted · free tier · needs an ollama api key",
+        cost=("Free tier is typically enough for ranking and tailoring; "
+              "paid plans are a flat monthly subscription (GPU-time, not "
+              "per token)."),
         steps=(
             "Create an account at ollama.com.",
             "Generate an API key at ollama.com/settings/keys.",
