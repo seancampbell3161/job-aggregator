@@ -311,3 +311,33 @@ def test_approving_clears_the_draft_so_a_revisit_shows_what_was_saved(tmp_path, 
     r = client.get("/wizard/review")
     assert "staff engineer" in r.text
     assert "platform engineer" not in r.text
+
+
+def test_the_review_step_says_it_is_a_review_and_nothing_is_saved_yet(
+        tmp_path, monkeypatch):
+    """The step is the last chance to correct a machine-written profile and
+    filter set, but read like any other form — it never said that what is on
+    screen is a draft to check, nor that leaving it alone saves nothing."""
+    app = _app(tmp_path, monkeypatch)
+    _drafts(monkeypatch, DRAFT)
+    r = signed_in_client(app).get("/wizard/review")
+    body = r.text.lower()
+    assert "check" in body or "look over" in body
+    assert "nothing is saved" in body
+
+
+def test_the_review_step_says_where_the_draft_came_from(tmp_path, monkeypatch):
+    app = _app(tmp_path, monkeypatch)
+    _drafts(monkeypatch, DRAFT)
+    r = signed_in_client(app).get("/wizard/review")
+    assert "résumé" in r.text.lower()
+
+
+def test_without_a_draft_the_review_does_not_claim_one_was_written(
+        tmp_path, monkeypatch):
+    """No LLM, no draft — the fields are the user's own answers and stock
+    defaults, so telling them to check "what we drafted" would be a lie."""
+    app = _app(tmp_path, monkeypatch)
+    _drafts(monkeypatch, DraftFailed("No LLM is connected"))
+    r = signed_in_client(app).get("/wizard/review")
+    assert "drafted from your résumé" not in r.text.lower()

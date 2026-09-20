@@ -292,6 +292,11 @@ def review_extra(request: Request) -> dict:
     return {
         "prefill": review_prefill(request),
         "saved_profile": request.state.snapshot.documents.profile,
+        "required": {
+            WARNING_PATHS[code][0]: WARNING_PATHS[code][1]
+            for code in STEP_WARNING_CODES["review"]
+            if code in WARNING_PATHS
+        },
     }
 
 
@@ -371,6 +376,26 @@ def render_step(request: Request, step, **extra) -> HTMLResponse:
 # filters together. A step absent here (companies, resume, preview) has no
 # single check() code that maps onto its own completion test, so it never
 # gets a warning through this path.
+# The field each blocking warning is about. Keyed by the same readiness code
+# STEP_WARNING_CODES uses, so the "you must fill this" shown up-front and the
+# "you did not fill this" shown after a failed save cannot drift apart — and a
+# new blocking check has to name its field (tests/web/wizard/
+# test_required_fields.py fails otherwise).
+#
+# The value is WHY, not a rule. max_age_days is not inherently mandatory: it
+# is mandatory here because leaving it unset makes the first run alert on
+# every posting already on every board, and that is worth knowing while you
+# choose the number rather than after being sent back.
+WARNING_PATHS: dict[str, tuple[str, str]] = {
+    "no_titles": ("filters.titles",
+                  "Nothing matches a title you didn't list, so leaving this "
+                  "empty means no posting can ever match."),
+    "no_max_age": ("filters.max_age_days",
+                   "Leave this unset and the first run alerts on every "
+                   "posting already on every board, not just new ones."),
+}
+
+
 STEP_WARNING_CODES: dict[str, tuple[str, ...]] = {
     "llm": ("llm_no_key",),
     "review": ("no_titles", "no_max_age"),
