@@ -30,6 +30,7 @@ from src.web.settings.sections import section_by_slug
 from src.web.settings.shell import secret_rows
 from src.web.wizard.ntfy_topic import suggest_topic, topic_qr_svg
 from src.web.wizard.presets import LLM_PRESETS, preset_for_provider
+from src.web.wizard.title_sets import TITLE_SETS
 from src.web.wizard.steps import (
     build_context, next_step, step_by_slug, step_states,
 )
@@ -349,7 +350,8 @@ OWN_SKIP_STEPS = frozenset({"companies", "preview"})
 
 def render_step(request: Request, step, **extra) -> HTMLResponse:
     paths, secrets = STEP_FIELDS.get(step.slug, ((), ()))
-    extra = {"own_skip": step.slug in OWN_SKIP_STEPS, **extra}
+    extra = {"own_skip": step.slug in OWN_SKIP_STEPS,
+             "title_sets": TITLE_SETS, **extra}
     if step.slug == "llm":
         extra = {**llm_extra(request), **extra}
     elif step.slug == "companies":

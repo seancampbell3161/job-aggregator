@@ -16,6 +16,20 @@
   <button type="button" class="btn small" onclick="addChip(this)">+ add another</button>
 {% endmacro %}
 
+{# One-click variant sets for a chips field. Adds only; never removes what is
+   already in the box, and skips values already there. Résumé-derived titles
+   need no button here — the draft already prefills them into the box itself
+   (see review_prefill). #}
+{% macro chip_sets(path, sets) %}
+<div class="chip-sets">
+  <span class="muted">Add a set:</span>
+  {% for ts in sets %}
+  <button type="button" class="btn small chip-set"
+          data-target="{{ path }}" data-values='{{ ts.titles | tojson }}'>{{ ts.label }}</button>
+  {% endfor %}
+</div>
+{% endmacro %}
+
 {% macro secret_field(s, errors, probe_targets, test_prefix) %}
 <div class="field">
   <label class="field-label" for="s-{{ s.name }}">{{ s.label }}

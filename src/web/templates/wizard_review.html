@@ -39,6 +39,9 @@
     <p class="muted">Hard gates every posting passes before it is scored.</p>
     {% for spec in fields %}
       {{ w.field(spec, prefilled_shown(submitted, cfg, spec, prefill), errors, required) }}
+      {% if spec.path == 'filters.titles' %}
+      {{ w.chip_sets('filters.titles', title_sets) }}
+      {% endif %}
     {% endfor %}
   </section>
 
