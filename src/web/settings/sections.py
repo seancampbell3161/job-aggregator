@@ -10,6 +10,7 @@ from dataclasses import dataclass, field as dc_field
 
 from src.settings.boards import BOARD_FAMILIES
 from src.settings.fields import FieldSpec, editable_fields, field_map
+from src.settings.filters import FILTER_PATHS
 
 
 @dataclass(frozen=True)
@@ -31,19 +32,7 @@ SECTIONS: tuple[Section, ...] = (
     Section(
         slug="filters", title="Filters", template="settings_filters.html",
         blurb="Hard gates every posting passes before it is scored.",
-        paths=(
-            "filters.titles",
-            "filters.seniority_allow",
-            "filters.stack_any_of",
-            "filters.comp_floor_usd",
-            "filters.max_age_days",
-            "filters.blocked_employment_types",
-            "filters.blocked_companies",
-            "filters.location.allowed_countries",
-            "filters.location.allowed_cities",
-            "filters.location.remote_policy",
-            "filters.location.allow_unknown",
-        ),
+        paths=FILTER_PATHS,
     ),
     Section(
         slug="profile", title="Profile", template="settings_profile.html",

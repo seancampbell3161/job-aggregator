@@ -19,19 +19,13 @@ registered alongside them for consistency, though its own paths
 (/settings/documents/draft and .../draft/status) are three segments deep and
 could not be swallowed by the catch-all regardless of ordering.
 
-register_content_draft_routes was imported lazily here for a while, because
-src/web/settings/content_draft.py reaches src.resume_intake.content_draft,
-that module used to reach src.resume_intake.draft for DraftFailed, and
-draft.py imports src.web.settings.forms — which, entered from
-src.resume_intake.draft, ran this package's own __init__ (`from
-src.web.settings.routes import register_settings_routes`) and closed the loop
-back onto a half-imported draft.py. Moving DraftFailed to the leaf module
-src/resume_intake/errors.py cut the return leg, so this is an ordinary
-module-level import again; tests/resume_intake/test_content_draft.py asserts
-in a fresh interpreter that the drafter pulls in no src.web module at all.
-draft.py's own reach into src.web.settings.forms is still an inversion, and
-still the larger cleanup (moving apply_patch and the section registry out of
-the web package) that has not been done.
+register_content_draft_routes was imported lazily here for a while, to break
+an import cycle through src/resume_intake/draft.py's old dependency on this
+package (see src/resume_intake/errors.py). draft.py now takes apply_patch from
+src/settings/patch.py and its paths from src/settings/filters.py, so this is
+an ordinary module-level import; tests/resume_intake/test_layering.py asserts
+in a fresh interpreter that no src.resume_intake or src.settings module pulls
+in src.web at all.
 
 page_ctx/render_section/secret_rows live in shell.py (Ruling R10) — this
 module still uses them constantly, but so does every leaf settings route
@@ -50,12 +44,13 @@ from src.settings.fields import (
     value_at,
 )
 from src.settings.help import field_help, group_intro
+from src.settings.patch import apply_patch
 from src.settings.rows import list_rows
 from src.settings.service import canonical_doc
 from src.web.settings.backup import register_backup_routes
 from src.web.settings.companies import register_companies_routes
 from src.web.settings.content_draft import register_content_draft_routes
-from src.web.settings.forms import apply_patch, decode, decode_secrets, errors_by_path
+from src.web.settings.forms import decode, decode_secrets, errors_by_path
 from src.web.settings.history import register_history_routes
 from src.web.settings.probes import ProbeResult, probe_discord, probe_llm, probe_ntfy
 from src.web.settings.readiness import check

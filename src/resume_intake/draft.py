@@ -5,8 +5,7 @@ that fails open costs one posting's score; a drafter that fails open writes an
 empty profile that looks exactly like a good one and silently mis-scores
 everything from then on. So: provider errors raise, unparseable output raises,
 and an empty profile raises. The wizard catches DraftFailed (which lives in
-src/resume_intake/errors.py, a leaf module, so that catching it does not drag
-this module's web-layer import along) and falls back to hand-filled forms.
+src/resume_intake/errors.py) and falls back to hand-filled forms.
 
 The résumé is attacker-controlled text (an uploaded file) that ends up inside
 an LLM prompt, so it gets the same treatment job-posting text gets in
@@ -26,9 +25,9 @@ from src.llm.structured import complete_json
 from src.resume_intake.errors import DraftFailed
 from src.resume_intake.interview import INTERVIEW_FIELDS
 from src.sanitize import wrap_untrusted
+from src.settings.filters import FILTER_PATHS
+from src.settings.patch import apply_patch
 from src.settings.service import canonical_doc
-from src.web.settings.forms import apply_patch
-from src.web.settings.sections import section_by_slug
 
 log = logging.getLogger(__name__)
 
@@ -36,7 +35,7 @@ log = logging.getLogger(__name__)
 # model returns is dropped: the review form only renders these eleven, so a
 # path outside the set would be written without ever being shown to the user
 # for approval.
-DRAFTABLE_PATHS: frozenset[str] = frozenset(section_by_slug("filters").paths)
+DRAFTABLE_PATHS: frozenset[str] = frozenset(FILTER_PATHS)
 
 DRAFT_SCHEMA: dict = {
     "type": "object",

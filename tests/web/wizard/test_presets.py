@@ -7,7 +7,7 @@ import pytest
 
 from src.config import AppConfig, Secrets
 from src.settings.service import canonical_doc
-from src.web.settings.forms import apply_patch
+from src.settings.patch import apply_patch
 from src.web.app import create_app
 from src.web.wizard.presets import LLM_PRESETS, preset_for_provider
 from src.web.wizard.routes import LLM_PATHS
