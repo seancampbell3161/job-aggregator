@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.1] - 2026-09-22
+
+Fixes that earlier reviews had flagged and deferred, all in #23. Nothing here
+changes a setting, a page's layout or the data on disk.
+
+### Fixed
+
+- **A slow Anthropic call can no longer outlast its own timeout.** The SDK's
+  `timeout=` applies to each attempt, and with its default two retries one
+  call could run about three times `timeout_seconds` — long enough for a hung
+  relevance score to stall a whole poll cycle. Every Anthropic call (scoring,
+  gap analysis, the coach, résumé drafting, tailoring) is now bounded end to
+  end, as the Gemini and Ollama calls already were.
+- **Discarding a résumé draft now actually stops it.** "Start over" cleared
+  the page but left the LLM call running, so the discarded draft reappeared
+  when the call finished. Only one draft runs at a time now: a second start
+  (another tab, a double-click) returns to the one in progress, discard and
+  "Try again" cancel the call in flight, and a draft that has been replaced
+  can never overwrite the one you are reading.
+- **Saving a draft that no longer exists explains itself** instead of
+  showing a bare `{"detail": "no draft to save"}` page — for example after a
+  restart interrupted the draft.
+
+### Changed
+
+- **Published images carry their metadata where you can see it.** Source,
+  revision, version and license now annotate the multi-arch index, so
+  `docker buildx imagetools inspect` shows them; a manually dispatched build
+  is versioned `dispatch-<sha>` rather than the branch name; and two publishes
+  of the same tag queue instead of racing.
+- The résumé drafter no longer imports the web layer; `apply_patch` and the
+  filter path list moved into `src/settings/`, with a test that keeps every
+  settings and résumé-intake module free of web imports.
+
+### Upgrading
+
+Nothing to do. Pull the new image (or `docker compose up -d --build` from a
+checkout) as usual.
+
 ## [0.15.0] - 2026-09-20
 
 Everything here came from walking the guided setup as a stranger would, rather
@@ -1543,6 +1582,7 @@ entries below are kept for the record. From 0.12.0 on, the usual
 compare/vP.R.E..vX.Y.Z links resume (see RELEASING.md).
 -->
 
+[0.15.1]: https://github.com/seancampbell3161/job-aggregator/compare/v0.15.0..v0.15.1
 [0.15.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.14.0..v0.15.0
 [0.14.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.13.0..v0.14.0
 [0.13.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.12.0..v0.13.0
