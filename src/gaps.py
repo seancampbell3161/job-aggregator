@@ -117,20 +117,24 @@ class AnthropicGapAnalyzer:
 
     async def analyze(self, posting: NormalizedPosting) -> Gaps:
         try:
-            resp = await self._client.messages.create(
-                model=self._model,
-                max_tokens=300,
+            resp = await asyncio.wait_for(
+                self._client.messages.create(
+                    model=self._model,
+                    max_tokens=300,
+                    timeout=self._timeout,
+                    system=[
+                        {
+                            "type": "text",
+                            "text": _system_text(self._resume, self._max_skills),
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
+                    messages=[{"role": "user", "content": _format_user_message(posting)}],
+                    tools=[_gap_tool(self._max_skills)],
+                    tool_choice={"type": "tool", "name": "record_gaps"},
+                ),
+                # The SDK timeout is per attempt and it retries; this bounds the whole call.
                 timeout=self._timeout,
-                system=[
-                    {
-                        "type": "text",
-                        "text": _system_text(self._resume, self._max_skills),
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ],
-                messages=[{"role": "user", "content": _format_user_message(posting)}],
-                tools=[_gap_tool(self._max_skills)],
-                tool_choice={"type": "tool", "name": "record_gaps"},
             )
         except Exception as exc:  # noqa: BLE001 — fail-open is the contract
             log.warning(

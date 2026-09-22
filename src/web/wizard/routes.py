@@ -20,9 +20,10 @@ from src.resume_intake.interview import INTERVIEW_FIELDS, answers_to_patch, deco
 from src.settings.documents import validate_document
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import field_map, value_at
+from src.settings.patch import apply_patch
 from src.settings.service import canonical_doc
 from src.web.settings.backup import MAX_UPLOAD_BYTES, _read_bounded
-from src.web.settings.forms import apply_patch, decode, decode_secrets, errors_by_path
+from src.web.settings.forms import decode, decode_secrets, errors_by_path
 from src.web.settings.probes import ProbeResult, probe_discord, probe_llm, probe_ntfy
 from src.web.settings.readiness import AGGREGATOR_FAMILIES, check
 from src.web.settings.routes import _probe_partial, shown

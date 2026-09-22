@@ -138,7 +138,7 @@ async def test_the_resume_is_fenced_as_untrusted(monkeypatch):
 @pytest.mark.asyncio
 async def test_the_drafted_patch_validates(monkeypatch):
     from src.settings.service import canonical_doc
-    from src.web.settings.forms import apply_patch
+    from src.settings.patch import apply_patch
     _patch(monkeypatch, GOOD)
     draft = await draft_profile_and_filters(_cfg(), resume_text=RESUME, answers=ANSWERS)
     doc = canonical_doc(AppConfig())

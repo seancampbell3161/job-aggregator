@@ -61,7 +61,8 @@ async def complete_json(
 
 
 async def _anthropic(binding, *, system, user, schema, max_output_tokens) -> dict | None:
-    resp = await binding.client.messages.create(
+    resp = await _anthropic_create(
+        binding,
         model=binding.model,
         max_tokens=max_output_tokens,
         system=system,
@@ -73,7 +74,6 @@ async def _anthropic(binding, *, system, user, schema, max_output_tokens) -> dic
         # Forcing the tool is what makes the schema binding rather than advisory.
         tool_choice={"type": "tool", "name": _TOOL_NAME},
         messages=[{"role": "user", "content": user}],
-        timeout=binding.timeout_seconds,
     )
     for block in resp.content:
         if getattr(block, "type", None) == "tool_use":
@@ -82,6 +82,18 @@ async def _anthropic(binding, *, system, user, schema, max_output_tokens) -> dic
     log.warning("complete_json_no_tool_block",
                 extra={"stop_reason": getattr(resp, "stop_reason", None)})
     return None
+
+
+async def _anthropic_create(binding, **kwargs) -> Any:
+    """``messages.create`` bounded end to end by the binding's timeout.
+
+    The SDK's own ``timeout=`` is per attempt, and its default two retries
+    let one call run ~3x ``timeout_seconds``; ``wait_for`` makes the
+    binding's timeout the caller's whole budget, as on the other providers."""
+    return await asyncio.wait_for(
+        binding.client.messages.create(**kwargs, timeout=binding.timeout_seconds),
+        timeout=binding.timeout_seconds,
+    )
 
 
 async def _gemini(binding, *, system, user, schema, max_output_tokens) -> dict | None:
@@ -151,12 +163,12 @@ async def complete_text(
     failed". For output that is not JSON — the docx importer emits a Jinja2
     HTML template."""
     if binding.provider == "anthropic":
-        resp = await binding.client.messages.create(
+        resp = await _anthropic_create(
+            binding,
             model=binding.model,
             max_tokens=max_output_tokens,
             system=system,
             messages=[{"role": "user", "content": user}],
-            timeout=binding.timeout_seconds,
         )
         text = "".join(
             getattr(block, "text", "") for block in resp.content

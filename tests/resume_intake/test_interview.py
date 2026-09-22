@@ -87,7 +87,7 @@ def test_the_patch_validates_against_the_real_model():
     """The strongest guarantee: whatever the interview produces must be a
     settings document the app will accept."""
     from src.settings.service import canonical_doc
-    from src.web.settings.forms import apply_patch
+    from src.settings.patch import apply_patch
     doc = canonical_doc(AppConfig())
     apply_patch(doc, answers_to_patch(decode_answers(ANSWERS)))
     cfg = AppConfig.model_validate(doc)

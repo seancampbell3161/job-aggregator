@@ -181,7 +181,10 @@ async def test_engine_timeout_is_fallback(caplog):
     with caplog.at_level("WARNING", logger="src.tailor.engine"):
         r = await _engine(_Slow(), timeout=0).tailor(job_id="j", jd_text="x")
     assert r.is_fallback is True
-    assert caplog.records[-1].error_type == "TimeoutError"
+    # Filtered by message, not caplog.records[-1]: any warning the engine
+    # logs after the failure would otherwise become the record under test.
+    failures = [rec for rec in caplog.records if rec.getMessage() == "tailor_llm_call_failed"]
+    assert [rec.error_type for rec in failures] == ["TimeoutError"]
 
 
 @pytest.mark.asyncio

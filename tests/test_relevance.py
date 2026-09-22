@@ -981,3 +981,20 @@ async def test_ollama_score_does_not_retry_a_malformed_success():
 
     assert result.is_fallback is True
     assert client.chat.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_score_is_bounded_by_timeout_seconds():
+    """The SDK's ``timeout=`` is per attempt and it retries twice by default,
+    so only an outer wait_for keeps a hung call from stalling the poll cycle
+    for ~3x the budget."""
+    async def slow(**kwargs):
+        await asyncio.sleep(30)
+
+    client = MagicMock()
+    client.messages.create = slow
+    scorer = RelevanceScorer(
+        client=client, model="claude-haiku-4-5", profile_md="x", timeout_seconds=0.05,
+    )
+    result = await asyncio.wait_for(scorer.score(_posting()), timeout=5)
+    assert result.is_fallback is True

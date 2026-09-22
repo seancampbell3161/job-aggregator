@@ -28,10 +28,10 @@ from src.headless import headless_available
 from src.settings.boards import BOARD_FAMILIES, BoardEntry, board_entries, board_key
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import item_model
+from src.settings.patch import apply_patch
 from src.settings.rows import add_row_patch
 from src.state import DiscoveredSlug
 from src.web.auth import safe_next
-from src.web.settings.forms import apply_patch
 from src.web.settings.health import board_status
 from src.web.settings.sections import SECTIONS, section_by_slug
 from src.web.settings.shell import render_section

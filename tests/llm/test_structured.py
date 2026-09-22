@@ -1,4 +1,5 @@
 """One JSON Schema, three provider dialects — same parsed result."""
+import asyncio
 import json
 
 import pytest
@@ -226,9 +227,25 @@ async def test_complete_text_asks_gemini_for_text_not_json():
     assert as_dict["max_output_tokens"] == 16384
 
 
+class _FakeAnthropicEmptyText:
+    def __init__(self):
+        self.messages = self
+
+    async def create(self, **kwargs):
+        block = type("B", (), {"type": "text", "text": ""})()
+        return type("R", (), {"content": [block], "stop_reason": "end_turn"})()
+
+
 @pytest.mark.asyncio
-async def test_complete_text_returns_none_for_empty_output():
-    assert await complete_text(_binding("ollama", _FakeOllama("")), system="s",
+@pytest.mark.parametrize("provider, client", [
+    ("anthropic", _FakeAnthropicEmptyText()),
+    ("gemini", _FakeGemini("")),
+    ("ollama", _FakeOllama("")),
+], ids=["anthropic", "gemini", "ollama"])
+async def test_complete_text_returns_none_for_empty_output(provider, client):
+    """Each provider has its own empty→None coercion, so each needs its own
+    check: "answered with nothing" must read the same whoever answered."""
+    assert await complete_text(_binding(provider, client), system="s",
                                user="u", max_output_tokens=64) is None
 
 
@@ -241,3 +258,29 @@ async def test_complete_text_does_not_fail_open():
     with pytest.raises(RuntimeError):
         await complete_text(_binding("anthropic", _Boom()), system="s", user="u",
                             max_output_tokens=64)
+
+
+class _HangingAnthropic:
+    """An SDK that honours its per-attempt ``timeout`` but retries: the total
+    wall time is a multiple of it. Modelled as one call that ignores the
+    kwarg, which is what the caller observes."""
+    def __init__(self):
+        self.messages = self
+
+    async def create(self, **kwargs):
+        await asyncio.sleep(30)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("call", ["json", "text"])
+async def test_anthropic_is_bounded_by_the_binding_timeout(call):
+    """The SDK's ``timeout=`` is per attempt; with its default two retries a
+    call could run ~3x ``timeout_seconds``. The binding's timeout is the
+    caller's whole budget, so it must bound the call end to end."""
+    binding = LlmBinding(provider="anthropic", model="m",
+                         client=_HangingAnthropic(), timeout_seconds=0.05)
+    with pytest.raises(asyncio.TimeoutError):
+        if call == "json":
+            await complete_json(binding, system="s", user="u", schema=SCHEMA)
+        else:
+            await complete_text(binding, system="s", user="u", max_output_tokens=64)

@@ -414,3 +414,22 @@ async def test_gaps_success_has_no_error_type():
     result = await analyzer.analyze(_posting())
     assert result.is_fallback is False
     assert result.error_type is None
+
+
+@pytest.mark.asyncio
+async def test_anthropic_gap_fallback_on_timeout():
+    """The SDK's ``timeout=`` is per attempt and it retries, so the analyzer
+    must bound the whole call itself."""
+    import asyncio
+    from src.gaps import AnthropicGapAnalyzer
+
+    async def slow(**kwargs):
+        await asyncio.sleep(30)
+
+    client = MagicMock()
+    client.messages.create = slow
+    analyzer = AnthropicGapAnalyzer(
+        client=client, model="claude-haiku-4-5", resume_md="x", timeout_seconds=0.05, max_skills=6,
+    )
+    g = await asyncio.wait_for(analyzer.analyze(_posting()), timeout=5)
+    assert g.is_fallback is True

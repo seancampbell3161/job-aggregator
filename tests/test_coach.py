@@ -379,3 +379,19 @@ def test_build_coach_local_ollama_needs_no_key():
     engine = _build_coach(cfg)
     assert engine is not None
     assert type(engine).__name__ == "OllamaCoach"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_coach_is_bounded_by_timeout_seconds():
+    """The SDK's ``timeout=`` is per attempt and it retries, so the coach
+    must bound the whole call itself."""
+    import asyncio
+
+    async def slow(**kwargs):
+        await asyncio.sleep(30)
+
+    client = MagicMock()
+    client.messages.create = slow
+    engine = AnthropicCoach(client=client, model="m", timeout_seconds=0.05)
+    r = await asyncio.wait_for(engine.recommend(_SNAP), timeout=5)
+    assert r.is_fallback is True

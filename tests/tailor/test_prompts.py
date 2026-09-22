@@ -119,4 +119,7 @@ def test_an_empty_bank_overrides_the_json_examples_evidence_refs_placeholder():
     text = build_system_text(_content(), EvidenceBank())
     assert '"evidence_refs": ["JIRA-...' in text  # the example is still shown as-is
     assert "ignore that example" in text
-    assert '"evidence_refs": []' in text           # explicit override value
+    # The override's own wording, not the bare value: the serialized CONTENT
+    # bullets carry '"evidence_refs": []' as their default too, so the bare
+    # value is in the prompt whether or not the override is.
+    assert 'emit "evidence_refs": [] for every bullet' in text

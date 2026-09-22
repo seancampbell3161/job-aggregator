@@ -94,8 +94,12 @@ sense to whoever wrote them. Budget for that edit; it's most of the work.
    same commit:
 
    ```bash
-   git rev-parse vX.Y.Z origin/main     # two identical SHAs
+   git rev-parse 'vX.Y.Z^{}' origin/main     # two identical SHAs
    ```
+
+   The `^{}` matters: `git tag -a` makes an annotated tag, and a bare
+   `vX.Y.Z` resolves to the tag object itself, never to the commit it points
+   at — so without it the two SHAs always differ, even on a correct tag.
 
 7. **Watch the image publish.** Pushing the tag triggers
    `.github/workflows/publish.yaml`, which builds slim and `-headless` for

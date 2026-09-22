@@ -31,10 +31,11 @@ from src.config import SLUG_SOURCE_FAMILIES
 from src.settings.boards import BOARD_FAMILIES
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import KIND_TEXT, item_fields, rows_paths
+from src.settings.patch import apply_patch
 from src.settings.rows import (
     RowGone, add_row_patch, find_row, remove_row_patch, update_row_patch,
 )
-from src.web.settings.forms import apply_patch, decode, errors_by_path
+from src.web.settings.forms import decode, errors_by_path
 from src.web.settings.sections import (
     SECTIONS, Section, advanced_group, group_section, section_by_slug,
 )

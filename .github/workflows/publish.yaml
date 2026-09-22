@@ -8,8 +8,20 @@ permissions:
   contents: read
   packages: write
 
+# One publish per ref at a time: a re-pushed tag, or a dispatch fired while
+# the last one is still merging, would otherwise race to write the same
+# manifest tags. Queued rather than cancelled — a release half-published
+# (slim tags out, headless not) is worse than one that waits.
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   IMAGE: ghcr.io/${{ github.repository }}
+  # A tag push is versioned by its tag. A dispatch run has no tag, and
+  # github.ref_name there is a branch ("main"), which reads as a release
+  # called main — so it takes the same dispatch-<sha> name its image tag does.
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('dispatch-{0}', github.sha) }}
 
 jobs:
   build:
@@ -110,7 +122,7 @@ jobs:
             org.opencontainers.image.description=Job aggregator — ${{ matrix.variant }} image
             org.opencontainers.image.licenses=Apache-2.0
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.version=${{ env.VERSION }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export the digest
@@ -205,8 +217,16 @@ jobs:
           # `imagetools create` below would otherwise fail obscurely on a
           # bare `-t` with no value.
           test -n "$tags" || { echo "::error::no tags computed for ${{ matrix.variant }} — is this a real vX.Y.Z release tag?"; exit 1; }
+          # The build job's labels land on each per-arch image config, which
+          # `imagetools inspect` of a tag does not show: a tag names the
+          # index. These annotations put the same metadata on the index.
           docker buildx imagetools create \
             $tags \
+            --annotation "index:org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --annotation "index:org.opencontainers.image.description=Job aggregator — ${{ matrix.variant }} image" \
+            --annotation "index:org.opencontainers.image.licenses=Apache-2.0" \
+            --annotation "index:org.opencontainers.image.revision=${{ github.sha }}" \
+            --annotation "index:org.opencontainers.image.version=${{ env.VERSION }}" \
             $(for f in ${{ matrix.variant }}-*; do echo "${{ env.IMAGE }}@sha256:${f##*-sha256-}"; done)
 
       - name: Show what was published
