@@ -1,8 +1,9 @@
 """Résumé text -> a structured content.json, for tailoring to rewrite.
 
 Shares src/resume_intake/draft.py's posture and its DraftFailed (from
-src/resume_intake/errors.py): this does NOT fail open. A drafter that fails open writes a plausible-looking résumé bank
-that every later rewrite is then grounded against, and the tailoring engine's
+src/resume_intake/errors.py): this does NOT fail open. A drafter that fails
+open writes a plausible-looking résumé bank that every later rewrite is then
+grounded against, and the tailoring engine's
 guards cannot help — they check rewrites against THIS document, so anything
 invented here is ground truth to them. It ends up in a PDF under the user's
 name.

@@ -227,9 +227,25 @@ async def test_complete_text_asks_gemini_for_text_not_json():
     assert as_dict["max_output_tokens"] == 16384
 
 
+class _FakeAnthropicEmptyText:
+    def __init__(self):
+        self.messages = self
+
+    async def create(self, **kwargs):
+        block = type("B", (), {"type": "text", "text": ""})()
+        return type("R", (), {"content": [block], "stop_reason": "end_turn"})()
+
+
 @pytest.mark.asyncio
-async def test_complete_text_returns_none_for_empty_output():
-    assert await complete_text(_binding("ollama", _FakeOllama("")), system="s",
+@pytest.mark.parametrize("provider, client", [
+    ("anthropic", _FakeAnthropicEmptyText()),
+    ("gemini", _FakeGemini("")),
+    ("ollama", _FakeOllama("")),
+], ids=["anthropic", "gemini", "ollama"])
+async def test_complete_text_returns_none_for_empty_output(provider, client):
+    """Each provider has its own empty→None coercion, so each needs its own
+    check: "answered with nothing" must read the same whoever answered."""
+    assert await complete_text(_binding(provider, client), system="s",
                                user="u", max_output_tokens=64) is None
 
 

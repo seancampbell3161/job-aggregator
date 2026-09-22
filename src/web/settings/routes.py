@@ -16,8 +16,9 @@ register_row_routes, for that exact reason: /settings/companies,
 unlike the row routes they would genuinely be swallowed by /settings/{slug}
 if that catch-all were declared first. register_content_draft_routes(app) is
 registered alongside them for consistency, though its own paths
-(/settings/documents/draft and .../draft/status) are three segments deep and
-could not be swallowed by the catch-all regardless of ordering.
+(/settings/documents/draft, and .../draft/status, .../draft/discard and
+.../draft/save beneath it) are three or more segments deep and could not be
+swallowed by the catch-all regardless of ordering.
 
 register_content_draft_routes was imported lazily here for a while, to break
 an import cycle through src/resume_intake/draft.py's old dependency on this
