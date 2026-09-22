@@ -324,14 +324,18 @@ class AnthropicCoach:
 
     async def recommend(self, snapshot: CoachSnapshot) -> CoachResult:
         try:
-            resp = await self._client.messages.create(
-                model=self._model,
-                max_tokens=_ANTHROPIC_MAX_TOKENS,
+            resp = await asyncio.wait_for(
+                self._client.messages.create(
+                    model=self._model,
+                    max_tokens=_ANTHROPIC_MAX_TOKENS,
+                    timeout=self._timeout,
+                    system=_system_text(),
+                    messages=[{"role": "user", "content": _user_message(snapshot)}],
+                    tools=[_coach_tool()],
+                    tool_choice={"type": "tool", "name": "record_recommendations"},
+                ),
+                # The SDK timeout is per attempt and it retries; this bounds the whole call.
                 timeout=self._timeout,
-                system=_system_text(),
-                messages=[{"role": "user", "content": _user_message(snapshot)}],
-                tools=[_coach_tool()],
-                tool_choice={"type": "tool", "name": "record_recommendations"},
             )
         except Exception as exc:  # noqa: BLE001 — fail-open is the contract
             log.warning(

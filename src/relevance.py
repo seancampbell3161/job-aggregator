@@ -208,27 +208,31 @@ class RelevanceScorer:
 
     async def score(self, posting: NormalizedPosting) -> Score:
         try:
-            resp = await self._client.messages.create(
-                model=self._model,
-                max_tokens=200,
+            resp = await asyncio.wait_for(
+                self._client.messages.create(
+                    model=self._model,
+                    max_tokens=200,
+                    timeout=self._timeout,
+                    system=[
+                        {
+                            "type": "text",
+                            "text": (
+                                _SYSTEM_INSTRUCTIONS
+                                + "\n----- CANDIDATE PROFILE -----\n"
+                                + self._profile
+                                + "\n----- END PROFILE -----\n"
+                            ),
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
+                    messages=[
+                        {"role": "user", "content": _format_user_message(posting)},
+                    ],
+                    tools=[_TOOL],
+                    tool_choice={"type": "tool", "name": "record_relevance"},
+                ),
+                # The SDK timeout is per attempt and it retries; this bounds the whole call.
                 timeout=self._timeout,
-                system=[
-                    {
-                        "type": "text",
-                        "text": (
-                            _SYSTEM_INSTRUCTIONS
-                            + "\n----- CANDIDATE PROFILE -----\n"
-                            + self._profile
-                            + "\n----- END PROFILE -----\n"
-                        ),
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ],
-                messages=[
-                    {"role": "user", "content": _format_user_message(posting)},
-                ],
-                tools=[_TOOL],
-                tool_choice={"type": "tool", "name": "record_relevance"},
             )
         except Exception as exc:  # noqa: BLE001 — fail-open is the contract
             log.warning(
