@@ -23,9 +23,10 @@ import json
 import logging
 import re
 import time
+import uuid
 from typing import Any, Mapping
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.resume_intake.content_draft import MIN_TIMEOUT_SECONDS, NO_RESUME, draft_content
@@ -85,10 +86,43 @@ def _stale_after_seconds(cfg) -> float:
     return 2 * max(cfg.resume_draft.timeout_seconds, MIN_TIMEOUT_SECONDS)
 
 
-async def run_content_draft(app) -> dict:
-    """Run the draft and store its record. Never raises: a drafting failure is
-    a message on a page. Writes no document — only the review form's save
-    does, which is what makes the review a real gate."""
+def claim_run(store) -> str:
+    """Make a new run the owner of the record, and return its id.
+
+    One draft at a time: whoever holds the record's run_id is the only run
+    allowed to write it. Discarding deletes the record and a new start
+    replaces it, and either way a run still in flight finds it no longer owns
+    the key and drops its result instead of resurrecting a draft the user
+    threw away, or overwriting the one they are now reading."""
+    run_id = uuid.uuid4().hex
+    store.put(KEY, {"status": "running", "started_at": time.time(), "run_id": run_id})
+    return run_id
+
+
+def _owns(store, run_id: str) -> bool:
+    record = store.get(KEY)
+    return bool(record) and record.get("run_id") == run_id
+
+
+def _cancel_running(app) -> None:
+    """Stop the in-flight run, if any, so it spends no more LLM time on a
+    draft nobody will read. Ownership is what keeps its result off the
+    record; this only saves the call. Must run on the event loop — a task is
+    not safe to cancel from another thread."""
+    task = getattr(app.state, "content_draft_task", None)
+    if task is not None and not task.done():
+        task.cancel()
+
+
+async def run_content_draft(app, run_id: str) -> dict:
+    """Run the draft and store its record, if ``run_id`` still owns it. Never
+    raises: a drafting failure is a message on a page. Writes no document —
+    only the review form's save does, which is what makes the review a real
+    gate.
+
+    The ownership checks and the writes they guard have no ``await`` between
+    them, and every route that deletes or replaces the record runs on the
+    event loop too, so nothing can slip in between a check and its write."""
     store = app.state.stores.wizard
     # Two stamps, carried onto whichever record this run ends with.
     #
@@ -101,11 +135,12 @@ async def run_content_draft(app) -> dict:
     # It deliberately describes the document as it stood when the call
     # STARTED, not when it finished: a document hand-written during the
     # minute-plus call is just as much lost work as one written after it.
-    stamp: dict = {"started_at": time.time()}
+    stamp: dict = {"started_at": time.time(), "run_id": run_id}
     try:
         snap = app.state.service.snapshot()
         stamp["content_digest"] = _content_digest(snap)
-        store.put(KEY, {"status": "running", **stamp})
+        if _owns(store, run_id):
+            store.put(KEY, {"status": "running", **stamp})
         draft = await draft_content(snap.cfg, resume_text=snap.documents.resume_text or "")
         record = {"status": "ok", "document": draft.document, "contact": draft.contact}
     except DraftFailed as exc:
@@ -117,6 +152,9 @@ async def run_content_draft(app) -> dict:
     # Returned as stored, stamp included — a caller that inspects the result
     # and a caller that reads the store back must not see two shapes.
     record = {**record, **stamp}
+    if not _owns(store, run_id):
+        log.info("content_draft_run_superseded", extra={"status": record["status"]})
+        return record
     store.put(KEY, record)
     return record
 
@@ -269,6 +307,15 @@ def register_content_draft_routes(app: FastAPI) -> None:
         store = request.app.state.stores.wizard
         form = await request.form()
 
+        # One draft at a time. A live run keeps the record: a second tab or a
+        # double-submit lands back on its poll instead of racing it. A run
+        # past the staleness bound reads as an error, so its "Try again"
+        # still gets through — and replaces that run below if it was merely
+        # slow rather than dead.
+        current = _current(request)
+        if current and current.get("status") == "running":
+            return RedirectResponse(PATH, status_code=303)
+
         if not (snap.documents.resume_text or "").strip():
             store.put(KEY, {"status": "error", "error": NO_RESUME})
             return RedirectResponse(PATH, status_code=303)
@@ -285,10 +332,11 @@ def register_content_draft_routes(app: FastAPI) -> None:
         # on this write too, not only on the task's own: a process that dies
         # between the two would otherwise leave an unstamped record that
         # _current could not age out by timestamp.
-        store.put(KEY, {"status": "running", "started_at": time.time()})
+        _cancel_running(request.app)
+        run_id = claim_run(store)
         # Keep a reference so the task is not garbage-collected mid-run.
         request.app.state.content_draft_task = asyncio.create_task(
-            run_content_draft(request.app))
+            run_content_draft(request.app, run_id))
         return RedirectResponse(PATH, status_code=303)
 
     @app.get(f"{PATH}/status", response_class=HTMLResponse)
@@ -303,7 +351,7 @@ def register_content_draft_routes(app: FastAPI) -> None:
         )
 
     @app.post(f"{PATH}/discard")
-    def content_draft_discard(request: Request):
+    async def content_draft_discard(request: Request):
         """Throw the pending draft away.
 
         The way out of what used to be two one-way doors: a "running" record
@@ -311,7 +359,14 @@ def register_content_draft_routes(app: FastAPI) -> None:
         whose only other exits were saving it or hand-editing JSON. Writes no
         document — discarding a proposal is not a change to the résumé — and
         lands back on the page, which then offers a fresh draft (through the
-        confirm gate, if a document exists)."""
+        confirm gate, if a document exists).
+
+        A run still in flight is cancelled, and having lost the record it
+        could not write its result anyway (see claim_run). ``async`` on
+        purpose: a plain ``def`` route runs in a worker thread, where
+        cancelling the task is unsafe and the delete could land between the
+        task's ownership check and its write."""
+        _cancel_running(request.app)
         request.app.state.stores.wizard.delete(KEY)
         return RedirectResponse(PATH, status_code=303)
 
@@ -333,7 +388,13 @@ def register_content_draft_routes(app: FastAPI) -> None:
                 "submitted is no longer the current one. Nothing was saved — "
                 "wait for the new draft to finish and review that instead."])
         if record.get("status") != "ok":
-            raise HTTPException(status_code=409, detail="no draft to save")
+            # Same reasoning as above: a raw {"detail": ...} 409 loses the
+            # page. Discarded elsewhere, never finished (a stale "running"
+            # record, which _current presents as an error), or failed — the
+            # page underneath shows whichever it was, with its own way on.
+            return _render(request, status_code=409, form_errors=[
+                "Nothing was saved: there is no finished draft to save any "
+                "more. It was discarded, or it never finished."])
 
         form = await request.form()
         raw = {k: form.getlist(k) for k in form.keys()}

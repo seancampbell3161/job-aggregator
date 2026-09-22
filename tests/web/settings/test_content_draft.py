@@ -32,7 +32,7 @@ def test_starting_without_a_resume_records_an_error_and_starts_no_task(tmp_path,
     app = _app(tmp_path, monkeypatch)
     tripped = False
 
-    async def tripwire(app_):
+    async def tripwire(app_, run_id):
         nonlocal tripped
         tripped = True
 
@@ -64,7 +64,7 @@ def test_starting_records_running_before_the_task_can_run(tmp_path, monkeypatch)
     seen_at_schedule_time = []
     real_create_task = asyncio_module.create_task
 
-    async def fake_run(app_):
+    async def fake_run(app_, run_id):
         return {"status": "ok"}
 
     def spying_create_task(coro, *args, **kwargs):
@@ -90,7 +90,7 @@ def test_an_existing_document_needs_confirmation_and_starts_no_task(tmp_path, mo
                                                  "resume_content": CONTENT_JSON})
     tripped = False
 
-    async def tripwire(app_):
+    async def tripwire(app_, run_id):
         nonlocal tripped
         tripped = True
 
@@ -105,7 +105,7 @@ def test_confirming_starts_the_task(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch, documents={"resume_text": "CV",
                                                  "resume_content": CONTENT_JSON})
 
-    async def fake_run(app_):
+    async def fake_run(app_, run_id):
         return {"status": "ok"}
 
     monkeypatch.setattr("src.web.settings.content_draft.run_content_draft", fake_run)
@@ -145,7 +145,7 @@ def test_the_status_route_renders_the_ok_branch_too(tmp_path, monkeypatch):
 # with sibling tests, so it's omitted here too.
 async def test_the_task_stores_a_failure_rather_than_raising(tmp_path, monkeypatch):
     from src.resume_intake.errors import DraftFailed
-    from src.web.settings.content_draft import run_content_draft
+    from src.web.settings.content_draft import claim_run, run_content_draft
 
     app = _app(tmp_path, monkeypatch, documents={"resume_text": "CV"})
 
@@ -153,7 +153,7 @@ async def test_the_task_stores_a_failure_rather_than_raising(tmp_path, monkeypat
         raise DraftFailed("no dice")
 
     monkeypatch.setattr("src.web.settings.content_draft.draft_content", boom)
-    record = await run_content_draft(app)
+    record = await run_content_draft(app, claim_run(app.state.stores.wizard))
     assert record["status"] == "error"
     assert "no dice" in record["error"]
     assert app.state.stores.wizard.get("content_draft")["status"] == "error"
@@ -161,7 +161,7 @@ async def test_the_task_stores_a_failure_rather_than_raising(tmp_path, monkeypat
 
 async def test_the_task_stores_the_drafted_document(tmp_path, monkeypatch):
     from src.resume_intake.content_draft import ContentDraft
-    from src.web.settings.content_draft import run_content_draft
+    from src.web.settings.content_draft import claim_run, run_content_draft
 
     app = _app(tmp_path, monkeypatch, documents={"resume_text": "CV"})
     document = {"name": "S", "skills": [], "experiences": [], "projects": [],
@@ -171,7 +171,7 @@ async def test_the_task_stores_the_drafted_document(tmp_path, monkeypatch):
         return ContentDraft(document=document, contact={"email": "s@e.com"})
 
     monkeypatch.setattr("src.web.settings.content_draft.draft_content", ok)
-    record = await run_content_draft(app)
+    record = await run_content_draft(app, claim_run(app.state.stores.wizard))
     assert record["status"] == "ok"
     assert record["document"]["name"] == "S"
     assert record["contact"] == {"email": "s@e.com"}
@@ -181,7 +181,7 @@ async def test_the_task_never_writes_a_document_itself(tmp_path, monkeypatch):
     """Drafting proposes; only the review form's save writes. Otherwise the
     review gate is decorative."""
     from src.resume_intake.content_draft import ContentDraft
-    from src.web.settings.content_draft import run_content_draft
+    from src.web.settings.content_draft import claim_run, run_content_draft
 
     app = _app(tmp_path, monkeypatch, documents={"resume_text": "CV"})
 
@@ -190,7 +190,7 @@ async def test_the_task_never_writes_a_document_itself(tmp_path, monkeypatch):
                             contact={})
 
     monkeypatch.setattr("src.web.settings.content_draft.draft_content", ok)
-    await run_content_draft(app)
+    await run_content_draft(app, claim_run(app.state.stores.wizard))
     assert app.state.service.snapshot().documents.resume_content is None
     assert app.state.service.snapshot().documents.kit_facts is None
 
@@ -593,7 +593,7 @@ async def test_the_task_stamps_the_record_with_the_document_it_drafted_against(
     """Where the stamp comes from. Taken at the START of the call, so a
     document hand-written during the minute-plus generation is caught too."""
     from src.resume_intake.content_draft import ContentDraft
-    from src.web.settings.content_draft import run_content_draft
+    from src.web.settings.content_draft import claim_run, run_content_draft
 
     app = _app(tmp_path, monkeypatch, documents={"resume_text": "CV",
                                                  "resume_content": CONTENT_JSON})
@@ -602,7 +602,7 @@ async def test_the_task_stamps_the_record_with_the_document_it_drafted_against(
         return ContentDraft(document=DRAFTED, contact={})
 
     monkeypatch.setattr("src.web.settings.content_draft.draft_content", ok)
-    record = await run_content_draft(app)
+    record = await run_content_draft(app, claim_run(app.state.stores.wizard))
     assert record["content_digest"] == _digest(CONTENT_JSON)
     assert record["started_at"] > 0
     stored = app.state.stores.wizard.get("content_draft")
@@ -803,3 +803,164 @@ def test_the_review_page_shows_the_name_and_contact_it_transcribed(tmp_path, mon
     assert 'value="dana@example.com"' not in body
     # A blank field is omitted, not rendered as a bare label.
     assert "LinkedIn" not in body
+
+
+# --- one draft at a time: a run owns the record, and only while it still does ---
+
+def _async_client(app):
+    """An httpx client on the test's own event loop, so a task a route
+    schedules is one this test can see, await and inspect."""
+    import httpx
+
+    from tests.auth_helpers import sign_in
+
+    client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                               base_url="http://testserver")
+    client.app = app  # sign_in reads the auth store off client.app
+    return sign_in(client)
+
+
+async def _hang(cfg, *, resume_text):
+    import asyncio
+    await asyncio.sleep(3600)
+
+
+async def _settled(task):
+    """Wait for ``task`` to finish, but fail rather than sit out _hang's hour
+    when nothing cancelled it."""
+    import asyncio
+    await asyncio.wait({task}, timeout=5)
+    assert task.done(), "the task was never cancelled"
+
+
+def test_a_second_start_while_one_runs_starts_no_task(tmp_path, monkeypatch):
+    """A second tab, or a double-submit, would otherwise start a second draft
+    racing the first for the same record — last writer wins, and the review
+    the user is reading can be swapped out from under them."""
+    app = _running(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}))
+    before = app.state.stores.wizard.get("content_draft")
+    tripped = False
+
+    async def tripwire(app_, run_id):
+        nonlocal tripped
+        tripped = True
+
+    monkeypatch.setattr("src.web.settings.content_draft.run_content_draft", tripwire)
+    r = signed_in_client(app).post("/settings/documents/draft", follow_redirects=True)
+    assert tripped is False
+    assert app.state.stores.wizard.get("content_draft") == before
+    assert 'hx-trigger="load delay:2s"' in r.text  # back on the live poll
+
+
+def test_a_start_after_the_staleness_bound_is_allowed(tmp_path, monkeypatch):
+    """The refusal must not undo M2: a record past the bound is presented as
+    an error whose "Try again" has to work."""
+    app = _running(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}),
+                   age_seconds=3600)
+    tripped = False
+
+    async def tripwire(app_, run_id):
+        nonlocal tripped
+        tripped = True
+
+    monkeypatch.setattr("src.web.settings.content_draft.run_content_draft", tripwire)
+    signed_in_client(app).post("/settings/documents/draft")
+    assert tripped is True
+
+
+async def test_a_discarded_run_does_not_bring_its_draft_back(tmp_path, monkeypatch):
+    """Discarding mid-call used to delete the record, then the still-running
+    task wrote its result on top: the draft the user threw away reappeared."""
+    from src.resume_intake.content_draft import ContentDraft
+    from src.web.settings.content_draft import claim_run, run_content_draft
+
+    app = _app(tmp_path, monkeypatch, documents={"resume_text": "CV"})
+    store = app.state.stores.wizard
+
+    async def discarded_mid_call(cfg, *, resume_text):
+        store.delete("content_draft")
+        return ContentDraft(document=DRAFTED, contact={})
+
+    monkeypatch.setattr("src.web.settings.content_draft.draft_content", discarded_mid_call)
+    await run_content_draft(app, claim_run(store))
+    assert store.get("content_draft") is None
+
+
+async def test_a_superseded_run_does_not_overwrite_the_newer_one(tmp_path, monkeypatch):
+    from src.resume_intake.content_draft import ContentDraft
+    from src.web.settings.content_draft import claim_run, run_content_draft
+
+    app = _app(tmp_path, monkeypatch, documents={"resume_text": "CV"})
+    store = app.state.stores.wizard
+    newer = {}
+
+    async def superseded_mid_call(cfg, *, resume_text):
+        newer["run_id"] = claim_run(store)
+        return ContentDraft(document=DRAFTED, contact={})
+
+    monkeypatch.setattr("src.web.settings.content_draft.draft_content", superseded_mid_call)
+    await run_content_draft(app, claim_run(store))
+    record = store.get("content_draft")
+    assert record["status"] == "running"
+    assert record["run_id"] == newer["run_id"]
+
+
+async def test_discarding_cancels_the_running_task(tmp_path, monkeypatch):
+    """Ownership stops a discarded run from writing; cancelling it also stops
+    it spending another minute of LLM time on a draft nobody will read."""
+    import asyncio
+
+    app = _app(tmp_path, monkeypatch, documents={"resume_text": "CV"})
+    monkeypatch.setattr("src.web.settings.content_draft.draft_content", _hang)
+    async with _async_client(app) as client:
+        await client.post("/settings/documents/draft")
+        task = app.state.content_draft_task
+        await asyncio.sleep(0)  # let it reach the provider call
+        assert not task.done()
+        await client.post("/settings/documents/draft/discard")
+        try:
+            await _settled(task)
+            assert task.cancelled()
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+    assert app.state.stores.wizard.get("content_draft") is None
+
+
+async def test_restarting_a_presumed_dead_draft_cancels_it_if_it_was_alive(
+        tmp_path, monkeypatch):
+    """Past the staleness bound the page offers "Try again", but the old task
+    may be merely slow rather than dead. The new start replaces it."""
+    import asyncio
+
+    app = _app(tmp_path, monkeypatch, documents={"resume_text": "CV"})
+    store = app.state.stores.wizard
+    monkeypatch.setattr("src.web.settings.content_draft.draft_content", _hang)
+    async with _async_client(app) as client:
+        await client.post("/settings/documents/draft")
+        old = app.state.content_draft_task
+        await asyncio.sleep(0)
+        store.put("content_draft", {**store.get("content_draft"), "started_at": 0.0})
+        await client.post("/settings/documents/draft")
+        new = app.state.content_draft_task
+        try:
+            await _settled(old)
+            assert old.cancelled()
+            assert new is not old and not new.done()
+        finally:
+            old.cancel()
+            new.cancel()
+            await asyncio.gather(old, new, return_exceptions=True)
+
+
+def test_saving_a_draft_that_never_finished_explains_instead_of_dumping_json(
+        tmp_path, monkeypatch):
+    """A running record past the bound is presented as an error, so the save
+    route's "not ok" branch used to answer with a raw {"detail": ...} 409."""
+    app = _running(_app(tmp_path, monkeypatch, documents={"resume_text": "CV"}),
+                   age_seconds=3600)
+    r = signed_in_client(app).post("/settings/documents/draft/save", data=SAVE_FORM)
+    assert r.status_code == 409
+    assert "Nothing was saved" in r.text
+    assert "never finished" in r.text  # the page's own recovery options
+    assert '"detail"' not in r.text
