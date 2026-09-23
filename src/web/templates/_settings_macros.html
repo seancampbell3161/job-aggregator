@@ -59,6 +59,18 @@
 {% endcall %}
 {% endmacro %}
 
+{# A multi-select as pills. Each pill is a real checkbox (visually hidden,
+   still focusable) so the form posts exactly what the old checkbox list
+   did and it works without JS. #}
+{% macro toggles(name, choices, selected) -%}
+<div class="toggle-group">
+  {%- for c in choices %}
+  <label class="toggle"><input type="checkbox" name="{{ name }}" value="{{ c }}"
+    {%- if selected and c in selected %} checked{% endif %}><span>{{ c | choice_label }}</span></label>
+  {%- endfor %}
+</div>
+{%- endmacro %}
+
 {# `required` maps a config path to WHY it is required — a step passes the
    fields it will refuse to save without, so the form says so on arrival
    instead of after a rejected submit. Defaulted, so the settings pages call
@@ -82,13 +94,15 @@
   {% endcall %}
 {% else %}
   {# chips and multi_choice are groups of controls: the label names the
-     group (a <span>), not one control. #}
+     group, not one control — a <span> for chips, a <legend> (fieldset) for
+     the toggle pills of multi_choice. #}
   {% set single = spec.kind not in ('multi_choice', 'chips') %}
   {% set meta = ('default ' ~ spec.default)
        if spec.default is not none and spec.kind not in ('chips', 'multi_choice', 'read_only')
        else none %}
   {% call ui.field(label=spec.label, control_id=cid if single else none, hint=hint,
-                   meta=meta, required=why, error=err, path=spec.path) %}
+                   meta=meta, required=why, error=err, path=spec.path,
+                   group=(spec.kind == 'multi_choice')) %}
     {% if spec.kind == 'choice' %}
       <select id="{{ cid }}" name="{{ spec.path }}"{{ aria }}>
         {% if spec.optional %}<option value="">(unset)</option>{% endif %}
@@ -97,12 +111,7 @@
         {% endfor %}
       </select>
     {% elif spec.kind == 'multi_choice' %}
-      <div class="checks">
-      {% for c in spec.choices %}
-        <label class="check"><input type="checkbox" name="{{ spec.path }}" value="{{ c }}"
-          {% if value and c in value %}checked{% endif %}> {{ c }}</label>
-      {% endfor %}
-      </div>
+      {{ toggles(spec.path, spec.choices, value) }}
     {% elif spec.kind == 'chips' %}
       {{ chips(spec.path, value or []) }}
     {% elif spec.kind == 'int' %}

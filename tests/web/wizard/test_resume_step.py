@@ -92,3 +92,18 @@ def test_the_form_shows_every_interview_question(tmp_path, monkeypatch):
     r = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/resume")
     for f in INTERVIEW_FIELDS:
         assert f'name="{f.name}"' in r.text
+
+
+def test_interview_multi_questions_are_toggle_groups(tmp_path, monkeypatch):
+    html = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/resume").text
+    assert '<legend class="field-label">What level?</legend>' in html
+    assert 'name="seniority" value="staff"><span>Staff</span>' in html
+    assert 'value="contract_to_hire"><span>Contract to hire</span>' in html
+    assert 'class="checks"' not in html
+
+
+def test_interview_select_options_read_as_words(tmp_path, monkeypatch):
+    html = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/resume").text
+    assert '<option value="ic" >Individual contributor</option>' in html or \
+           '<option value="ic">Individual contributor</option>' in html
+    assert ">Allowed countries</option>" in html

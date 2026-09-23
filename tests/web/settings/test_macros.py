@@ -126,8 +126,12 @@ def test_a_bool_field_is_a_checkbox_label_not_a_field_label(tmp_path, monkeypatc
     assert f'id="f-{spec.path}"' in html and "checked" in html
 
 
-def test_a_multi_choice_field_labels_the_group_not_a_control(tmp_path, monkeypatch):
+def test_a_multi_choice_field_is_a_toggle_group_named_by_a_legend(tmp_path, monkeypatch):
     spec = field_map()["filters.seniority_allow"]
     html = str(_macros(tmp_path, monkeypatch).field(spec, ["mid"], {}))
-    assert '<span class="field-label">' in html
+    assert '<fieldset class="field' in html
+    assert '<legend class="field-label">' in html
     assert f'for="f-{spec.path}"' not in html   # there is no single control to point at
+    assert '<div class="toggle-group">' in html
+    assert '<label class="toggle"><input type="checkbox" name="filters.seniority_allow" value="mid" checked><span>Mid</span></label>' in html
+    assert 'value="senior"><span>Senior</span>' in html   # unchecked

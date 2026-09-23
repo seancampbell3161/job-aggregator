@@ -22,22 +22,18 @@
     {% for f in interview_fields %}
     {% set v = vals.get(f.name, []) %}
     {% set single = f.kind in ('choice', 'int') %}
-    {% call ui.field(label=f.label, control_id=('i-' ~ f.name) if single else none, hint=f.help) %}
+    {% call ui.field(label=f.label, control_id=('i-' ~ f.name) if single else none, hint=f.help,
+                     group=(f.kind == 'multi')) %}
       {% if f.kind == 'chips' %}
         {{ w.chips(f.name, v) }}
         {% if f.name == 'target_titles' %}{{ w.chip_sets('target_titles', title_sets) }}{% endif %}
       {% elif f.kind == 'multi' %}
-        <div class="checks">
-        {% for c in f.choices %}
-          <label class="check"><input type="checkbox" name="{{ f.name }}" value="{{ c }}"
-            {% if c in v %}checked{% endif %}> {{ c.replace('_', ' ') }}</label>
-        {% endfor %}
-        </div>
+        {{ w.toggles(f.name, f.choices, v) }}
       {% elif f.kind == 'choice' %}
         <select id="i-{{ f.name }}" name="{{ f.name }}">
           <option value="">(choose)</option>
           {% for c in f.choices %}
-          <option value="{{ c }}" {% if v and v[0] == c %}selected{% endif %}>{{ c.replace('_', ' ') }}</option>
+          <option value="{{ c }}" {% if v and v[0] == c %}selected{% endif %}>{{ c | choice_label }}</option>
           {% endfor %}
         </select>
       {% elif f.kind == 'int' %}

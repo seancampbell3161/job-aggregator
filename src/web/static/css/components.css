@@ -134,8 +134,23 @@ fieldset.card > legend { padding: 0 var(--space-2); font-weight: var(--weight-st
 .field :where(input:not([type=checkbox], [type=radio], [type=file]), select, textarea) { width: 100%; }
 .field input[type=number], .field input[type=time] { width: auto; min-width: 8rem; }
 .field.has-error :where(input, select, textarea) { border-color: var(--danger); }
-.checks { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
 .check { display: inline-flex; align-items: center; gap: var(--space-2); font-weight: var(--weight-normal); }
+
+/* A group of controls under one legend (ui.field group=True). */
+fieldset.field { min-width: 0; padding: 0; border: 0; }
+legend.field-label { width: 100%; padding: 0; }
+
+/* ---- Toggle group (w.toggles): multi-select pills over real checkboxes ---- */
+.toggle-group { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.toggle { position: relative; display: inline-flex; align-items: center; gap: var(--space-1);
+  padding: var(--space-1) var(--space-3); font-size: var(--text-sm); font-weight: var(--weight-normal);
+  color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill); cursor: pointer; user-select: none; }
+.toggle input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+.toggle:hover { border-color: var(--text-faint); }
+.toggle:has(input:checked) { color: var(--accent-text); background: var(--accent-subtle); border-color: var(--accent-border); }
+.toggle:has(input:checked)::before { content: "✓"; }
+.toggle:has(input:focus-visible) { outline: var(--focus-ring); outline-offset: 2px; }
 .chips { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); margin-bottom: var(--space-1); }
 .field .chips input { width: 12rem; }
 /* One-click variant sets beside a chips field. */
