@@ -308,14 +308,17 @@ def _empty_reason(request: Request) -> str:
     """Why the list is empty — so a newcomer is told whether to wait, widen
     the search, or loosen the filters. Falls back to "filtered", the least
     alarming message, when telemetry can't be read."""
+    from src.web.home import request_liveness, request_status_counts
     try:
-        if sum(request.app.state.repo.status_counts().values()) > 0:
+        if sum(request_status_counts(request).values()) > 0:
             return "filtered"
-        live = request.app.state.ops.liveness()
+        live = request_liveness(request)
     except Exception as exc:  # noqa: BLE001 — an empty-state hint never breaks the list
         log.warning("empty_reason_unavailable", extra={"error": str(exc)})
         return "filtered"
-    if live is not None and live.last_cycle_ms is None:
+    if live is None:        # telemetry unreadable
+        return "filtered"
+    if live.last_cycle_ms is None:
         return "no_check"
     return "none_yet"
 

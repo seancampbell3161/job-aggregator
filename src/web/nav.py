@@ -40,8 +40,9 @@ class NavLink:
 def _new_matches(request: Request) -> int | None:
     """Matches still marked new. None (no badge) on zero or on any error —
     this is on every page, and page chrome must never 500 a page."""
+    from src.web.home import request_status_counts  # lazy: home imports wizard routes
     try:
-        n = request.app.state.repo.status_counts().get("new", 0)
+        n = request_status_counts(request).get("new", 0)
     except Exception as exc:  # noqa: BLE001
         log.warning("nav_badge_unavailable", extra={"error": str(exc)})
         return None

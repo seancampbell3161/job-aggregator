@@ -34,6 +34,16 @@ def test_filtered_is_the_fallback_when_counts_fail(tmp_path, monkeypatch):
     assert r.status_code == 200 and "Nothing matches these filters" in r.text
 
 
+def test_filtered_is_the_fallback_when_telemetry_is_unreadable(tmp_path, monkeypatch):
+    """liveness() None means telemetry can't be read — fall back to the least
+    alarming message, not "nothing has matched yet"."""
+    app = make_app(tmp_path, monkeypatch)
+    monkeypatch.setattr(app.state.ops, "liveness", lambda: None)
+    html = client_for(app).get("/jobs").text
+    assert "Nothing matches these filters" in html
+    assert "Nothing has matched yet" not in html
+
+
 def test_rows_render_no_empty_state(tmp_path, monkeypatch):
     app = make_app(tmp_path, monkeypatch)
     seed_match(app, "a:1")

@@ -84,6 +84,12 @@ def test_page_titles(tmp_path, monkeypatch):
     assert "<title>Home · Job Aggregator</title>" in client_for(app).get("/home").text
 
 
+def test_wizard_title_matches_setup(tmp_path, monkeypatch):
+    """The wizard and /setup are one flow — one name for it."""
+    html = client_for(make_app(tmp_path, monkeypatch)).get("/wizard/done").text
+    assert "<title>Set up · Job Aggregator</title>" in html
+
+
 @pytest.mark.parametrize("path, header, title", [
     ("/", "Matches", "Matches"),
     ("/board", "Applications", "Applications"),

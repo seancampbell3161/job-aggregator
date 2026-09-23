@@ -1,7 +1,7 @@
 """Home: getting-started checklist, the landing rule, hide/show."""
 import re
 
-from src.web.home import HIDDEN_KEY, HomeStatus, status_line
+from src.web.home import COMPLETED_KEY, HIDDEN_KEY, HomeStatus, status_line
 from src.web.ops import Liveness
 from tests.web.shell_helpers import client_for, finish_wizard, make_app, seed_cycle, seed_match
 
@@ -32,10 +32,45 @@ def test_each_item_flips_from_its_own_data(tmp_path, monkeypatch):
     assert _done_keys(app) == {"alerts", "search", "first_check", "review"}
 
 
-def test_first_check_needs_a_successful_cycle(tmp_path, monkeypatch):
+def test_first_check_counts_a_failed_cycle(tmp_path, monkeypatch):
+    """A check that RAN counts: one persistently failing board keeps every
+    cycle ok=0, and Home's status already says Running then."""
     app = make_app(tmp_path, monkeypatch)
-    seed_cycle(app, minutes_ago=5, ok=False)
     assert "first_check" not in _done_keys(app)
+    seed_cycle(app, minutes_ago=5, ok=False)
+    assert "first_check" in _done_keys(app)
+    html = client_for(app).get("/home").text
+    assert '<li class="blocked" data-key="review">' not in html
+
+
+# Settings that satisfy every config-derived wizard step on their own: scoring
+# on and keyed, titles + an age bound + a profile, a chosen board, a sink.
+CONFIGURED = {
+    "relevance": {"enabled": True, "provider": "anthropic", "score_high": 7, "score_low": 4},
+    "filters": {"titles": ["Engineer"], "max_age_days": 7},
+    "sources": {"greenhouse": ["acme"]},
+}
+CONFIGURED_SECRETS = {"anthropic_api_key": "sk-test", **ALERTS}
+CONFIGURED_DOCS = {"resume_text": "My résumé", "profile": "What I want"}
+
+
+def test_search_is_done_without_the_wizard_preview(tmp_path, monkeypatch):
+    """An instance set up before the wizard existed (or via /setup/start +
+    Settings, or /setup/restore) has no preview marker and no skips — its
+    configuration alone completes "Set up your search"."""
+    app = make_app(tmp_path, monkeypatch, settings=CONFIGURED,
+                   secrets=CONFIGURED_SECRETS, documents=CONFIGURED_DOCS)
+    assert app.state.stores.wizard.get("preview") is None
+    assert not app.state.stores.wizard.skipped()
+    assert "search" in _done_keys(app)
+
+
+def test_search_still_needs_the_config_steps(tmp_path, monkeypatch):
+    """Ignoring the preview step does not ignore the others: skipping only
+    the preview leaves an unconfigured search undone."""
+    app = make_app(tmp_path, monkeypatch)
+    app.state.stores.wizard.skip("preview")
+    assert "search" not in _done_keys(app)
 
 
 def test_review_is_muted_until_the_first_check(tmp_path, monkeypatch):
@@ -89,6 +124,112 @@ def test_complete_checklist_says_all_set(tmp_path, monkeypatch):
     seed_cycle(app, minutes_ago=5)
     seed_match(app, "a:1", status="applied")
     assert "from now on you'll land on Matches" in client_for(app).get("/home").text
+
+
+def test_completion_is_latched(tmp_path, monkeypatch):
+    """Once every item has been done, the card's promise holds: an item going
+    undone later (here: the reviewed match disappears) doesn't bring the
+    checklist back or send the brand link to Home."""
+    app = make_app(tmp_path, monkeypatch, secrets=ALERTS)
+    finish_wizard(app)
+    seed_cycle(app, minutes_ago=5)
+    seed_match(app, "a:1", status="applied")
+    c = client_for(app)
+    c.get("/home")
+    assert app.state.stores.wizard.get(COMPLETED_KEY) is True
+    app.state.stores.seen._conn.execute("DELETE FROM seen_jobs")
+    html = c.get("/home").text
+    assert "review" not in _done_keys(app)            # items still render live
+    assert "from now on you'll land on Matches" in html
+    assert '<a class="brand" href="/">' in c.get("/board").text
+
+
+def test_incomplete_checklist_is_not_latched(tmp_path, monkeypatch):
+    app = make_app(tmp_path, monkeypatch, secrets=ALERTS)
+    client_for(app).get("/home")
+    assert app.state.stores.wizard.get(COMPLETED_KEY) is None
+
+
+def test_latch_write_failure_degrades(tmp_path, monkeypatch):
+    app = make_app(tmp_path, monkeypatch, secrets=ALERTS)
+    finish_wizard(app)
+    seed_cycle(app, minutes_ago=5)
+    seed_match(app, "a:1", status="applied")
+
+    def boom(key, value):
+        raise RuntimeError("locked")
+    monkeypatch.setattr(app.state.stores.wizard, "put", boom)
+    r = client_for(app).get("/home")
+    assert r.status_code == 200 and "from now on you'll land on Matches" in r.text
+
+
+def test_done_items_announce_done_to_screen_readers(tmp_path, monkeypatch):
+    app = make_app(tmp_path, monkeypatch, secrets=ALERTS)
+    html = client_for(app).get("/home").text
+    alerts = re.search(r'data-key="alerts">(.*?)</li>', html, re.S).group(1)
+    search = re.search(r'data-key="search">(.*?)</li>', html, re.S).group(1)
+    assert '<span class="sr-only">Done: </span>' in alerts
+    assert "sr-only" not in search
+
+
+def test_status_counts_is_read_once_per_request(tmp_path, monkeypatch):
+    """The sidebar badge, the checklist and Home's figures all need the
+    counts — one scan of seen_jobs per request, not one per caller."""
+    app = make_app(tmp_path, monkeypatch)
+    seed_cycle(app, minutes_ago=5)
+    calls = []
+    real = app.state.repo.status_counts
+
+    def counting():
+        calls.append(1)
+        return real()
+    monkeypatch.setattr(app.state.repo, "status_counts", counting)
+    c = client_for(app)
+    assert c.get("/home").status_code == 200
+    assert len(calls) == 1
+    calls.clear()
+    c.get("/home")
+    assert len(calls) == 1          # per request, not per process
+
+
+def test_getting_started_is_derived_once_per_request(tmp_path, monkeypatch):
+    """The brand link (landing_url) and Home's card share one derivation."""
+    app = make_app(tmp_path, monkeypatch)
+    calls = []
+    real = app.state.stores.wizard.skipped
+
+    def counting():
+        calls.append(1)
+        return real()
+    monkeypatch.setattr(app.state.stores.wizard, "skipped", counting)
+    assert client_for(app).get("/home").status_code == 200
+    assert len(calls) == 1
+
+
+def test_liveness_is_read_once_per_request(tmp_path, monkeypatch):
+    app = make_app(tmp_path, monkeypatch)
+    calls = []
+    real = app.state.ops.liveness
+
+    def counting():
+        calls.append(1)
+        return real()
+    monkeypatch.setattr(app.state.ops, "liveness", counting)
+    assert client_for(app).get("/home").status_code == 200
+    assert len(calls) == 1
+
+
+def test_a_failing_count_is_read_once_and_every_caller_degrades(tmp_path, monkeypatch):
+    app = make_app(tmp_path, monkeypatch, secrets=ALERTS)
+    calls = []
+
+    def boom():
+        calls.append(1)
+        raise RuntimeError("locked")
+    monkeypatch.setattr(app.state.repo, "status_counts", boom)
+    r = client_for(app).get("/home")
+    assert r.status_code == 200
+    assert len(calls) == 1
 
 
 def test_wizard_done_points_at_home(tmp_path, monkeypatch):

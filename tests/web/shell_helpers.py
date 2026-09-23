@@ -11,10 +11,13 @@ from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import WEB_TEST_SETTINGS, make_service
 
 
-def make_app(tmp_path, monkeypatch, *, secrets=None):
+def make_app(tmp_path, monkeypatch, *, secrets=None, settings=None, documents=None):
     monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
     monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
-    return create_app(service=make_service(WEB_TEST_SETTINGS, secrets=secrets))
+    return create_app(service=make_service(
+        WEB_TEST_SETTINGS if settings is None else settings,
+        documents=documents, secrets=secrets,
+    ))
 
 
 def client_for(app, **kw):

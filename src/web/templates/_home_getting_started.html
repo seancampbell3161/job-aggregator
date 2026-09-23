@@ -10,7 +10,7 @@
     {% for it in gs.items %}
     <li class="{{ 'done' if it.done else ('blocked' if it.blocked else 'todo') }}" data-key="{{ it.key }}">
       <span class="check" aria-hidden="true">{{ '✓' if it.done else '' }}</span>
-      <span class="checklist-label">{{ it.label }}</span>
+      <span class="checklist-label">{% if it.done %}<span class="sr-only">Done: </span>{% endif %}{{ it.label }}</span>
       {% if not it.done %}
         {% if it.blocked %}<span class="muted">after the first check</span>
         {% else %}<a class="btn sm" href="{{ it.href }}">{{ it.action }}</a>{% endif %}
