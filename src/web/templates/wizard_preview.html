@@ -18,9 +18,10 @@
   {% else %}
   {# No preview has finished (ok or error) yet, so /wizard would just route
      straight back here -- same loop as the companies step's Continue. Post an
-     explicit skip so Finish actually leaves the wizard. #}
+     explicit skip so Finish actually leaves the wizard. It is a skip, though
+     -- "Run the preview" above is the one primary action on this page. #}
   <form method="post" action="/wizard/preview/skip">
-    <button type="submit" class="btn primary">Finish</button>
+    <button type="submit" class="btn">Finish</button>
   </form>
   {% endif %}
 {% endcall %}

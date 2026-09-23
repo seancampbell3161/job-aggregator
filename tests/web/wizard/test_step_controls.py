@@ -97,11 +97,21 @@ def test_later_steps_go_back_one_step(tmp_path, monkeypatch):
     assert '<a class="btn ghost" href="/wizard/companies">Back</a>' in bar
 
 
-@pytest.mark.parametrize("slug,label", [("companies", "Continue"), ("preview", "Finish")])
-def test_own_skip_steps_put_their_primary_in_the_bar(tmp_path, monkeypatch, slug, label):
-    bar = _bar(_client(tmp_path, monkeypatch).get(f"/wizard/{slug}").text)
-    assert f'class="btn primary">{label}<' in bar
+@pytest.mark.parametrize("slug,label,primary", [
+    ("companies", "Continue", True),
+    ("preview", "Finish", False),
+])
+def test_own_skip_steps_put_their_primary_in_the_bar(tmp_path, monkeypatch, slug, label, primary):
+    """Preview, incomplete, is the odd one out: Finish there is really a skip
+    ("Run the preview" above is the page's one true primary action), so it
+    renders as a secondary button, not a second primary."""
+    r = _client(tmp_path, monkeypatch).get(f"/wizard/{slug}")
+    bar = _bar(r.text)
+    cls = "btn primary" if primary else "btn"
+    assert f'class="{cls}">{label}<' in bar
     assert "Skip for now" not in bar
+    if not primary:
+        assert r.text.count("btn primary") == 1
 
 
 def test_draft_again_sits_in_the_review_bar(tmp_path, monkeypatch):
