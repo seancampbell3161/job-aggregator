@@ -147,6 +147,15 @@ fieldset.card > legend { padding: 0 var(--space-2); font-weight: var(--weight-st
   .doc-edit { font-size: var(--text-lg); }
 }
 
+/* ---- Action bar (ui.action_bar) ----
+   Sticky, so Save is reachable on a long form without scrolling to the end. */
+.action-bar { position: sticky; bottom: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center;
+  gap: var(--space-2); margin-top: var(--space-6); padding: var(--space-3) 0;
+  background: var(--bg); border-top: 1px solid var(--border); }
+.action-bar-end { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-left: auto; }
+/* A step whose primary is its own one-button form keeps it in the row. */
+.action-bar-end form { display: contents; }
+
 /* ---- Empty state ---- */
 .empty-state { padding: var(--space-6) var(--space-4); text-align: center;
   border: 1px dashed var(--border-strong); border-radius: var(--radius-lg); }

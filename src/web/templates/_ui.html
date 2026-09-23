@@ -80,6 +80,18 @@
 </div>
 {%- endmacro %}
 
+{# A form's closing row: Back on the left, everything else (secondary
+   actions, then the primary) on the right, pinned to the bottom of the
+   viewport while the form scrolls. #}
+{% macro action_bar(back_href=None) -%}
+<div class="action-bar">
+  {%- if back_href %}
+  <a class="btn ghost" href="{{ back_href }}">Back</a>
+  {%- endif %}
+  <div class="action-bar-end">{{ caller() }}</div>
+</div>
+{%- endmacro %}
+
 {% macro empty_state(title, body=None, icon=None, action_href=None, action_label=None) -%}
 <div class="empty-state">
   {%- if icon %}
