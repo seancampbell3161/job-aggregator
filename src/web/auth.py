@@ -118,13 +118,14 @@ def register_auth_routes(app: FastAPI) -> None:
             return has_password
         if not has_password:
             return RedirectResponse("/welcome", status_code=303)
-        return _page(request, "login.html", next=safe_next(next_path), claimed=claimed == "1")
+        return _page(request, "login.html",
+                     next=safe_next(next_path) if next_path else "", claimed=claimed == "1")
 
     @app.post("/login", response_class=HTMLResponse)
     def sign_in(request: Request, password: str = Form(""),
                 next_path: str = Form("", alias="next")):
         auth, throttle = request.app.state.auth, request.app.state.login_throttle
-        target = safe_next(next_path)
+        shown_next = safe_next(next_path) if next_path else ""
         has_password = _has_password_or_fail_closed(request)
         if isinstance(has_password, PlainTextResponse):
             return has_password
@@ -132,14 +133,16 @@ def register_auth_routes(app: FastAPI) -> None:
             return RedirectResponse("/welcome", status_code=303)
         wait = throttle.check()
         if wait is not None:
-            return _throttled(request, "login.html", wait, next=target)
+            return _throttled(request, "login.html", wait, next=shown_next)
         token = auth.login(password)
         if token is None:
             failures = throttle.record_failure()
             log.warning("login_failed", extra={"consecutive_failures": failures})
-            return _page(request, "login.html", status_code=401, next=target,
+            return _page(request, "login.html", status_code=401, next=shown_next,
                          error="Incorrect password.")
         throttle.record_success()
+        from src.web.home import landing_url  # lazy: home imports wizard routes
+        target = shown_next or landing_url(request)
         return _signed_in_redirect(request, target, token)
 
     @app.post("/logout")

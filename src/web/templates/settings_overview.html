@@ -2,12 +2,7 @@
 {% import "_ui.html" as ui %}
 {% block section %}
 {% if warnings %}
-<ul class="readiness">
-  {% for w in warnings %}
-  <li class="warn"><span>{{ w.message }}</span>
-    <a class="btn sm" href="/settings/{{ w.fix_slug }}">Fix</a></li>
-  {% endfor %}
-</ul>
+{{ ui.readiness_list(warnings) }}
 {% else %}
 {{ ui.alert('ok', 'Everything needed to deliver alerts is configured.') }}
 {% endif %}

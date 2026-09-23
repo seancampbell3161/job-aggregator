@@ -404,3 +404,39 @@ def test_list_score_rows_returns_scored_rows_with_company(tmp_path):
     assert by_id["adzuna:5001"]["company"] == "Acme Robotics"
     assert by_id["greenhouse:acme:9"]["notified"] is False
     assert by_id["adzuna:5001"]["first_seen"]  # ISO timestamp present
+
+
+def _claim(store, job_id, title="Engineer"):
+    from datetime import datetime, timezone
+    from src.models import NormalizedPosting
+    store.claim_for_notify(
+        job_id, score=7, rationale="r", gaps=[],
+        posting=NormalizedPosting(
+            job_id=job_id, title=title, company="Acme", location_text="Remote",
+            location_tags=frozenset(), seniority="senior", stack=frozenset(),
+            comp_min=None, comp_max=None, apply_url=f"https://a/{job_id}",
+            description="", posted_at=datetime(2026, 9, 1, tzinfo=timezone.utc), source="acme",
+        ),
+    )
+
+
+def test_match_status_counts_groups_live_notified_matches():
+    from src.sqlite_db import connect
+    from src.state_sqlite import SqliteSeenJobsStore
+    conn = connect(":memory:")
+    store = SqliteSeenJobsStore(conn)
+    _claim(store, "a:1")
+    _claim(store, "a:2")
+    _claim(store, "a:3")
+    store.set_status("a:3", "applied")
+    store.mark_seen("a:4", notified=False)           # suppressed: not a match
+    store.mark_seen("a:5", notified=True)            # no title: not a match
+    _claim(store, "a:6")
+    conn.execute("UPDATE seen_jobs SET ttl = 1 WHERE job_id = 'a:6'")  # expired
+    assert store.match_status_counts() == {"new": 2, "applied": 1}
+
+
+def test_match_status_counts_empty_store():
+    from src.sqlite_db import connect
+    from src.state_sqlite import SqliteSeenJobsStore
+    assert SqliteSeenJobsStore(connect(":memory:")).match_status_counts() == {}

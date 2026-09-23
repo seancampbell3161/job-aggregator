@@ -13,6 +13,13 @@ from src.notify.ops import OpsAlert
 
 _STALE_FLOOR_MINUTES = 15
 
+
+def stale_threshold_minutes(expected_interval_minutes: int) -> int:
+    """Minutes without a cycle after which a cadence counts as stalled. The
+    one definition shared by the watchdog alerts below and Home's status line
+    (src/web/home.py), so the two can never disagree about 'stalled'."""
+    return max(3 * expected_interval_minutes, _STALE_FLOOR_MINUTES)
+
 # date.weekday(): Monday is 0, so Saturday/Sunday are 5/6.
 _WEEKEND_DAYS = (5, 6)
 
@@ -269,17 +276,14 @@ class OpsAlertEvaluator:
         if not watched:
             return []  # no baseline yet — a fresh install must not alert
 
-        def _threshold_min(interval: int) -> int:
-            return max(3 * interval, _STALE_FLOOR_MINUTES)
-
         if not any(
-            now - rows[t] <= _threshold_min(i) * 60_000 for t, i in watched.items()
+            now - rows[t] <= stale_threshold_minutes(i) * 60_000 for t, i in watched.items()
         ):
             return []  # every tier is stale → whole-pipeline problem
 
         out: list[OpsAlert] = []
         for tier, interval in sorted(watched.items()):
-            threshold = _threshold_min(interval)
+            threshold = stale_threshold_minutes(interval)
             age_min = (now - rows[tier]) // 60_000
             alert = self._gate(
                 f"tier_stopped:{tier}", (now - rows[tier]) > threshold * 60_000,
@@ -300,7 +304,7 @@ class OpsAlertEvaluator:
         Silent on an empty table — a fresh install has no liveness baseline."""
         now = now_ms if now_ms is not None else _now_ms()
         last = self._events.last_cycle_ms()
-        threshold_min = max(3 * expected_interval_minutes, _STALE_FLOOR_MINUTES)
+        threshold_min = stale_threshold_minutes(expected_interval_minutes)
         firing = last is not None and (now - last) > threshold_min * 60_000
         return self._gate(
             "pipeline_stopped", firing, now_ms=now,

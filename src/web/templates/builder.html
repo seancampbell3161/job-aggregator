@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% import "_ui.html" as ui %}
+{% block title %}Résumé templates · Job Aggregator{% endblock %}
 {% block styles %}<link rel="stylesheet" href="/static/css/pages/builder.css">{% endblock %}
 {% block content %}
-{{ ui.page_header('Résumé builder') }}
+{{ ui.page_header('Résumé templates') }}
 
 {% call ui.card('Settings') %}
   {% if saved %}{{ ui.alert('ok', 'Settings saved.') }}{% endif %}

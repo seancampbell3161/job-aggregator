@@ -1,15 +1,6 @@
 /* Shared components. A rule used on more than one page lives here; a rule
    for one page lives in pages/<page>.css. Colours come only from tokens.css. */
 
-/* ---- Site shell (replaced by the grouped sidebar in sub-project B) ---- */
-.site-header { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-2) var(--space-4);
-  padding: .625rem var(--space-4); background: var(--surface-1); border-bottom: 1px solid var(--border); }
-.brand { font-weight: 700; }
-.topnav { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); font-size: .8125rem; }
-.account { margin-left: auto; display: flex; align-items: baseline; gap: var(--space-3); font-size: .8125rem; }
-.account form { margin: 0; }
-.site-main { padding: var(--space-4); }
-
 /* ---- Page header: every page's title row ---- */
 .page-header { display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--space-3);
   margin-bottom: var(--space-4); padding-bottom: var(--space-3); border-bottom: 1px solid var(--border); }
@@ -162,3 +153,9 @@ fieldset.card > legend { padding: 0 var(--space-2); font-weight: var(--weight-st
 .empty-state-icon { font-size: 1.375rem; opacity: .6; }
 .empty-state-title { margin: var(--space-1) 0; font-weight: var(--weight-strong); }
 .empty-state-body { max-width: 26rem; margin: 0 auto var(--space-3); font-size: .8125rem; color: var(--text-muted); }
+.empty-state-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-2); }
+
+/* ---- Readiness list (Home, Settings → Overview) ---- */
+.readiness { padding: 0; list-style: none; }
+.readiness .warn { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
+  margin-bottom: .4rem; padding: .6rem .8rem; background: var(--surface-2); border-left: 3px solid var(--warning); }

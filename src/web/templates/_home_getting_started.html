@@ -1,0 +1,25 @@
+{% import "_ui.html" as ui %}
+{% if gs.hidden %}
+<form class="gs-show" method="post" action="/home/getting-started/show">
+  <button class="btn ghost sm" type="submit">Show getting started</button>
+</form>
+{% else %}
+{% call ui.card('Getting started') %}
+  {% if gs.complete %}<p>You're all set — from now on you'll land on Matches.</p>{% endif %}
+  <ol class="checklist">
+    {% for it in gs.items %}
+    <li class="{{ 'done' if it.done else ('blocked' if it.blocked else 'todo') }}" data-key="{{ it.key }}">
+      <span class="check" aria-hidden="true">{{ '✓' if it.done else '' }}</span>
+      <span class="checklist-label">{% if it.done %}<span class="sr-only">Done: </span>{% endif %}{{ it.label }}</span>
+      {% if not it.done %}
+        {% if it.blocked %}<span class="muted">after the first check</span>
+        {% else %}<a class="btn sm" href="{{ it.href }}">{{ it.action }}</a>{% endif %}
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  <form method="post" action="/home/getting-started/hide">
+    <button class="btn ghost sm" type="submit">Hide getting started</button>
+  </form>
+{% endcall %}
+{% endif %}

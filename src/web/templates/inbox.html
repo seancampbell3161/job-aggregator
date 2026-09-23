@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% import "_ui.html" as ui %}
+{% block title %}Matches · Job Aggregator{% endblock %}
 {% block styles %}<link rel="stylesheet" href="/static/css/pages/triage.css">{% endblock %}
 {% block content %}
-{{ ui.page_header('Triage') }}
+{{ ui.page_header('Matches') }}
 <form id="filters" hx-get="/jobs" hx-target="#list" hx-swap="innerHTML"
       hx-trigger="change, keyup delay:300ms from:input[name=q]" hx-include="this">
   <input type="search" name="q" placeholder="search title / company…">
@@ -43,8 +44,9 @@
    after the form exists, before htmx initializes — so the restored values are
    already in the DOM when the #list load trigger fires. The q box is
    deliberately session-only (a forgotten stale search hides the whole inbox). */
+var TRIAGE_FILTERS_KEY = "triage.filters.v1";
 (function () {
-  var KEY = "triage.filters.v1";
+  var KEY = TRIAGE_FILTERS_KEY;
   var form = document.getElementById("filters");
   document.getElementById("since").value = new Date().toISOString();
   document.getElementById("since").name = "since";
@@ -79,6 +81,11 @@
 function triageRefresh() {
   document.getElementById("since").value = new Date().toISOString();
   document.getElementById("new-badge").innerHTML = "";
+  htmx.trigger(document.body, "refreshList");
+}
+function triageResetFilters() {
+  try { localStorage.removeItem(TRIAGE_FILTERS_KEY); } catch (e) { /* private mode */ }
+  document.getElementById("filters").reset();   // back to the markup's defaults
   htmx.trigger(document.body, "refreshList");
 }
 </script>

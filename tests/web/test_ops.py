@@ -164,3 +164,45 @@ def test_provider_health_suppressed_subsection_fail_soft(provider, monkeypatch):
     assert h is not None
     assert h.suppressed == []
     assert h.ok == 1 and h.failed == 1
+
+
+def _events_conn():
+    from src.sqlite_db import connect
+    from src.state_sqlite import (
+        SqliteDiscoveredSlugsStore, SqlitePipelineEventsStore, SqliteSeenJobsStore,
+    )
+    conn = connect(":memory:")
+    return conn, SqliteDiscoveredSlugsStore(conn), SqliteSeenJobsStore(conn), SqlitePipelineEventsStore(conn)
+
+
+def _cycle(conn, ts_ms, tier="ats", ok=True):
+    conn.execute(
+        "INSERT INTO pipeline_events (ts_ms, tier, fetched, matched, notified, duration_ms, ok, failures, llm_failures) "
+        "VALUES (?, ?, 0, 0, 0, 0, ?, '[]', '[]')", (ts_ms, tier, 1 if ok else 0))
+
+
+def test_liveness_reports_last_cycle_last_ats_and_last_success():
+    from src.web.ops import Liveness, OpsProvider
+    conn, disc, seen, events = _events_conn()
+    _cycle(conn, 1_000, tier="ats", ok=True)
+    _cycle(conn, 2_000, tier="slow", ok=False)
+    ops = OpsProvider(discovered=disc, seen=seen, events=events)
+    assert ops.liveness() == Liveness(last_cycle_ms=2_000, last_ats_ms=1_000, last_success_ms=1_000)
+
+
+def test_liveness_on_an_empty_table_is_all_none():
+    from src.web.ops import Liveness, OpsProvider
+    _, disc, seen, events = _events_conn()
+    assert OpsProvider(discovered=disc, seen=seen, events=events).liveness() == Liveness(None, None, None)
+
+
+def test_liveness_is_none_without_events_or_on_error(monkeypatch):
+    from src.web.ops import OpsProvider
+    _, disc, seen, events = _events_conn()
+    assert OpsProvider(discovered=disc, seen=seen).liveness() is None
+    ops = OpsProvider(discovered=disc, seen=seen, events=events)
+
+    def boom():
+        raise RuntimeError("database is locked")
+    monkeypatch.setattr(events, "last_cycle_ms", boom)
+    assert ops.liveness() is None

@@ -96,7 +96,7 @@ def test_skipping_everything_lands_on_done(tmp_path, monkeypatch):
 def test_done_page_renders(tmp_path, monkeypatch):
     r = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/done")
     assert r.status_code == 200
-    assert "/settings/overview" in r.text
+    assert "/home" in r.text
 
 
 def test_the_step_body_is_wrapped_for_width_and_the_rail_stays_outside_it(tmp_path, monkeypatch):

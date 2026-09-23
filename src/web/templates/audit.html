@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% import "_ui.html" as ui %}
+{% block title %}Rejected postings · Job Aggregator{% endblock %}
 {% block styles %}<link rel="stylesheet" href="/static/css/pages/audit.css">{% endblock %}
 {% block content %}
-{{ ui.page_header('Rejection audit') }}
+{{ ui.page_header('Rejected postings') }}
 {% if not available %}
 {% call ui.card() %}<p class="muted">Audit trail unavailable — the rejected-postings store only exists on the local SQLite runtime.</p>{% endcall %}
 {% else %}

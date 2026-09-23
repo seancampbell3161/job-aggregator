@@ -30,7 +30,7 @@ is in **[GETTING_STARTED.md](GETTING_STARTED.md)**.
 - **Explains every rejection.** Every posting the filters drop or the scorer suppresses is written to an audit trail with the reason, browsable at `/audit` — rescue a wrongly-dropped posting or confirm the call. Optional **ops push-alerts** fire when the pipeline stalls, yields nothing for 12h, or the LLM degrades.
 - **Self-tunes (opt-in).** `scripts/tune_thresholds.py` mines your `/audit` verdicts into suggested `score_low` / title-regex changes — it never edits config, it recommends.
 - **Tracks applications end-to-end.** A kanban board with a daily closed-posting sweep + digest, an optional read-only Gmail sweep that badges rejections/receipts as suggestions, and an apply-kit page (`/kit`) of tap-to-copy form answers.
-- **Ships a local web UI.** A triage inbox, an application board, a rejection audit view, a pipeline/ops dashboard, and match analytics (see [Web UI](#web-ui)).
+- **Ships a local web UI.** Home, Matches, Applications, Rejected postings, System health, and Progress (see [Web UI](#web-ui)).
 
 ## How it works
 
@@ -107,14 +107,15 @@ several pages over the same state as the pipeline:
 > HTTPS reverse proxy in front. Do not port-forward it.
 
 
-- **Triage inbox** (`/`) — browse, search, and filter notified matches; set a status (New → Interested → Applied → Interviewing, or Dismissed) and click through to apply.
-- **Application board** (`/board`) — a kanban view of where each application stands, with a status-history timeline and a staleness badge. Maintains itself with a daily closed-posting sweep + digest, and (opt-in) Gmail-suggested status badges. **Add a job manually** for an opportunity that never came through a connector (a recruiter DM, a referral): it's stored as an ordinary match under the `manual:` source, so it appears on the board, in triage, and in every analytics section — and its description feeds tailoring and gap analysis like any other posting. Hand-added rows carry no relevance score (nothing scored them) and never expire.
-- **Rejection audit** (`/audit`) — every posting the pipeline filtered or suppressed, with the gate that dropped it; rescue a wrongly-dropped posting back into the inbox or confirm the rejection (those verdicts feed threshold self-tuning).
-- **Pipeline / ops dashboard** (`/pipeline`) — a health strip, connector health, match & score analytics, LLM-failure tally, and cycle stats & fetch failures (rolling 7 days). Each panel is fail-soft.
-- **Match analytics** (`/analytics`) — matches over time, where matches come from (by company and ATS), and your most common résumé stretch-skills.
+- **Home** (`/home`) — whether checks are running, what needs attention, and a getting-started checklist; you land here until setup is complete, then on Matches.
+- **Matches** (`/`) — browse, search, and filter notified matches; set a status (New → Interested → Applied → Interviewing, or Dismissed) and click through to apply.
+- **Applications** (`/board`) — a kanban view of where each application stands, with a status-history timeline and a staleness badge. Maintains itself with a daily closed-posting sweep + digest, and (opt-in) Gmail-suggested status badges. **Add a job manually** for an opportunity that never came through a connector (a recruiter DM, a referral): it's stored as an ordinary match under the `manual:` source, so it appears on the board, in triage, and in every analytics section — and its description feeds tailoring and gap analysis like any other posting. Hand-added rows carry no relevance score (nothing scored them) and never expire.
+- **Rejected postings** (`/audit`) — every posting the pipeline filtered or suppressed, with the gate that dropped it; rescue a wrongly-dropped posting back into the inbox or confirm the rejection (those verdicts feed threshold self-tuning).
+- **System health** (`/pipeline`) — a health strip, connector health, match & score analytics, LLM-failure tally, and cycle stats & fetch failures (rolling 7 days). Each panel is fail-soft.
+- **Progress** (`/analytics`) — matches over time, where matches come from (by company and ATS), and your most common résumé stretch-skills.
 - **Coach** (`/coach`) — on-demand LLM recommendations for improving your application response rate, grounded in your own funnel, audit trail, config, and résumé; keeps a run history.
 - **Apply kit** (`/kit`) — a tap-to-copy sheet of your recurring application answers (work authorization, links, EEO), sourced from the `kit_facts` settings document (edit it under `/settings/documents`); saving a drafted résumé scaffolds one for you if you don't already have one, with the EEO fields left blank for you to fill in.
-- **Resume builder** (`/builder`) — manage résumé template packs and rendering settings. Switch between the two built-in designs, upload your own (a Jinja2 HTML file, a zip pack with fonts, or a `.docx` converted once via the LLM and held for your review), and set bullet caps, max pages, and page size/margins. The active template drives every tailored-résumé PDF (the alert deep-links and the CLI); a finished run can be re-rendered in any template instantly, no LLM call. Template contract: [`resume/README.md`](resume/README.md).
+- **Résumé templates** (`/builder`) — manage résumé template packs and rendering settings. Switch between the two built-in designs, upload your own (a Jinja2 HTML file, a zip pack with fonts, or a `.docx` converted once via the LLM and held for your review), and set bullet caps, max pages, and page size/margins. The active template drives every tailored-résumé PDF (the alert deep-links and the CLI); a finished run can be re-rendered in any template instantly, no LLM call. Template contract: [`resume/README.md`](resume/README.md).
 - **`/settings`** — edit every setting, secret, and document from the browser;
   changes apply live to the poller and scheduler with no restart.
 
@@ -143,7 +144,7 @@ src/
   settings/           settings service: versions, documents, secrets, import/export CLI
   state.py            shared row types + item shaping for the SQLite stores
   state_sqlite.py     SQLite stores
-  web/                local UI (FastAPI + HTMX): triage, board, /audit, /pipeline ops, /analytics, /coach, /kit, /builder
+  web/                local UI (FastAPI + HTMX): Home, Matches, Applications (/board), Rejected postings (/audit), System health (/pipeline), Progress (/analytics), Coach, Apply kit (/kit), Résumé templates (/builder)
   tailor/             résumé tailoring engine + render/ (template packs → PDF via WeasyPrint) + endpoint/ (deep-link auth, loading page, run orchestration)
 scripts/
   capture_fixture.py        saves an ATS response for connector tests

@@ -1,4 +1,10 @@
 {% import "_ui.html" as ui %}
+{% if board.is_empty %}
+{% call ui.empty_state("Applications you're tracking show up here.", "Mark a match Interested or Applied on Matches, or add one you found elsewhere.") %}
+  <a class="btn sm" href="/">Go to Matches</a>
+  <a class="btn sm ghost" href="/board?add=1">Add one</a>
+{% endcall %}
+{% else %}
 <div class="board">
   {% for col in active_columns %}
   <section class="board-col">
@@ -43,6 +49,7 @@
   </section>
   {% endfor %}
 </div>
+{% endif %}
 
 <details class="board-archive">
   <summary>Archive ({{ board.archive | length }})</summary>

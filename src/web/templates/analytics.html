@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% import "_ui.html" as ui %}
+{% block title %}Progress · Job Aggregator{% endblock %}
 {% block styles %}<link rel="stylesheet" href="/static/css/pages/analytics.css">{% endblock %}
 {% block content %}
-{{ ui.page_header('Analytics') }}
+{{ ui.page_header('Progress') }}
 {% if summary is none %}
   {% call ui.card('Match analytics') %}
     <p class="muted">unavailable — could not read seen_jobs.</p>

@@ -1,0 +1,27 @@
+{# The app sidebar (nav model: src/web/nav.py). Included by base.html. #}
+{% macro nav_link(link) -%}
+<a class="nav-link{{ ' current' if link.current }}" href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}
+  {%- if link.badge %}<span class="nav-badge">{{ link.badge }}<span class="sr-only"> new</span></span>{% endif -%}
+</a>
+{%- endmacro %}
+{% set nav = nav_context(request) %}
+<nav id="sidebar" class="sidebar" aria-label="Main">
+  <div class="sidebar-top">
+    <a class="brand" href="{{ landing_url(request) }}">job-aggregator</a>
+    <button class="btn nav-toggle" type="button" aria-controls="sidebar-links" aria-expanded="false" aria-label="Menu">☰</button>
+  </div>
+  <div id="sidebar-links" class="sidebar-links">
+    {% for group in nav.groups %}
+    <div class="nav-group">
+      {% if group.label %}<p class="nav-group-label">{{ group.label }}</p>{% endif %}
+      {% for link in group.links %}{{ nav_link(link) }}{% endfor %}
+    </div>
+    {% endfor %}
+    <div class="nav-footer">
+      {% for link in nav.footer %}{{ nav_link(link) }}{% endfor %}
+      {% if request.state.session %}
+      <form method="post" action="/logout"><button type="submit" class="btn ghost sm">Sign out</button></form>
+      {% endif %}
+    </div>
+  </div>
+</nav>

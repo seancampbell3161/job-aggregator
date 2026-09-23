@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}Home · Job Aggregator{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/css/pages/home.css">{% endblock %}
+{% block content %}
+{{ ui.page_header('Home') }}
+<div class="home">
+{% include "_home_status.html" %}
+{% if warnings %}
+{% call ui.card('Needs attention') %}{{ ui.readiness_list(warnings) }}{% endcall %}
+{% endif %}
+{% include "_home_getting_started.html" %}
+</div>
+{% endblock %}

@@ -87,6 +87,8 @@ _MACRO_CLASSES = re.compile(r"""ui\.alert\(\s*'([\w-]+)'|extra_class\s*=\s*'([\w
 # Classes our CSS defines that no template or .py file names statically.
 JS_ONLY = {
     "is-busy": "added and removed by the submit handler in base.html",
+    "js-nav": "added to <html> by base.html's menu script (enables the phone collapse)",
+    "open": "toggled on #sidebar by base.html's menu script",
 }
 
 

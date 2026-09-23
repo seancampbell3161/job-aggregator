@@ -88,7 +88,7 @@ def test_preview_returns_pdf(tmp_path, monkeypatch):
 
 def test_nav_links_builder(tmp_path, monkeypatch):
     r = signed_in_client(_app(tmp_path, monkeypatch)).get("/builder")
-    assert '<a href="/builder">Builder</a>' in r.text
+    assert '<a class="nav-link current" href="/builder" aria-current="page">Résumé templates</a>' in r.text
 
 
 def test_delete_rejects_traversal_slug(tmp_path, monkeypatch):

@@ -65,7 +65,7 @@ async def test_send_both_sinks_and_click_header():
         return httpx.Response(200)
     async with httpx.AsyncClient(transport=httpx.MockTransport(h)) as client:
         ok = await send_board_digest(
-            client, "Board: 1 stale — Acme (14d applied)",
+            client, "Applications: 1 stale — Acme (14d applied)",
             ntfy_topic_url="https://ntfy.test/jobs",
             discord_webhook_url="https://discord.test/jobs",
             click_url="http://stack:8000/board",
@@ -73,7 +73,7 @@ async def test_send_both_sinks_and_click_header():
     assert ok is True
     assert [str(r.url) for r in seen] == ["https://ntfy.test/jobs", "https://discord.test/jobs"]
     ntfy = seen[0]
-    assert ntfy.headers["Title"] == "Board digest"
+    assert ntfy.headers["Title"] == "Applications digest"
     assert ntfy.headers["Click"] == "http://stack:8000/board"
     ntfy.headers["Title"].encode("latin-1")  # must not raise
 
@@ -108,7 +108,7 @@ def test_digest_suggestions_alone_trigger_message():
     result = compose_board_digest([_suggested()], stale_after_days=10, now=NOW)
     assert result is not None
     message, to_mark = result
-    assert message == "Board: 1 email suggestion pending"
+    assert message == "Applications: 1 email suggestion pending"
     assert to_mark == []
 
 

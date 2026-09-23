@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS seen_jobs (
     title       TEXT,
     data        TEXT NOT NULL
 );
+-- The sidebar's new-matches badge counts notified rows on every page
+-- (match_status_counts), and notified = 1 is a small slice of a large table.
+CREATE INDEX IF NOT EXISTS idx_seen_jobs_notified ON seen_jobs (notified) WHERE notified = 1;
 CREATE TABLE IF NOT EXISTS source_state (
     connector_name TEXT PRIMARY KEY,
     data           TEXT NOT NULL

@@ -198,7 +198,7 @@ def test_add_job_without_company_reports_back_with_values_kept(board_client):
     assert r.status_code == 400
     assert "Company and title are required." in r.text
     assert "Staff Platform Engineer" in r.text            # typed values survive
-    assert "Application board" in r.text                  # page still renders
+    assert '<h1 class="page-title">Applications</h1>' in r.text   # page still renders
     assert not [m for m in store.list_matches() if m["job_id"].startswith("manual:")]
 
 

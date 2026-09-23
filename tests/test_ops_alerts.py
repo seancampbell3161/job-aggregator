@@ -205,3 +205,32 @@ def test_config_fallback_fires_respects_cooldown_and_recovers():
     recovered = ev.evaluate_cycle(now_ms=now + 2000)
     assert [a.condition for a in recovered] == ["config_fallback"]
     assert recovered[0].recovered is True
+
+
+def test_stale_threshold_is_three_intervals_with_a_floor():
+    from src.ops_alerts import stale_threshold_minutes
+    assert stale_threshold_minutes(10) == 30
+    assert stale_threshold_minutes(30) == 90
+    assert stale_threshold_minutes(1) == 15   # floor
+    assert stale_threshold_minutes(5) == 15   # exactly the floor
+
+
+def test_evaluate_staleness_uses_the_shared_threshold(monkeypatch):
+    """Home's status line calls the same function; if the watchdog stopped
+    calling it the two could disagree about 'stalled'."""
+    import src.ops_alerts as oa
+    from src.sqlite_db import connect
+    from src.state_sqlite import SqliteOpsAlertStateStore, SqlitePipelineEventsStore
+
+    conn = connect(":memory:")
+    now = 10_000_000_000
+    conn.execute(
+        "INSERT INTO pipeline_events (ts_ms, tier, fetched, matched, notified, duration_ms, ok, failures, llm_failures) "
+        "VALUES (?, 'ats', 0, 0, 0, 0, 1, '[]', '[]')", (now - 2 * 60_000,))
+    ev = oa.OpsAlertEvaluator(
+        state=SqliteOpsAlertStateStore(conn), events=SqlitePipelineEventsStore(conn),
+        thresholds=oa.OpsThresholds(),
+    )
+    monkeypatch.setattr(oa, "stale_threshold_minutes", lambda interval: 1)
+    alert = ev.evaluate_staleness(expected_interval_minutes=30, now_ms=now)
+    assert alert is not None and not alert.recovered
