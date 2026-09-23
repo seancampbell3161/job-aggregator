@@ -51,7 +51,7 @@ def test_badge_absent_and_page_ok_when_counts_raise(tmp_path, monkeypatch):
 def test_menu_toggle_controls_the_links(tmp_path, monkeypatch):
     html = client_for(make_app(tmp_path, monkeypatch)).get("/home").text
     assert 'aria-controls="sidebar-links"' in html and 'id="sidebar-links"' in html
-    assert 'aria-expanded="false"' in html
+    assert 'aria-controls="sidebar-links" aria-expanded="false"' in html
 
 
 def test_brand_links_to_landing(tmp_path, monkeypatch):

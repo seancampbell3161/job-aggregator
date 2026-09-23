@@ -141,7 +141,9 @@
         sidebar.classList.toggle("open", open);
       }
       btn.addEventListener("click", function () { setOpen(btn.getAttribute("aria-expanded") !== "true"); });
-      document.addEventListener("keydown", function (e) { if (e.key === "Escape") { setOpen(false); } });
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape" && btn.getAttribute("aria-expanded") === "true") { setOpen(false); btn.focus(); }
+      });
       document.getElementById("sidebar-links").addEventListener("click", function (e) {
         if (e.target.closest("a")) { setOpen(false); }
       });

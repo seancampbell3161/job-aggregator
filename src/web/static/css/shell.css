@@ -34,8 +34,9 @@
 
 @media (max-width: 47.99rem) {
   .app-shell { display: block; }
-  .sidebar { z-index: 20; height: auto; padding: var(--space-2) var(--space-3);
+  .sidebar { position: static; z-index: 20; height: auto; overflow: visible; padding: var(--space-2) var(--space-3);
     border-right: 0; border-bottom: 1px solid var(--border); }
+  .js-nav .sidebar { position: sticky; top: 0; }
   .sidebar-top { padding: 0; }
   .js-nav .nav-toggle { display: inline-flex; }
   .js-nav .sidebar-links { display: none; }
