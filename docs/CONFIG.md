@@ -245,7 +245,7 @@ Deep dive: GETTING_STARTED "Board automation".
 ## audit
 
 The rejection audit trail feeding the `/audit` UI. Deep dive:
-GETTING_STARTED "Rejection audit & ops alerts".
+GETTING_STARTED "Rejected postings & ops alerts".
 
 | Flag | Default | What it does / when to touch it |
 |---|---|---|

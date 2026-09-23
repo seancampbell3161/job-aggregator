@@ -19,7 +19,7 @@ Everything persists in `./data`; $0 infra; LLM cost depends on provider.
 2. [Configure it](#2-configure-it) — the guided setup wizard, or filters, your profile, LLM provider, companies, notifications by hand (full flag reference: [docs/CONFIG.md](docs/CONFIG.md))
 3. [Run it with Docker Compose](#run-it-with-docker-compose) — upgrading, pinning, the headless image, local Ollama, running from a clone
 4. [Operating it](#operating-it)
-5. [Optional extras](#optional-extras) — mobile tailored-résumé loop, rejection audit & ops alerts, board automation, headless connector, auto board discovery, aggregator candidate mining, apply kit
+5. [Optional extras](#optional-extras) — mobile tailored-résumé loop, rejected postings & ops alerts, board automation, headless connector, auto board discovery, aggregator candidate mining, apply kit
 
 ---
 
@@ -425,8 +425,8 @@ cp resume.md.example resume.md        # then fill in your real experience
 
 The whole pipeline runs 24/7 on one machine with SQLite state, as three
 services: **poller** (scrape → filter → score → notify on the `schedules.*`
-cadence, plus a daily prune), **web** (triage inbox, board, analytics, ops,
-and `/tailor`), and **ollama** (opt-in local LLM, only started with
+cadence, plus a daily prune), **web** (Matches, Applications, Progress,
+System health, and `/tailor`), and **ollama** (opt-in local LLM, only started with
 `--profile ollama`). [§1](#1-start-it) already got you running; this section
 covers upgrading, pinning, the headless image, and running from a clone.
 
@@ -580,7 +580,7 @@ fine).
    ```
 
 5. **On the phone, make sure Tailscale is toggled on**, then tap the **"Tailor
-   resume"** action on an alert. The same address also serves the whole triage UI
+   resume"** action on an alert. The same address also serves the whole web UI
    — `http://<hostname>.<tailnet>.ts.net:8000` works from anywhere your phone has
    signal, replacing the LAN-only access from [§1](#1-start-it).
    The tailor link and its PDF download need no sign-in — the signed link is
@@ -622,7 +622,7 @@ posting that would have been sent. Set the key that matches
 print the score histogram (see
 [§2c](#2c-pick-your-llm-provider--and-re-calibrate-after-switching)).
 
-### Rejection audit & ops alerts (optional)
+### Rejected postings & ops alerts (optional)
 
 The local runtime records every filter-gate rejection; browse them at
 `/audit` (filter by gate, rescue wrongly-rejected postings into the inbox,

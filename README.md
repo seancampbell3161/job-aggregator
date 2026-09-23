@@ -30,7 +30,7 @@ is in **[GETTING_STARTED.md](GETTING_STARTED.md)**.
 - **Explains every rejection.** Every posting the filters drop or the scorer suppresses is written to an audit trail with the reason, browsable at `/audit` — rescue a wrongly-dropped posting or confirm the call. Optional **ops push-alerts** fire when the pipeline stalls, yields nothing for 12h, or the LLM degrades.
 - **Self-tunes (opt-in).** `scripts/tune_thresholds.py` mines your `/audit` verdicts into suggested `score_low` / title-regex changes — it never edits config, it recommends.
 - **Tracks applications end-to-end.** A kanban board with a daily closed-posting sweep + digest, an optional read-only Gmail sweep that badges rejections/receipts as suggestions, and an apply-kit page (`/kit`) of tap-to-copy form answers.
-- **Ships a local web UI.** A triage inbox, an application board, a rejection audit view, a pipeline/ops dashboard, and match analytics (see [Web UI](#web-ui)).
+- **Ships a local web UI.** Home, Matches, Applications, Rejected postings, System health, and Progress (see [Web UI](#web-ui)).
 
 ## How it works
 
@@ -144,7 +144,7 @@ src/
   settings/           settings service: versions, documents, secrets, import/export CLI
   state.py            shared row types + item shaping for the SQLite stores
   state_sqlite.py     SQLite stores
-  web/                local UI (FastAPI + HTMX): triage, board, /audit, /pipeline ops, /analytics, /coach, /kit, /builder
+  web/                local UI (FastAPI + HTMX): Home, Matches, Applications (/board), Rejected postings (/audit), System health (/pipeline), Progress (/analytics), Coach, Apply kit (/kit), Résumé templates (/builder)
   tailor/             résumé tailoring engine + render/ (template packs → PDF via WeasyPrint) + endpoint/ (deep-link auth, loading page, run orchestration)
 scripts/
   capture_fixture.py        saves an ATS response for connector tests
