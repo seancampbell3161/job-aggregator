@@ -304,6 +304,22 @@ def _ctx(request: Request, **extra) -> dict:
     return {**config_ctx(request), **extra}
 
 
+def _empty_reason(request: Request) -> str:
+    """Why the list is empty — so a newcomer is told whether to wait, widen
+    the search, or loosen the filters. Falls back to "filtered", the least
+    alarming message, when telemetry can't be read."""
+    try:
+        if sum(request.app.state.repo.status_counts().values()) > 0:
+            return "filtered"
+        live = request.app.state.ops.liveness()
+    except Exception as exc:  # noqa: BLE001 — an empty-state hint never breaks the list
+        log.warning("empty_reason_unavailable", extra={"error": str(exc)})
+        return "filtered"
+    if live is not None and live.last_cycle_ms is None:
+        return "no_check"
+    return "none_yet"
+
+
 def _render_list(
     request: Request,
     *,
@@ -345,6 +361,8 @@ def _render_list(
         _ctx(
             request, matches=window, page=page, total_pages=total_pages,
             total=total, page_start=start, page_size=size,
+            empty_reason=_empty_reason(request) if not window else None,
+            ats_minutes=request.state.snapshot.cfg.schedules.ats_minutes,
         ),
     )
 

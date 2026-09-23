@@ -32,7 +32,18 @@
   {{ ui.status_pill(m.status_css, m.status | capitalize) }}
 </div>
 {% else %}
-{{ ui.empty_state('No matches.') }}
+{% if empty_reason == 'no_check' %}
+{{ ui.empty_state("Your first check hasn't finished.", "Matches appear here once it does — usually within about " ~ ats_minutes ~ " minutes.", action_href='/home', action_label='Go to Home') }}
+{% elif empty_reason == 'none_yet' %}
+{% call ui.empty_state('Nothing has matched yet.', 'Checks run every ' ~ ats_minutes ~ ' minutes.') %}
+  <a class="btn sm" href="/settings/filters">Widen your job titles</a>
+  <a class="btn sm ghost" href="/audit">See what was filtered out</a>
+{% endcall %}
+{% else %}
+{% call ui.empty_state('Nothing matches these filters.') %}
+  <button class="btn sm" type="button" onclick="triageResetFilters()">Reset filters</button>
+{% endcall %}
+{% endif %}
 {% endfor %}
 {% if total_pages > 1 %}
 <div class="pager">

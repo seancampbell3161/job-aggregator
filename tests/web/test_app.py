@@ -119,7 +119,9 @@ def test_jobs_list_search(client):
 def test_jobs_list_empty_state(client):
     r = client.get("/jobs", params={"min_score": 10})  # nothing scores that high
     assert r.status_code == 200
-    assert "No matches." in r.text
+    # matches exist (Stripe/Ramp/TalentBridge) but the min_score floor hides
+    # them all, so this is the "filtered" empty state, not "nothing yet".
+    assert "Nothing matches these filters." in r.text
 
 
 def test_jobs_list_blank_min_score_is_no_filter(client):
