@@ -4,8 +4,9 @@
    works — one new value per save.
 
    Enhanced, each value becomes a chip (a hidden input with the field's
-   name) and a single entry box takes new ones: Enter or comma adds, a
-   pasted list splits, Backspace on an empty entry removes the last chip.
+   name) and a single entry box takes new ones: Enter adds; a pasted list
+   splits on new lines; commas are kept — company names like "Acme, Inc."
+   contain them. Backspace on an empty entry removes the last chip.
 
    The entry KEEPS the field's name. forms.decode() reads a chips path that
    is absent from the post as "not on this page — leave it alone", and one
@@ -70,7 +71,7 @@
 
   function commitEntry(box) {
     var entry = box.querySelector(".chip-entry");
-    if (entry.value.trim()) { addValues(box, entry.value.split(/[,\n]/)); }
+    if (entry.value.trim()) { addValues(box, [entry.value]); }
     entry.value = "";
   }
 
@@ -122,7 +123,8 @@
     announce(box, "");   // the initial fill is not news
 
     entry.addEventListener("keydown", function (e) {
-      if (e.key === "Enter" || e.key === ",") {
+      if (e.isComposing || e.keyCode === 229) { return; }
+      if (e.key === "Enter") {
         e.preventDefault();   // Enter here adds a chip; it never submits the form
         commitEntry(box);
       } else if (e.key === "Backspace" && entry.value === "") {
@@ -132,9 +134,9 @@
     });
     entry.addEventListener("paste", function (e) {
       var text = (e.clipboardData || window.clipboardData).getData("text");
-      if (!/[,\n]/.test(text)) { return; }
+      if (!/\r?\n/.test(text)) { return; }
       e.preventDefault();
-      addValues(box, text.split(/[,\n]/));
+      addValues(box, text.split(/\r?\n/));
     });
   }
 
