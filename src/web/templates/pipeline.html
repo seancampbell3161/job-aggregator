@@ -1,10 +1,11 @@
 {% extends "base.html" %}
 {% import "_ui.html" as ui %}
+{% block title %}System health · Job Aggregator{% endblock %}
 {% block styles %}
 <link rel="stylesheet" href="/static/css/pages/ops.css">
 {% endblock %}
 {% block content %}
-{{ ui.page_header('Pipeline') }}
+{{ ui.page_header('System health') }}
 <div class="strip">
   <div class="stat"><span class="muted">last cycle</span><br><span id="last-cycle" class="v muted">…</span></div>
   {% if health is not none %}

@@ -87,7 +87,7 @@ def compose_board_digest(
         n = len(pending)
         parts.append(f"{n} email suggestion{'s' if n != 1 else ''} pending")
 
-    message = "Board: " + " · ".join(parts)
+    message = "Applications: " + " · ".join(parts)
     return message, [c["job_id"] for c in newly_closed]
 
 
@@ -101,7 +101,7 @@ async def send_board_digest(
     if ntfy_topic_url:
         try:
             headers = {
-                "Title": "Board digest".encode("ascii", "replace").decode("ascii"),
+                "Title": "Applications digest".encode("ascii", "replace").decode("ascii"),
                 "Priority": "default",
                 "Tags": "clipboard",
             }

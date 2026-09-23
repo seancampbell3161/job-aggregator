@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% import "_ui.html" as ui %}
+{% block title %}Applications · Job Aggregator{% endblock %}
 {% block styles %}<link rel="stylesheet" href="/static/css/pages/board.css">{% endblock %}
 {% block content %}
-{{ ui.page_header('Application board') }}
+{{ ui.page_header('Applications') }}
 {% if board.error %}{{ ui.alert('warn', 'Board data is temporarily unavailable.') }}{% endif %}
 
 {# Hand-entered opportunities (recruiter DM, referral, word of mouth). Plain
@@ -42,8 +43,8 @@
       <textarea name="description" rows="4"
                 placeholder="Paste the description so tailoring and gap analysis have something to work with.">{{ add_form.get('description', '') }}</textarea></label>
     <div class="add-actions">
-      <button class="btn primary" type="submit">Add to board</button>
-      <span class="muted">Tracked in analytics like any other match — no relevance score, since nothing scored it.</span>
+      <button class="btn primary" type="submit">Add to Applications</button>
+      <span class="muted">Tracked in Progress like any other match — no relevance score, since nothing scored it.</span>
     </div>
   </form>
 </details>

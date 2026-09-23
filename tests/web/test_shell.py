@@ -82,3 +82,29 @@ def test_setup_page_has_minimal_shell_without_leave_link(tmp_path, monkeypatch):
 def test_page_titles(tmp_path, monkeypatch):
     app = make_app(tmp_path, monkeypatch)
     assert "<title>Home · Job Aggregator</title>" in client_for(app).get("/home").text
+
+
+@pytest.mark.parametrize("path, header, title", [
+    ("/", "Matches", "Matches"),
+    ("/board", "Applications", "Applications"),
+    ("/kit", "Apply kit", "Apply kit"),
+    ("/builder", "Résumé templates", "Résumé templates"),
+    ("/analytics", "Progress", "Progress"),
+    ("/pipeline", "System health", "System health"),
+    ("/audit", "Rejected postings", "Rejected postings"),
+    ("/settings/overview", "Settings", "Settings"),
+    ("/account/password", "Change password", "Account"),
+])
+def test_page_header_and_title(tmp_path, monkeypatch, path, header, title):
+    html = client_for(make_app(tmp_path, monkeypatch)).get(path).text
+    assert f'<h1 class="page-title">{header}</h1>' in html
+    assert f"<title>{title} · Job Aggregator</title>" in html
+
+
+def test_old_names_gone_from_page_text(tmp_path, monkeypatch):
+    c = client_for(make_app(tmp_path, monkeypatch))
+    for path in ("/", "/board", "/builder", "/analytics", "/pipeline", "/audit"):
+        html = c.get(path).text
+        for old in (">Triage<", "Application board", "Résumé builder", "Rejection audit",
+                    'page-title">Pipeline<', 'page-title">Analytics<'):
+            assert old not in html, (path, old)
