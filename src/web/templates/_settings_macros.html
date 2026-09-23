@@ -18,13 +18,13 @@
     {% for v in values %}<input type="text" name="{{ path }}" value="{{ v }}">{% endfor %}
     <input type="text" name="{{ path }}" value="" placeholder="add one…">
   </div>
-  <button type="button" class="btn sm" onclick="addChip(this)">+ add another</button>
 {% endmacro %}
 
 {# One-click variant sets for a chips field. Adds only; never removes what is
    already in the box, and skips values already there. Résumé-derived titles
    need no button here — the draft already prefills them into the box itself
-   (see review_prefill). #}
+   (see review_prefill). The click itself is handled by static/js/chips.js,
+   which delegates on the .chip-set class. #}
 {% macro chip_sets(path, sets) %}
 <div class="chip-sets">
   <span class="muted">Add a set:</span>
