@@ -134,10 +134,44 @@ fieldset.card > legend { padding: 0 var(--space-2); font-weight: var(--weight-st
 .field :where(input:not([type=checkbox], [type=radio], [type=file]), select, textarea) { width: 100%; }
 .field input[type=number], .field input[type=time] { width: auto; min-width: 8rem; }
 .field.has-error :where(input, select, textarea) { border-color: var(--danger); }
-.checks { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
 .check { display: inline-flex; align-items: center; gap: var(--space-2); font-weight: var(--weight-normal); }
+
+/* A group of controls under one legend (ui.field group=True). */
+fieldset.field { min-width: 0; padding: 0; border: 0; }
+legend.field-label { width: 100%; padding: 0; }
+
+/* ---- Toggle group (w.toggles): multi-select pills over real checkboxes ---- */
+.toggle-group { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.toggle { position: relative; display: inline-flex; align-items: center; gap: var(--space-1);
+  padding: var(--space-1) var(--space-3); font-size: var(--text-sm); font-weight: var(--weight-normal);
+  color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill); cursor: pointer; user-select: none; }
+.toggle input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+.toggle:hover { border-color: var(--text-faint); }
+.toggle:has(input:checked) { color: var(--accent-text); background: var(--accent-subtle); border-color: var(--accent-border); }
+.toggle:has(input:checked)::before { content: "✓"; }
+.toggle:has(input:focus-visible) { outline: var(--focus-ring); outline-offset: 2px; }
 .chips { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); margin-bottom: var(--space-1); }
 .field .chips input { width: 12rem; }
+/* Chip input — static/js/chips.js turns a .chips box into .chips.chip-input. */
+.chip-input { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); padding: var(--space-1);
+  background: var(--surface-inset); border: 1px solid var(--border-strong); border-radius: var(--radius); }
+.chip-input:focus-within { border-color: var(--accent); }
+.chip-list { display: flex; flex-wrap: wrap; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+.chip { display: inline-flex; align-items: center; gap: 2px; padding: 2px 2px 2px var(--space-2);
+  font-size: var(--text-sm); background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-pill); }
+.chip-remove { padding: 0 var(--space-1); font: inherit; line-height: 1.2; color: var(--text-muted);
+  background: none; border: 0; border-radius: var(--radius-pill); cursor: pointer; }
+.chip-remove:hover { color: var(--text); background: var(--surface-1); }
+/* Scoped off .chip-input itself, not .field: a chips box outside a .field
+   wrapper (e.g. the résumé-content draft's Skills fieldset) still needs its
+   entry unstyled by base.css's input chrome. Two classes on the box beat
+   `.field .chips input`'s one-class-plus-element-type without depending on
+   the ancestor. */
+.chips.chip-input .chip-entry { flex: 1 1 8rem; width: auto; min-width: 8rem; padding: var(--space-1);
+  background: transparent; border: 0; }
+.chip-input .chip-entry:focus-visible { outline: none; }   /* the box shows focus via :focus-within */
+.chip-hint { flex-basis: 100%; padding: 0 var(--space-1); font-size: var(--text-xs); color: var(--text-faint); }
 /* One-click variant sets beside a chips field. */
 .chip-sets { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: var(--space-2) 0 var(--space-1); }
 .chip-sets .muted { font-size: .8125rem; }
@@ -146,6 +180,15 @@ fieldset.card > legend { padding: 0 var(--space-2); font-weight: var(--weight-st
 @media (max-width: 40rem) {
   .doc-edit { font-size: var(--text-lg); }
 }
+
+/* ---- Action bar (ui.action_bar) ----
+   Sticky, so Save is reachable on a long form without scrolling to the end. */
+.action-bar { position: sticky; bottom: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center;
+  gap: var(--space-2); margin-top: var(--space-6); padding: var(--space-3) 0;
+  background: var(--bg); border-top: 1px solid var(--border); }
+.action-bar-end { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-left: auto; }
+/* A step whose primary is its own one-button form keeps it in the row. */
+.action-bar-end form { display: contents; }
 
 /* ---- Empty state ---- */
 .empty-state { padding: var(--space-6) var(--space-4); text-align: center;

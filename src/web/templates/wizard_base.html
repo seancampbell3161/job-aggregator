@@ -5,15 +5,40 @@
 {% block title %}Set up · Job Aggregator{% endblock %}
 {% block styles %}<link rel="stylesheet" href="/static/css/pages/wizard.css">{% endblock %}
 {% block content %}
-<nav class="wizard-rail">
-  <ol>
-    {% for s in steps %}
-    <li class="{{ 'current' if s.current else ('done' if s.done else '') }}{{ ' skipped' if s.skipped else '' }}"{% if s.current %} aria-current="step"{% endif %}>
-      {{ s.step.title }}{% if s.skipped %} <span class="muted">(skipped)</span>{% endif %}
-    </li>
-    {% endfor %}
-  </ol>
+{% macro rail_list(steps) -%}
+<ol class="rail-steps">
+  {%- for s in steps %}
+  <li class="rail-step {{ 'viewed' if s.current else ('done' if s.done else ('skipped' if s.skipped else 'todo')) }}"
+      {%- if s.current %} aria-current="step"{% endif %}>
+    <span class="rail-marker" aria-hidden="true">{{ '✓' if (s.done and not s.current) else ('–' if (s.skipped and not s.current) else s.index) }}</span>
+    <span class="rail-text">
+      {%- if s.link %}
+      <a class="rail-title" href="/wizard/{{ s.step.slug }}">{{ s.step.title }}</a>
+      {%- else %}
+      <span class="rail-title">{{ s.step.title }}</span>
+      {%- endif %}
+      {%- if s.summary %}
+      <span class="rail-summary">{{ s.summary }}</span>
+      {%- endif %}
+    </span>
+  </li>
+  {%- endfor %}
+</ol>
+{%- endmacro %}
+{% set progress = ('Step ' ~ step_number ~ ' of ' ~ step_count) if step_number else 'All steps finished' %}
+<div class="wizard">
+<nav class="wizard-rail" aria-label="Setup steps">
+  <p class="rail-progress">{{ progress }}</p>
+  {{ rail_list(steps) }}
 </nav>
+{# Phone width: wizard.css hides the rail above and shows this instead —
+   one line until opened. A second copy rather than one list restyled,
+   because a closed <details> can't be forced open by CSS alone; only one
+   copy is ever displayed, so only one is in the accessibility tree. #}
+<details class="wizard-rail-compact">
+  <summary>{{ progress }}{% if step %} · {{ step.title }}{% endif %}</summary>
+  <nav aria-label="Setup steps">{{ rail_list(steps) }}</nav>
+</details>
 <div class="wizard-body">
 {% if step %}
 {{ ui.page_header(step.title, step.blurb) }}
@@ -21,7 +46,7 @@
 {% for msg in form_errors %}{{ ui.alert('bad', msg) }}{% endfor %}
 {% block step %}{% endblock %}
 {# The skip form carries no button of its own: each step puts a
-   button[form="wizard-skip"] in its own actions row, so the primary action
+   button[form="wizard-skip"] in its own action bar, so the primary action
    and the skip sit on one line instead of stacking as two block forms.
    Steps whose primary button already posts to this endpoint (companies,
    preview, when incomplete) set own_skip and render nothing here — two
@@ -30,5 +55,6 @@
 <form id="wizard-skip" method="post" action="/wizard/{{ step.slug }}/skip" hidden></form>
 {% endif %}
 </div>{# .wizard-body #}
-{# addChip() lives in base.html — shared with settings_base.html. #}
+</div>{# .wizard #}
+{# static/js/chips.js enhances chip fields — shared with settings_base.html. #}
 {% endblock %}

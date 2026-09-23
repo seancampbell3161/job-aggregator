@@ -1,4 +1,5 @@
 {% extends "wizard_base.html" %}
+{% import "_ui.html" as ui %}
 {% block step %}
 {% if always_on %}
 <p class="muted">Already polling without any company added:
@@ -30,16 +31,18 @@
 
 <p><a href="/settings/companies">Full companies page</a> — structured boards
   (Workday, Oracle Cloud and the rest), removal, and health.</p>
-{% if step_done %}
-<p><a class="btn primary" href="/wizard">Continue</a></p>
-{% else %}
-{# A board was neither added here nor already configured, so this step is
-   still incomplete: /wizard would just route straight back to this same
-   page (next_step() re-picks the first incomplete, unskipped step). Post an
-   explicit skip instead of linking to /wizard, so Continue actually
-   advances rather than silently re-serving itself. #}
-<form method="post" action="/wizard/companies/skip">
-  <button type="submit" class="btn primary">Continue</button>
-</form>
-{% endif %}
+{% call ui.action_bar(back_href=prev_href) %}
+  {% if step_done %}
+  <a class="btn primary" href="/wizard">Continue</a>
+  {% else %}
+  {# A board was neither added here nor already configured, so this step is
+     still incomplete: /wizard would just route straight back to this same
+     page (next_step() re-picks the first incomplete, unskipped step). Post an
+     explicit skip instead of linking to /wizard, so Continue actually
+     advances rather than silently re-serving itself. #}
+  <form method="post" action="/wizard/companies/skip">
+    <button type="submit" class="btn primary">Continue</button>
+  </form>
+  {% endif %}
+{% endcall %}
 {% endblock %}

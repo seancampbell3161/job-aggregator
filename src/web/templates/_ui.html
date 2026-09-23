@@ -52,10 +52,13 @@
    → error. `required`: None = optional; "" = required, no reason given;
    text = required, and why. The caller renders the control itself and, when
    `error` is set, should give it aria-invalid="true" and
-   aria-describedby="<control_id>-error". #}
-{% macro field(label=None, control_id=None, hint=None, meta=None, required=None, error=None, path=None) -%}
-{%- set tag = 'label' if control_id else 'span' -%}
-<div class="field{% if error %} has-error{% endif %}"
+   aria-describedby="<control_id>-error". `group=True` renders a `<fieldset>`
+   named by a `<legend>` — for a set of controls (toggle groups) rather than
+   one. #}
+{% macro field(label=None, control_id=None, hint=None, meta=None, required=None, error=None, path=None, group=False) -%}
+{%- set wrap = 'fieldset' if group else 'div' -%}
+{%- set tag = 'legend' if group else ('label' if control_id else 'span') -%}
+<{{ wrap }} class="field{% if error %} has-error{% endif %}"
      {%- if path %} data-path="{{ path }}"{% endif %}>
 {%- if label %}
 <{{ tag }} class="field-label"{% if control_id %} for="{{ control_id }}"{% endif %}>{{ label }}
@@ -77,6 +80,18 @@
 {%- if error %}
 <p class="field-error"{% if control_id %} id="{{ control_id }}-error"{% endif %}>{{ error }}</p>
 {%- endif %}
+</{{ wrap }}>
+{%- endmacro %}
+
+{# A form's closing row: Back on the left, everything else (secondary
+   actions, then the primary) on the right, pinned to the bottom of the
+   viewport while the form scrolls. #}
+{% macro action_bar(back_href=None) -%}
+<div class="action-bar">
+  {%- if back_href %}
+  <a class="btn ghost" href="{{ back_href }}">Back</a>
+  {%- endif %}
+  <div class="action-bar-end">{{ caller() }}</div>
 </div>
 {%- endmacro %}
 

@@ -65,9 +65,12 @@ def test_the_progress_rail_lists_every_step(tmp_path, monkeypatch):
 
 def test_exactly_one_step_is_announced_as_current(tmp_path, monkeypatch):
     """A screen-reader user tabbing through the rail needs to hear which step
-    they're on; aria-current="step" is how that's announced."""
-    r = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/llm")
-    assert r.text.count('aria-current="step"') == 1
+    they're on; aria-current="step" is how that's announced. The phone-width
+    <details> repeats the list, but CSS shows only one copy at a time."""
+    html = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/llm").text
+    start = html.index('<nav class="wizard-rail"')
+    rail = html[start:html.index("</nav>", start)]
+    assert rail.count('aria-current="step"') == 1
 
 
 def test_unknown_step_is_404(tmp_path, monkeypatch):

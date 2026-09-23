@@ -33,10 +33,10 @@
             hx-include="closest form" hx-target="#probe-llm">Test scoring</button>
   </p>
   <div id="probe-llm"></div>
-  <div class="actions">
+  {% call ui.action_bar(back_href=prev_href) %}
+    <button type="submit" form="wizard-skip" class="btn ghost">Skip for now</button>
     <button type="submit" class="btn primary">Save and continue</button>
-    <button type="submit" form="wizard-skip" class="btn ghost">Skip this step</button>
-  </div>
+  {% endcall %}
 </form>
 <script>
 // A recipe fills the form and opens its own instructions. It writes nothing to

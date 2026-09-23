@@ -77,7 +77,7 @@ DYNAMIC_PREFIXES = ("s-", "st-", "pl-", "sev-")
 UNSTYLED_HOOKS = {
     "htmx-indicator": "shown/hidden by htmx's own injected stylesheet",
     "recipe-btn": "wizard_llm.html script binds its click handler by class",
-    "chip-set": "base.html click delegation finds variant-set buttons by class",
+    "chip-set": "static/js/chips.js click delegation finds variant-set buttons by class",
 }
 
 # Classes that reach the page as macro arguments rather than in a class=""
@@ -89,6 +89,12 @@ JS_ONLY = {
     "is-busy": "added and removed by the submit handler in base.html",
     "js-nav": "added to <html> by base.html's menu script (enables the phone collapse)",
     "open": "toggled on #sidebar by base.html's menu script",
+    "chip-input": "added to .chips by static/js/chips.js when it enhances the box",
+    "chip-list": "built by static/js/chips.js",
+    "chip": "built by static/js/chips.js, one per value",
+    "chip-remove": "built by static/js/chips.js, the × on each chip",
+    "chip-entry": "built by static/js/chips.js, the text box new chips are typed into",
+    "chip-hint": "built by static/js/chips.js, the 'Press Enter to add' note",
 }
 
 

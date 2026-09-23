@@ -198,3 +198,39 @@ def test_readiness_list(ui):
     html = str(ui.readiness_list([Warning("no_titles", "Add a title.", "filters")]))
     assert '<li class="warn"><span>Add a title.</span>' in html
     assert '<a class="btn sm" href="/settings/filters">Fix</a>' in html
+
+
+# ---- action_bar ----
+
+def test_action_bar_with_back(ui):
+    html = str(ui.action_bar(back_href="/wizard/llm", caller=body))
+    assert html.startswith('<div class="action-bar">')
+    assert '<a class="btn ghost" href="/wizard/llm">Back</a>' in html
+    assert '<div class="action-bar-end"><p id="body">body</p></div>' in html
+    assert html.index("Back") < html.index("action-bar-end")
+
+
+def test_action_bar_without_back(ui):
+    html = str(ui.action_bar(caller=body))
+    assert "Back" not in html and "<a " not in html
+    assert '<div class="action-bar-end"><p id="body">body</p></div>' in html
+
+
+def test_action_bar_escapes_back_href(ui):
+    html = str(ui.action_bar(back_href='/x"><script>', caller=body))
+    assert "<script>" not in html
+
+
+# ---- field group ----
+
+def test_field_group_is_a_fieldset_with_a_legend(ui):
+    html = str(ui.field(label="What level?", hint="Pick any", group=True, path="f.x", caller=control))
+    assert html.startswith('<fieldset class="field" data-path="f.x">')
+    assert '<legend class="field-label">What level?</legend>' in html
+    assert html.endswith("</fieldset>")
+
+
+def test_field_without_group_is_unchanged(ui):
+    html = str(ui.field(label="Name", control_id="c", caller=control))
+    assert html.startswith('<div class="field">')
+    assert '<label class="field-label" for="c">Name</label>' in html
