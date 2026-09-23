@@ -1,0 +1,42 @@
+/* Triage (/): filter bar, list + detail panes, bulk bar, pager. */
+#filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-3); }
+#filters input[type=search] { flex: 1; min-width: 10rem; }
+#filters label { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); }
+#filters .score-min { width: 4em; }
+.wp-filter { display: inline-flex; align-items: center; gap: var(--space-2); padding-left: var(--space-3);
+  border-left: 1px solid var(--border); font-size: var(--text-sm); color: var(--text-muted); }
+/* "N new" badge on the Refresh button, fed by the /jobs/new-count poller. */
+.new-badge { margin-left: 6px; padding: 1px 7px; border-radius: var(--radius-pill);
+  background: var(--accent); color: var(--text-on-accent); font-size: var(--text-xs); }
+
+.panes { display: flex; align-items: flex-start; gap: var(--space-3); }
+#list { flex: 0 0 42%; overflow: hidden; background: var(--surface-1);
+  border: 1px solid var(--border); border-radius: var(--radius-lg); }
+#detail { flex: 1; min-height: 240px; padding: var(--space-4); background: var(--surface-1);
+  border: 1px solid var(--border); border-radius: var(--radius-lg); }
+#list .empty-state { border: 0; }
+.list-note { margin: 0; padding: var(--space-3); }
+
+.row { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.row:hover { background: var(--row-hover); }
+.row b { font-weight: var(--weight-strong); }
+.row-main { flex: 1; min-width: 0; }
+.row-check { flex: none; margin: 0; cursor: pointer; }
+
+/* Bulk triage: tick rows and apply one status to many at once (header of #list). */
+.bulk-bar { display: flex; align-items: center; gap: var(--space-2); padding: 7px 11px;
+  border-bottom: 1px solid var(--border); background: var(--surface-2); font-size: var(--text-sm); }
+.bulk-bar .bulk-all { display: flex; align-items: center; gap: var(--space-1); white-space: nowrap; }
+.bulk-bar #bulk-count { min-width: 62px; }
+.bulk-bar .bulk-status { margin-left: auto; padding-top: 2px; padding-bottom: 2px; font-size: var(--text-sm); }
+/* Pager (footer of #list) */
+.pager { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  padding: var(--space-2) 11px; border-top: 1px solid var(--border); font-size: var(--text-sm); }
+
+.detail-head { display: flex; align-items: center; gap: 10px; }
+.detail-title { font-size: .9375rem; }
+.detail-section { margin-top: var(--space-3); }
+.gap { display: inline-block; margin: 2px; padding: 1px 7px; border: 1px solid var(--danger-border);
+  border-radius: var(--radius-sm); background: var(--danger-subtle); color: var(--danger-text); font-size: var(--text-xs); }
+.status-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: var(--space-4); }
+.status-buttons .apply { margin-left: auto; }
