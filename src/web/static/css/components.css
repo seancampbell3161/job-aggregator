@@ -163,7 +163,12 @@ legend.field-label { width: 100%; padding: 0; }
 .chip-remove { padding: 0 var(--space-1); font: inherit; line-height: 1.2; color: var(--text-muted);
   background: none; border: 0; border-radius: var(--radius-pill); cursor: pointer; }
 .chip-remove:hover { color: var(--text); background: var(--surface-1); }
-.field .chip-input .chip-entry { flex: 1 1 8rem; width: auto; min-width: 8rem; padding: var(--space-1);
+/* Scoped off .chip-input itself, not .field: a chips box outside a .field
+   wrapper (e.g. the résumé-content draft's Skills fieldset) still needs its
+   entry unstyled by base.css's input chrome. Two classes on the box beat
+   `.field .chips input`'s one-class-plus-element-type without depending on
+   the ancestor. */
+.chips.chip-input .chip-entry { flex: 1 1 8rem; width: auto; min-width: 8rem; padding: var(--space-1);
   background: transparent; border: 0; }
 .chip-input .chip-entry:focus-visible { outline: none; }   /* the box shows focus via :focus-within */
 .chip-hint { flex-basis: 100%; padding: 0 var(--space-1); font-size: var(--text-xs); color: var(--text-faint); }

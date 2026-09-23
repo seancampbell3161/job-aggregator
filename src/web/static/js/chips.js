@@ -103,8 +103,15 @@
 
     // Name the entry after the field's own label (ui.field renders a
     // <span class="field-label"> for chips — a group, not one control).
+    // Some chips boxes aren't wrapped in a .field at all (e.g. the
+    // résumé-content draft's Skills fieldset) — fall back to the nearest
+    // plain <fieldset>'s <legend> so the entry is still named.
     var field = box.closest(".field");
     var label = field && field.querySelector(".field-label");
+    if (!label) {
+      var fieldset = box.closest("fieldset");
+      label = fieldset && fieldset.querySelector("legend");
+    }
     if (label) {
       if (!label.id) { label.id = id + "-label"; }
       entry.setAttribute("aria-labelledby", label.id);
