@@ -48,17 +48,16 @@ PROBE_TIMEOUT = 20.0
 _JSONLD_UNSUPPORTED_FAMILIES = frozenset({"icims", "successfactors", "talentbrew"})
 
 
-def _discovery_only(stores, configured: set[str]) -> int:
-    """How many slugs discovery has found and validated that are not already
-    one of the boards this instance polls directly — a nudge toward
-    /pipeline, not a listing (Task 7 owns configured boards only)."""
+def discovery_only_count(stores, configured: set[str]) -> int | None:
+    """How many validated discovery slugs are not already configured boards;
+    None when the store can't be read."""
     try:
         return sum(
             1 for r in stores.discovered.list_healthy() if r.connector_name not in configured
         )
     except Exception as exc:  # noqa: BLE001 — telemetry never breaks a settings page
         log.warning("discovery_only_count_unavailable", extra={"error": str(exc)})
-        return 0
+        return None
 
 
 def _grouped(entries: list[BoardEntry]) -> list[tuple[str, list[BoardEntry]]]:
@@ -208,7 +207,7 @@ def register_companies_routes(app: FastAPI) -> None:
             request, section_by_slug("companies"),
             groups=_grouped(entries),
             status=board_status(stores),
-            discovery_only=_discovery_only(stores, configured),
+            discovery_only=discovery_only_count(stores, configured) or 0,
             board_families=BOARD_FAMILIES,
             headless_ok=headless_available(),
             saved=saved,

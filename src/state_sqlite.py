@@ -143,6 +143,18 @@ class SqliteSeenJobsStore:
         items = self._live_rows("notified = 1 AND title IS NOT NULL")
         return [match_view(it) for it in items]
 
+    def match_status_counts(self) -> dict[str, int]:
+        """Live notified matches per status (absent status counts as "new") —
+        the row set list_matches() returns, counted in SQL rather than loaded,
+        because the sidebar badge reads it on every page."""
+        rows = self._conn.execute(
+            "SELECT COALESCE(json_extract(data, '$.status'), 'new') AS status, COUNT(*) AS n "
+            "FROM seen_jobs WHERE (ttl IS NULL OR ttl >= ?) AND notified = 1 AND title IS NOT NULL "
+            "GROUP BY 1",
+            (_now_ts(),),
+        ).fetchall()
+        return {r["status"]: int(r["n"]) for r in rows}
+
     def list_suppressed(self) -> list[dict]:
         items = self._live_rows("notified = 0 AND score IS NOT NULL")
         return [

@@ -38,6 +38,14 @@ _DIM_AFTER_MS = 24 * 3_600_000  # tallies older than this render dimmed
 
 
 @dataclass(frozen=True)
+class Liveness:
+    """Is the poller alive? Epoch-ms timestamps, None when never recorded."""
+    last_cycle_ms: int | None     # newest cycle of any tier, ok or not
+    last_ats_ms: int | None       # newest ats-tier cycle (the cadence Home predicts)
+    last_success_ms: int | None   # newest fully-ok cycle
+
+
+@dataclass(frozen=True)
 class HealthSummary:
     # Field names mirror the validation_status values SqliteDiscoveredSlugsStore
     # writes: "ok" | "failed" | "quarantined" | "no_match" (see src/state.py).
@@ -293,6 +301,23 @@ class OpsProvider:
             return self._events.last_success_ms()
         except Exception as exc:  # noqa: BLE001 — header stat degrades, page survives
             log.warning("ops_last_success_unavailable", extra={"error": str(exc)})
+            return None
+
+    def liveness(self) -> Liveness | None:
+        """For Home's status line. None when telemetry is not wired or can't
+        be read — distinct from Liveness(None, None, None), which means the
+        poller has simply never recorded a cycle yet."""
+        if self._events is None:
+            return None
+        try:
+            tiers = {r["tier"]: r["ts_ms"] for r in self._events.last_cycle_per_tier()}
+            return Liveness(
+                last_cycle_ms=self._events.last_cycle_ms(),
+                last_ats_ms=tiers.get("ats"),
+                last_success_ms=self._events.last_success_ms(),
+            )
+        except Exception as exc:  # noqa: BLE001 — Home degrades, page survives
+            log.warning("ops_liveness_unavailable", extra={"error": str(exc)})
             return None
 
 

@@ -224,6 +224,10 @@ class TriageRepo:
         matches = [_from_row(r) for r in self._store.list_matches()]
         return filter_sort_search(matches, **filters)
 
+    def status_counts(self) -> dict[str, int]:
+        """Matches per status, counted by the store (no row load)."""
+        return self._store.match_status_counts()
+
     def get(self, job_id: str) -> TriageMatch | None:
         row = self._store.get_match(job_id)
         return _from_row(row) if row is not None else None

@@ -295,3 +295,10 @@ def test_closed_label_from_posting_closed_at():
         rationale=None, gaps=[], first_seen="", status="applied", history=[],
     )
     assert m2.closed_label() == ""
+
+
+def test_status_counts_delegates_to_the_store():
+    class Store:
+        def match_status_counts(self):
+            return {"new": 3}
+    assert TriageRepo(Store()).status_counts() == {"new": 3}

@@ -44,7 +44,7 @@ def test_the_page_survives_a_health_store_failure(tmp_path, monkeypatch):
 
 
 def test_the_page_survives_a_discovered_store_failure(tmp_path, monkeypatch):
-    """_discovery_only's own fail-soft path (companies.py), distinct from
+    """discovery_only_count's own fail-soft path (companies.py), distinct from
     board_status's — a locked discovered_slugs table must not 500 the whole
     page, it should just mean no discovery-only nudge this time."""
     app = _app(tmp_path, monkeypatch)
@@ -98,3 +98,14 @@ def test_manual_add_is_quiet_when_the_image_has_a_browser(tmp_path, monkeypatch)
     monkeypatch.setattr("src.web.settings.companies.headless_available", lambda: True)
     r = signed_in_client(_app(tmp_path, monkeypatch)).get("/settings/companies")
     assert "-headless" not in r.text
+
+
+def test_discovery_only_count_is_none_on_store_error():
+    from src.web.settings.companies import discovery_only_count
+
+    class Stores:
+        class discovered:
+            @staticmethod
+            def list_healthy():
+                raise RuntimeError("locked")
+    assert discovery_only_count(Stores, set()) is None
