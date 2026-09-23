@@ -1,5 +1,5 @@
 /* Settings (/settings/*): section sidebar, rows lists, companies table,
-   readiness list, history. */
+   history. */
 .settings { display: grid; grid-template-columns: 12rem 1fr; gap: var(--space-6); }
 .settings-nav { display: flex; flex-direction: column; gap: 2px; }
 .settings-nav a { padding: .35rem .6rem; border-radius: var(--radius-sm); }
@@ -32,9 +32,6 @@
 .manual-add > summary { width: max-content; color: var(--accent); }
 .manual-add-list { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); padding: 0; list-style: none; }
 
-.readiness { padding: 0; list-style: none; }
-.readiness .warn { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
-  margin-bottom: .4rem; padding: .6rem .8rem; background: var(--surface-2); border-left: 3px solid var(--warning); }
 .doc-picker { margin-bottom: var(--space-3); }
 .group-list { padding: 0; list-style: none; }
 .group-list li { padding: var(--space-2) 0; border-bottom: 1px solid var(--border); }

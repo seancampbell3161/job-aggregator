@@ -183,3 +183,12 @@ def test_empty_state_full(ui):
 def test_empty_state_needs_both_href_and_label_for_an_action(ui):
     assert "<a " not in str(ui.empty_state("x", action_href="/p"))
     assert "<a " not in str(ui.empty_state("x", action_label="Go"))
+
+
+# ---- readiness_list ----
+
+def test_readiness_list(ui):
+    from src.web.settings.readiness import Warning
+    html = str(ui.readiness_list([Warning("no_titles", "Add a title.", "filters")]))
+    assert '<li class="warn"><span>Add a title.</span>' in html
+    assert '<a class="btn sm" href="/settings/filters">Fix</a>' in html

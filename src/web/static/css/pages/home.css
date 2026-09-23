@@ -13,3 +13,10 @@
 .checklist li.todo .checklist-label { font-weight: var(--weight-strong); }
 .checklist-label { flex: 1; }
 .gs-show { margin: 0; }
+/* min-height keeps the card from jumping height every 60s as hx-swap
+   replaces a one-line "waiting" headline with a two-line "running" one. */
+.home-status { min-height: 6.5rem; }
+.home-headline { margin: 0 0 var(--space-3); }
+.home-figures { display: flex; flex-wrap: wrap; gap: var(--space-6); margin: 0; }
+.home-figures dt { font-size: var(--text-xs); color: var(--text-muted); }
+.home-figures dd { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-strong); }

@@ -1,0 +1,16 @@
+<section id="home-status" class="card home-status" hx-get="/home/status" hx-trigger="every 60s" hx-swap="outerHTML">
+  <h2 class="card-title">Status</h2>
+  {% if status.state == 'running' %}
+  <p class="home-headline"><span class="ok">● Running</span> — last checked {{ status.last_ago }} · next check {{ status.next_eta }}.</p>
+  {% elif status.state == 'waiting' %}
+  <p class="home-headline"><span class="muted">○ Waiting for the first check</span> — checks start within about {{ status.interval_minutes }} minutes of setup.</p>
+  {% elif status.state == 'stalled' %}
+  <p class="home-headline"><span class="warn">● Stalled</span> — the last check was {{ status.last_ago }}; one is expected every {{ status.interval_minutes }} min. <a href="/pipeline">Open System health</a></p>
+  {% else %}
+  <p class="home-headline"><span class="muted">Status unavailable.</span> <a href="/pipeline">Open System health</a></p>
+  {% endif %}
+  <dl class="home-figures">
+    <div><dt>Boards watched</dt><dd>{{ figures.boards if figures.boards is not none else '—' }}{% if figures.feeds %} <span class="muted">plus {{ figures.feeds }} job feed{{ 's' if figures.feeds != 1 }}</span>{% endif %}</dd></div>
+    <div><dt>New matches</dt><dd>{% if figures.new_matches is not none %}<a href="/">{{ figures.new_matches }}</a>{% else %}—{% endif %}</dd></div>
+  </dl>
+</section>

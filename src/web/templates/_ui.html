@@ -94,3 +94,14 @@
   {%- endif %}
 </div>
 {%- endmacro %}
+
+{# readiness.check() warnings, each with a Fix link. Shared by Home and
+   Settings → Overview so both show identical text. #}
+{% macro readiness_list(warnings) -%}
+<ul class="readiness">
+  {%- for w in warnings %}
+  <li class="warn"><span>{{ w.message }}</span>
+    <a class="btn sm" href="/settings/{{ w.fix_slug }}">Fix</a></li>
+  {%- endfor %}
+</ul>
+{%- endmacro %}
