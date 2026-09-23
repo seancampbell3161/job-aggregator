@@ -33,7 +33,7 @@ from src.web.wizard.ntfy_topic import suggest_topic, topic_qr_svg
 from src.web.wizard.presets import LLM_PRESETS, preset_for_provider
 from src.web.wizard.title_sets import TITLE_SETS
 from src.web.wizard.steps import (
-    build_context, next_step, step_by_slug, step_states,
+    WIZARD_STEPS, build_context, next_step, step_by_slug, step_states,
 )
 
 # Template per step slug. A step with no bespoke page would 500 on render, so
@@ -103,11 +103,18 @@ def current_context(request: Request):
 
 def wizard_ctx(request: Request, step, *, paths: tuple[str, ...] = (),
                secrets: tuple[str, ...] = (), **extra) -> dict:
+    viewed = step.slug if step else None
     states = step_states(current_context(request), request.app.state.stores.wizard.skipped(),
-                          viewed=step.slug if step else None)
+                          viewed=viewed)
+    slugs = [s.slug for s in WIZARD_STEPS]
+    position = slugs.index(viewed) if viewed else None
     ctx = {
         "step": step,
         "steps": states,
+        # Rail header and the action bar's Back link. None on /wizard/done.
+        "step_number": position + 1 if position is not None else None,
+        "step_count": len(WIZARD_STEPS),
+        "prev_href": f"/wizard/{slugs[position - 1]}" if position else None,
         # Whether THIS render's own step is done, for a step page's own
         # Continue/Finish control: linking straight to /wizard only advances
         # when the step is actually complete (next_step() would otherwise
