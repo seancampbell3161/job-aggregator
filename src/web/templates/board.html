@@ -9,7 +9,7 @@
    form post + 303 redirect, so no htmx and no JS: after a successful add the
    browser re-GETs /board with an empty, collapsed form. Reopens itself when a
    validation message needs showing. #}
-<details class="add-job"{% if add_error %} open{% endif %}>
+<details class="add-job"{% if add_error or add_open %} open{% endif %}>
   <summary>+ Add a job manually</summary>
   <form class="add-job-form card" method="post" action="/board/add">
     {% if add_error %}{{ ui.alert('bad', add_error) }}{% endif %}

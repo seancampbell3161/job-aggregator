@@ -23,6 +23,12 @@ class Board:
     archive: list[TriageMatch]
     error: bool = False
 
+    @property
+    def is_empty(self) -> bool:
+        """No card in any active column. A read error is not "empty" — the
+        page says the data is unavailable instead."""
+        return not self.error and not any(self.columns.values())
+
 
 class BoardProvider:
     """Buckets pursued applications into kanban columns + an archive from a single
@@ -84,6 +90,7 @@ def _board_ctx(request: Request, **extra) -> dict:
         # from the submitted body when validation sends the user back.
         "add_error": "",
         "add_form": {},
+        "add_open": False,
         **extra,
     }
 
@@ -92,8 +99,9 @@ def register_board_routes(app: FastAPI) -> None:
     @app.get("/board", response_class=HTMLResponse)
     def board(request: Request):
         b = request.app.state.board.board()
+        add = request.query_params.get("add") == "1"
         return request.app.state.templates.TemplateResponse(
-            request, "board.html", _board_ctx(request, board=b)
+            request, "board.html", _board_ctx(request, board=b, add_open=add)
         )
 
     @app.post("/board/add")
