@@ -1,0 +1,96 @@
+{# Shared UI components. Pages build from these instead of hand-writing the
+   markup, so every page stays consistent with the rest (spec:
+   docs/superpowers/specs/2026-09-23-ui-foundation-design.md). Styles live in
+   static/css/components.css. Import with {% import "_ui.html" as ui %} in
+   every template that uses them. Whitespace control is deliberate:
+   tests/web/test_ui_macros.py pins the exact markup. #}
+
+{% macro page_header(title, subtitle=None) -%}
+<div class="page-header">
+  <div class="page-header-text">
+    <h1 class="page-title">{{ title }}</h1>
+    {%- if subtitle %}
+    <p class="page-subtitle">{{ subtitle }}</p>
+    {%- endif %}
+  </div>
+  {%- if caller is defined %}
+  <div class="page-actions">{{ caller() }}</div>
+  {%- endif %}
+</div>
+{%- endmacro %}
+
+{% macro card(title=None, subtitle=None, extra_class=None, tag="section") -%}
+<{{ tag }} class="card{% if extra_class %} {{ extra_class }}{% endif %}">
+  {%- if title %}
+  <h2 class="card-title">{{ title }}</h2>
+  {%- endif %}
+  {%- if subtitle %}
+  <p class="card-subtitle">{{ subtitle }}</p>
+  {%- endif %}
+  {%- if caller is defined %}
+  {{ caller() }}
+  {%- endif %}
+</{{ tag }}>
+{%- endmacro %}
+
+{# kind: ok | warn | bad | info. A failure interrupts (role=alert); anything
+   else is announced politely (role=status). #}
+{% macro alert(kind, message=None, extra_class=None) -%}
+<div class="alert {{ kind }}{% if extra_class %} {{ extra_class }}{% endif %}" role="{{ 'alert' if kind == 'bad' else 'status' }}">
+  {%- if message is not none %}{{ message }}{% endif %}
+  {%- if caller is defined %}{{ caller() }}{% endif -%}
+</div>
+{%- endmacro %}
+
+{# status must already be a validated token (e.g. TriageMatch.status_css) —
+   it becomes a class name. #}
+{% macro status_pill(status, label=None) -%}
+<span class="pill st-{{ status }}">{{ label if label else status | capitalize }}</span>
+{%- endmacro %}
+
+{# One form field: label row → hint → control (the call body) → required-why
+   → error. `required`: None = optional; "" = required, no reason given;
+   text = required, and why. The caller renders the control itself and, when
+   `error` is set, should give it aria-invalid="true" and
+   aria-describedby="<control_id>-error". #}
+{% macro field(label=None, control_id=None, hint=None, meta=None, required=None, error=None, path=None) -%}
+{%- set tag = 'label' if control_id else 'span' -%}
+<div class="field{% if error %} has-error{% endif %}{% if required is not none %} is-required{% endif %}"
+     {%- if path %} data-path="{{ path }}"{% endif %}>
+{%- if label %}
+<{{ tag }} class="field-label"{% if control_id %} for="{{ control_id }}"{% endif %}>{{ label }}
+  {%- if required is not none %}<span class="field-req">required</span>
+  {%- elif meta %}<span class="field-meta">{{ meta }}</span>{% endif -%}
+</{{ tag }}>
+{%- elif required is not none %}
+<span class="field-req">required</span>
+{%- endif %}
+{%- if hint %}
+<div class="field-hint">{{ hint }}</div>
+{%- endif %}
+{%- if caller is defined %}
+{{ caller() }}
+{%- endif %}
+{%- if required %}
+<p class="field-required-why">{{ required }}</p>
+{%- endif %}
+{%- if error %}
+<p class="field-error"{% if control_id %} id="{{ control_id }}-error"{% endif %}>{{ error }}</p>
+{%- endif %}
+</div>
+{%- endmacro %}
+
+{% macro empty_state(title, body=None, icon=None, action_href=None, action_label=None) -%}
+<div class="empty-state">
+  {%- if icon %}
+  <div class="empty-state-icon" aria-hidden="true">{{ icon }}</div>
+  {%- endif %}
+  <p class="empty-state-title">{{ title }}</p>
+  {%- if body %}
+  <p class="empty-state-body">{{ body }}</p>
+  {%- endif %}
+  {%- if action_href and action_label %}
+  <a class="btn sm" href="{{ action_href }}">{{ action_label }}</a>
+  {%- endif %}
+</div>
+{%- endmacro %}
