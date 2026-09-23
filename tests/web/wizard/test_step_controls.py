@@ -7,6 +7,7 @@ import pytest
 from src.web.app import create_app
 from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import WEB_TEST_SETTINGS, make_service
+from tests.web.wizard.test_review_step import DRAFT, _drafts
 
 
 def _client(tmp_path, monkeypatch, documents=None):
@@ -21,6 +22,15 @@ def _skip_controls(html: str, slug: str) -> int:
     both a <form action=...> of its own and a button borrowing one by id."""
     forms = re.findall(r'<form[^>]*action="/wizard/%s/skip"' % slug, html)
     return len(forms)
+
+
+def _bar(html: str) -> str:
+    """The action bar's markup. No <div> appears inside .action-bar-end, so
+    the first </div> after it closes the end group and the next the bar."""
+    m = re.search(r'<div class="action-bar">.*?<div class="action-bar-end">.*?</div>\s*</div>',
+                  html, re.S)
+    assert m, "no action bar on the page"
+    return m.group(0)
 
 
 @pytest.mark.parametrize("slug", ["companies", "preview"])
@@ -44,7 +54,10 @@ def test_a_saving_step_keeps_its_skip_alongside_the_primary_action(
     r = _client(tmp_path, monkeypatch).get(f"/wizard/{slug}")
     assert r.status_code == 200
     assert 'form="wizard-skip"' in r.text, "skip button should join the actions row"
-    assert '<div class="actions">' in r.text
+    bar = _bar(r.text)
+    assert 'form="wizard-skip"' in bar, "skip button should sit in the action bar"
+    assert ">Skip for now<" in bar
+    assert ">Save and continue<" in bar
 
 
 def test_the_companies_step_says_what_is_already_being_polled(tmp_path, monkeypatch):
@@ -72,3 +85,31 @@ def test_the_companies_step_does_not_claim_feeds_that_are_switched_off(
     app = create_app(service=make_service(off))
     r = signed_in_client(app).get("/wizard/companies")
     assert "remotive" not in r.text.lower()
+
+
+def test_first_step_has_no_back(tmp_path, monkeypatch):
+    bar = _bar(_client(tmp_path, monkeypatch).get("/wizard/llm").text)
+    assert ">Back<" not in bar
+
+
+def test_later_steps_go_back_one_step(tmp_path, monkeypatch):
+    bar = _bar(_client(tmp_path, monkeypatch).get("/wizard/notifications").text)
+    assert '<a class="btn ghost" href="/wizard/companies">Back</a>' in bar
+
+
+@pytest.mark.parametrize("slug,label", [("companies", "Continue"), ("preview", "Finish")])
+def test_own_skip_steps_put_their_primary_in_the_bar(tmp_path, monkeypatch, slug, label):
+    bar = _bar(_client(tmp_path, monkeypatch).get(f"/wizard/{slug}").text)
+    assert f'class="btn primary">{label}<' in bar
+    assert "Skip for now" not in bar
+
+
+def test_draft_again_sits_in_the_review_bar(tmp_path, monkeypatch):
+    _drafts(monkeypatch, DRAFT)
+    bar = _bar(_client(tmp_path, monkeypatch).get("/wizard/review").text)
+    assert "Draft again" in bar
+    assert bar.index("Draft again") < bar.index("Skip for now") < bar.index("Save and continue")
+
+
+def test_done_page_has_no_action_bar(tmp_path, monkeypatch):
+    assert 'class="action-bar"' not in _client(tmp_path, monkeypatch).get("/wizard/done").text

@@ -28,9 +28,9 @@
     {% endfor %}
   {% endcall %}
 
-  <div class="actions">
+  {% call ui.action_bar(back_href=prev_href) %}
+    <button type="submit" form="wizard-skip" class="btn ghost">Skip for now</button>
     <button type="submit" class="btn primary">Save and continue</button>
-    <button type="submit" form="wizard-skip" class="btn ghost">Skip this step</button>
-  </div>
+  {% endcall %}
 </form>
 {% endblock %}

@@ -1,5 +1,6 @@
 {% extends "wizard_base.html" %}
 {% import "_settings_macros.html" as w %}
+{% import "_ui.html" as ui %}
 {% block step %}
 {% set profile_value = submitted.get('profile', [''])[0] if submitted is not none
    else (saved_profile if saved_profile else (draft.profile_md if draft and draft.status == 'ok' else '')) %}
@@ -45,7 +46,7 @@
     {% endfor %}
   </section>
 
-  <div class="actions">
+  {% call ui.action_bar(back_href=prev_href) %}
     {% if not saved_profile %}
     {# Once a profile document is saved, _ensure_draft() stops drafting
        altogether (the config is the truth from then on) -- this button
@@ -57,8 +58,8 @@
     <button type="submit" formaction="/wizard/review/redraft" class="btn"
             onclick="return confirm('Discard your edits and draft again from your résumé?')">Draft again</button>
     {% endif %}
+    <button type="submit" form="wizard-skip" class="btn ghost">Skip for now</button>
     <button type="submit" class="btn primary">Save and continue</button>
-    <button type="submit" form="wizard-skip" class="btn ghost">Skip this step</button>
-  </div>
+  {% endcall %}
 </form>
 {% endblock %}

@@ -352,7 +352,7 @@ async def _ensure_draft(request: Request) -> tuple[dict | None, str | None]:
 
 # Steps whose own primary button posts straight at /wizard/<slug>/skip when
 # they are incomplete (see wizard_companies.html / wizard_preview.html): for
-# these the shared "Skip this step" form would be a second button pointing at
+# these the shared "Skip for now" form would be a second button pointing at
 # the identical URL, so the base template renders none.
 OWN_SKIP_STEPS = frozenset({"companies", "preview"})
 
