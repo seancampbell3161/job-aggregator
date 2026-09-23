@@ -1,3 +1,4 @@
+{% import "_ui.html" as ui %}
 {% if matches %}
 <div class="bulk-bar">
   <label class="bulk-all" title="select every row on this page">
@@ -11,7 +12,7 @@
     <option value="interested">Interested</option>
     <option value="applied">Applied</option>
   </select>
-  <button id="bulk-apply" class="btn tiny" type="button" disabled
+  <button id="bulk-apply" class="btn sm" type="button" disabled
           hx-post="/bulk-status" hx-include="#list, #filters"
           hx-target="#list" hx-swap="innerHTML">Apply to selected</button>
 </div>
@@ -24,21 +25,21 @@
   <input class="row-check" type="checkbox" name="ids" value="{{ m.job_id }}"
          onclick="event.stopPropagation()">
   <span class="score s-{{ m.band(score_high, score_low) }}">{{ m.score if m.score is not none else '–' }}</span>
-  <div style="flex:1">
+  <div class="row-main">
     <b>{{ m.title }}</b><br>
     <span class="muted">{{ m.company }}{% if m.location_text %} · {{ m.location_text }}{% endif %}{% if m.source == "adzuna" %} · <a href="https://www.adzuna.com" target="_blank" rel="noopener">Jobs by Adzuna</a>{% endif %}</span>
   </div>
-  <span class="status st-{{ m.status_css }}">{{ m.status | capitalize }}</span>
+  {{ ui.status_pill(m.status_css, m.status | capitalize) }}
 </div>
 {% else %}
-<p class="muted" style="padding:11px">No matches.</p>
+{{ ui.empty_state('No matches.') }}
 {% endfor %}
 {% if total_pages > 1 %}
 <div class="pager">
-  <button class="btn tiny" hx-get="/jobs?page={{ page - 1 }}" hx-include="#filters"
+  <button class="btn sm" hx-get="/jobs?page={{ page - 1 }}" hx-include="#filters"
           hx-target="#list" hx-swap="innerHTML" {{ 'disabled' if page <= 1 }}>‹ Prev</button>
   <span class="muted">{{ page_start + 1 }}–{{ page_start + matches | length }} of {{ total }} · page {{ page }}/{{ total_pages }}</span>
-  <button class="btn tiny" hx-get="/jobs?page={{ page + 1 }}" hx-include="#filters"
+  <button class="btn sm" hx-get="/jobs?page={{ page + 1 }}" hx-include="#filters"
           hx-target="#list" hx-swap="innerHTML" {{ 'disabled' if page >= total_pages }}>Next ›</button>
 </div>
 {% endif %}

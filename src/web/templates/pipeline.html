@@ -1,5 +1,10 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block styles %}
+<link rel="stylesheet" href="/static/css/pages/ops.css">
+{% endblock %}
 {% block content %}
+{{ ui.page_header('Pipeline') }}
 <div class="strip">
   <div class="stat"><span class="muted">last cycle</span><br><span id="last-cycle" class="v muted">…</span></div>
   {% if health is not none %}
@@ -19,7 +24,7 @@
 <!-- Per-tier freshness: OOB-populated by /pipeline/cycles. Glanceable so a silently
      dead tier (e.g. ats stalls while slow keeps ticking) can't hide in a table cell. -->
 <div id="tier-freshness" class="tier-strip">
-  <span class="muted" style="font-size:12px">checking tier freshness…</span>
+  <span class="muted tier-note">checking tier freshness…</span>
 </div>
 
 <div class="ops-grid">
@@ -27,7 +32,7 @@
   <div class="ops-col">
     {% include "_ops_analytics.html" %}
     <div id="cycles" hx-get="/pipeline/cycles" hx-trigger="load, every 60s" hx-swap="innerHTML">
-      <div class="panel"><h3>Cycle stats &amp; fetch failures</h3><p class="muted">Loading…</p></div>
+      {% call ui.card('Cycle stats & fetch failures') %}<p class="muted">Loading…</p>{% endcall %}
     </div>
   </div>
 </div>

@@ -1,4 +1,5 @@
 {% extends "settings_base.html" %}
+{% import "_ui.html" as ui %}
 {% block section %}
 <p class="muted">
   A backup is one zip file with everything needed to stand this instance up
@@ -19,11 +20,11 @@
 </p>
 
 {% if report %}
-<p class="ok">Restored settings version {{ report.version_id }} from:</p>
+{{ ui.alert('ok', 'Restored settings version ' ~ report.version_id ~ ' from:') }}
 <ul>
   {% for f in report.files %}<li>{{ f }}</li>{% endfor %}
 </ul>
-{% for w in report.warnings %}<p class="warn">{{ w }}</p>{% endfor %}
+{% for w in report.warnings %}{{ ui.alert('warn', w) }}{% endfor %}
 {% if report.templates_copied %}
 <p class="muted">Copied template packs: {{ report.templates_copied | join(', ') }}</p>
 {% endif %}
@@ -35,7 +36,7 @@
 <form method="post" action="/settings/backup/import" enctype="multipart/form-data">
   <p><input type="file" name="archive" accept=".zip" required></p>
   <p>
-    <label>
+    <label class="check">
       <input type="checkbox" name="force">
       Overwrite settings changed since the last import
     </label>
@@ -45,6 +46,6 @@
     taken (an added source, a seed, or a restored history version) — it's
     unchecked by default so those are never silently dropped.
   </p>
-  <button type="submit" class="btn primary">Restore from backup</button>
+  <div class="actions"><button type="submit" class="btn primary">Restore from backup</button></div>
 </form>
 {% endblock %}

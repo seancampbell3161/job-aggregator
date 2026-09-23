@@ -21,7 +21,7 @@ def test_index_lists_every_group(tmp_path, monkeypatch):
 def test_group_page_renders_typed_inputs(tmp_path, monkeypatch):
     r = signed_in_client(_app(tmp_path, monkeypatch)).get("/settings/advanced/discovery")
     assert r.status_code == 200
-    assert 'type="checkbox" name="discovery.enabled"' in r.text
+    assert 'type="checkbox" id="f-discovery.enabled" name="discovery.enabled"' in r.text
     assert 'name="discovery.yc_oss_min_team_size"' in r.text
     assert 'min="0"' in r.text
 

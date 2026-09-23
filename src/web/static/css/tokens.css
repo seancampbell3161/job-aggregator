@@ -1,0 +1,88 @@
+/* Design tokens. The ONLY stylesheet allowed to contain colour literals —
+   tests/web/test_ui_guards.py fails the build on a colour anywhere else under
+   static/css/. Names are semantic; values keep the look the app already had. */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces and text */
+  --bg: #0f1115;
+  --surface-1: #1a1d23;          /* cards, site header */
+  --surface-2: #262a31;          /* raised controls, secondary buttons */
+  --surface-inset: #14171c;      /* input wells, code */
+  --border: #2e333b;
+  --border-strong: #3a404a;      /* control outlines */
+  --text: #e6e8eb;
+  --text-muted: #9aa0a8;
+  --text-faint: #6b717a;
+  --text-on-accent: #fff;
+  --row-hover: #1f2735;
+
+  /* Accent and status. Each status has a tinted background (-subtle), an
+     outline (-border) and a readable-on-dark text tint (-text). */
+  --accent: #4b8cf7;
+  --accent-subtle: rgba(75, 140, 247, .12);
+  --accent-border: rgba(75, 140, 247, .4);
+  --accent-text: #b3cdfa;
+  --success: #10b981;
+  --success-subtle: rgba(16, 185, 129, .1);
+  --success-border: rgba(16, 185, 129, .5);
+  --success-text: #9fe3c9;
+  --warning: #f59e0b;
+  --warning-subtle: rgba(245, 158, 11, .12);
+  --warning-border: rgba(245, 158, 11, .55);
+  --warning-text: #f4c77a;
+  --danger: #ef4444;
+  --danger-subtle: rgba(239, 68, 68, .12);
+  --danger-border: rgba(239, 68, 68, .45);
+  --danger-text: #f3b0b0;
+
+  /* Application-status pills */
+  --status-new: rgba(59, 130, 246, .18);
+  --status-interested: rgba(245, 158, 11, .18);
+  --status-applied: rgba(16, 185, 129, .18);
+  --status-interviewing: rgba(139, 92, 246, .2);
+  --status-offer: rgba(16, 185, 129, .3);
+  --status-rejected: rgba(239, 68, 68, .18);
+  --status-closed: rgba(148, 163, 184, .16);   /* ghosted, dismissed */
+
+  /* Relevance-score badges */
+  --score-high: #10b981;
+  --score-mid: #3b82f6;
+  --score-low: #f59e0b;
+  --score-none: #9ca3af;
+
+  /* Analytics pipeline palette, moved here unchanged. Validated with the
+     dataviz validator on the dark surface (#1a1d23): ordinal blue ramp for
+     progression, status green/red for offer/rejected, recessive grays for
+     exits. Re-run the validator before changing any hex. */
+  --pl-pipeline: #86b6ef; --pl-interested: #5598e7; --pl-applied: #2a78d6;
+  --pl-interviewing: #1c5cab; --pl-offer: #0ca30c; --pl-rejected: #d03b3b;
+  --pl-awaiting: #59616d; --pl-ghosted: #4a515c; --pl-still_new: #4a515c;
+  --pl-dismissed: #3a3f47; --pl-withdrawn: #3a3f47; --pl-other: #59616d;
+
+  /* One-offs */
+  --qr-plate: #fff;   /* a QR code needs a light quiet zone for a phone camera to lock on */
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6' fill='%239aa0a8'/%3E%3C/svg%3E");
+
+  /* Type */
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --text-xs: .6875rem;    /* 11px */
+  --text-sm: .75rem;      /* 12px */
+  --text-base: .875rem;   /* 14px */
+  --text-lg: 1rem;        /* 16px */
+  --text-xl: 1.25rem;     /* 20px */
+  --weight-normal: 400;
+  --weight-strong: 600;
+
+  /* Spacing — a 4px scale */
+  --space-1: .25rem;  --space-2: .5rem;  --space-3: .75rem; --space-4: 1rem;
+  --space-5: 1.25rem; --space-6: 1.5rem; --space-7: 2rem;   --space-8: 2.5rem;
+
+  /* Shape */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 8px;
+  --radius-pill: 999px;
+  --focus-ring: 2px solid var(--accent);
+}

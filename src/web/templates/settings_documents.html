@@ -9,11 +9,11 @@
       <option value="{{ k }}" {% if k == kind %}selected{% endif %}>{{ k }}</option>
       {% endfor %}
     </select></label>
-  <noscript><button type="submit" class="btn small">Open</button></noscript>
+  <noscript><button type="submit" class="btn sm">Open</button></noscript>
 </form>
 <form method="post" action="/settings/documents">
   <input type="hidden" name="kind" value="{{ kind }}">
   <textarea name="body" rows="24" class="doc-edit">{{ body }}</textarea>
-  <button type="submit" class="btn primary">Save document</button>
+  <div class="actions"><button type="submit" class="btn primary">Save document</button></div>
 </form>
 {% endblock %}

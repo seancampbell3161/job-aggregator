@@ -18,7 +18,7 @@
     <td>{{ r.source }}</td>
     <td>{{ r.note or '' }}{% if r.id == in_effect %} <span class="ok">(in effect)</span>{% endif %}</td>
     <td>
-      <a class="btn small" href="/settings/history/{{ r.id }}"
+      <a class="btn sm" href="/settings/history/{{ r.id }}"
          hx-get="/settings/history/{{ r.id }}" hx-select="#history-diff"
          hx-target="#history-diff-{{ r.id }}" hx-swap="innerHTML">what changed?</a>
     </td>

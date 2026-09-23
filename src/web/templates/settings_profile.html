@@ -1,9 +1,9 @@
 {% extends "settings_base.html" %}
 {% block section %}
 <form method="post" action="/settings/profile">
-  <p class="field-help">Markdown. The scorer grades every posting against this,
+  <p class="field-hint">Markdown. The scorer grades every posting against this,
     so describe the work you want, not just the work you have done.</p>
   <textarea name="body" rows="24" class="doc-edit">{{ body }}</textarea>
-  <button type="submit" class="btn primary">Save profile</button>
+  <div class="actions"><button type="submit" class="btn primary">Save profile</button></div>
 </form>
 {% endblock %}

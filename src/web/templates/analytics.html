@@ -1,21 +1,23 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block styles %}<link rel="stylesheet" href="/static/css/pages/analytics.css">{% endblock %}
 {% block content %}
+{{ ui.page_header('Analytics') }}
 {% if summary is none %}
-  <div class="panel"><h3>Match analytics</h3>
-    <p class="muted">unavailable — could not read seen_jobs.</p></div>
+  {% call ui.card('Match analytics') %}
+    <p class="muted">unavailable — could not read seen_jobs.</p>
+  {% endcall %}
 {% else %}
 <div class="strip">
   <div class="stat"><span class="muted">matches</span><br><span class="v">{{ summary.total }}</span></div>
   <div class="stat"><span class="muted">gaps window</span><br><span class="v">{{ summary.window_days }}d</span></div>
 </div>
 
-<div class="panel">
-  <h3>Pipeline</h3>
+{% call ui.card('Pipeline') %}
   {% include "_pipeline.html" %}
-</div>
+{% endcall %}
 
-<div class="panel">
-  <h3>Matches over time</h3>
+{% call ui.card('Matches over time') %}
   {% if summary.by_week %}
     {% set wmax = summary.by_week | map(attribute='count') | max %}
     <div class="bars">
@@ -28,10 +30,9 @@
   {% else %}
     <p class="muted">No matches yet.</p>
   {% endif %}
-</div>
+{% endcall %}
 
-<div class="panel">
-  <h3>Where matches come from</h3>
+{% call ui.card('Where matches come from') %}
   {% if summary.by_company or summary.by_ats %}
   <div class="cols">
     <table>
@@ -46,10 +47,9 @@
   {% else %}
     <p class="muted">No matches yet.</p>
   {% endif %}
-</div>
+{% endcall %}
 
-<div class="panel">
-  <h3>Stretch skills <span class="muted">(last {{ summary.window_days }}d)</span></h3>
+{% call ui.card('Stretch skills', 'Last ' ~ summary.window_days ~ ' days') %}
   {% if summary.gaps %}
     <table>
       <tr><th>skill</th><th>matches</th></tr>
@@ -60,6 +60,6 @@
   {% else %}
     <p class="muted">No stretch-skills recorded yet — enable <code>gap_analysis</code> to populate this.</p>
   {% endif %}
-</div>
+{% endcall %}
 {% endif %}
 {% endblock %}

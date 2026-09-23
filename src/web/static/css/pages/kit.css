@@ -1,0 +1,9 @@
+/* Apply kit (/kit): tap-to-copy facts and the autofill bookmarklet. */
+.kit-group { margin: 18px 0; }
+.kit-group h2 { margin: 0 0 6px; font-size: .9375rem; }
+.kit-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.kit-label { flex: 0 0 38%; font-size: .8125rem; color: var(--text-muted); }
+.kit-value { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kit-copy { min-width: 64px; padding: var(--space-2) .9rem; }   /* a thumb-sized tap target */
+.kit-bm { margin: 6px 0; }
+.kit-note { margin-top: 6px; font-size: .8125rem; opacity: .8; }

@@ -1,0 +1,6 @@
+/* Sign-in, create-password, and change-password forms. */
+.auth-page { display: flex; justify-content: center; padding: 8vh var(--space-4) 0; }
+.auth-form { display: flex; flex-direction: column; gap: var(--space-3); width: 100%; max-width: 360px; }
+.auth-form h1 { margin: 0; font-size: 1.125rem; }
+.auth-form label { display: flex; flex-direction: column; gap: var(--space-1); font-size: .8125rem; }
+.auth-form p, .auth-form .alert { margin: 0; }

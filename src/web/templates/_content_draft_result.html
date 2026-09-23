@@ -1,4 +1,5 @@
 {% import "_settings_macros.html" as w %}
+{% import "_ui.html" as ui %}
 {% if draft is none %}
 <form method="post" action="/settings/documents/draft">
   <p>Draft your structured résumé (<code>resume_content</code>) from the
@@ -7,8 +8,8 @@
 </form>
 {% elif draft.status == 'confirm' %}
 <form method="post" action="/settings/documents/draft">
-  <p class="warn">You already have a <code>resume_content</code> document.
-    Saving the review below would replace it.</p>
+  {% call ui.alert('warn') %}You already have a <code>resume_content</code> document.
+    Saving the review below would replace it.{% endcall %}
   <label class="check">
     <input type="checkbox" name="overwrite" value="1" required> Replace it
   </label>
@@ -28,7 +29,7 @@
   </form>
 </div>
 {% elif draft.status == 'error' %}
-<p class="warn">{{ draft.error }}</p>
+{{ ui.alert('warn', draft.error) }}
 <p>
   <a class="btn" href="/settings/documents?kind=resume_content">Edit as JSON instead</a>
 </p>
@@ -48,7 +49,7 @@
     inaccurate here gets rewritten into every tailored résumé you send, so
     correct it now — edit the wording, fix a date, or drop a line.</p>
   {% for e in draft.document.experiences %}
-  <fieldset class="panel">
+  <fieldset class="card">
     <legend>{{ e.company }} — {{ e.role }}</legend>
     <label>Company <input type="text" name="company.{{ e.id }}" value="{{ e.company }}"></label>
     <label>Position <input type="text" name="role.{{ e.id }}" value="{{ e.role }}"></label>
@@ -65,7 +66,7 @@
   </fieldset>
   {% endfor %}
   {% for p in draft.document.projects %}
-  <fieldset class="panel">
+  <fieldset class="card">
     <legend>{{ p.name }}</legend>
     <label>Name <input type="text" name="name.{{ p.id }}" value="{{ p.name }}"></label>
     <label>Tech <input type="text" name="subtitle.{{ p.id }}" value="{{ p.subtitle }}"></label>
@@ -80,7 +81,7 @@
     {% endfor %}
   </fieldset>
   {% endfor %}
-  <fieldset class="panel">
+  <fieldset class="card">
     <legend>Skills</legend>
     {{ w.chips('skills', draft.document.skills | map(attribute='name') | list) }}
   </fieldset>
@@ -95,8 +96,7 @@
      Read-only on purpose: a URL the model copied out of the résumé is a
      string it transcribed, not a claim it made, so it does not need the same
      approval a rewritten bullet does. Showing it is what was missing. #}
-  <section class="panel">
-    <h3>Also read</h3>
+  {% call ui.card('Also read') %}
     {% set contact = draft.document.contact or {} %}
     <ul>
       <li>Name: {{ draft.document.name }}</li>
@@ -114,17 +114,19 @@
     </ul>
     <p class="muted">Edit these in the JSON editor — they have no ids to
       address them by here.</p>
-  </section>
+  {% endcall %}
   {% if confirm_replace %}
-  <p class="warn">Your <code>resume_content</code> document has changed since
+  {% call ui.alert('warn') %}Your <code>resume_content</code> document has changed since
     this draft was made — edited as JSON, restored from a backup, or written
-    by another draft. Saving this review replaces it.</p>
+    by another draft. Saving this review replaces it.{% endcall %}
   <label class="check">
     <input type="checkbox" name="overwrite" value="1" required> Replace it
   </label>
   {% endif %}
-  <button type="submit" class="btn primary">Save résumé data</button>
-  <a class="btn" href="/settings/documents?kind=resume_content">Edit as JSON instead</a>
+  <div class="actions">
+    <button type="submit" class="btn primary">Save résumé data</button>
+    <a class="btn" href="/settings/documents?kind=resume_content">Edit as JSON instead</a>
+  </div>
 </form>
 {# Outside the save form, because HTML has no nested forms. Without it the
    review was a one-way door: save this draft, or go hand-edit JSON. #}

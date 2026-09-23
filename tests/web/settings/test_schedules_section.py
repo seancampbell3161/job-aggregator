@@ -1,4 +1,6 @@
 """Cadences and cron fields."""
+import re
+
 from src.web.app import create_app
 from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import WEB_TEST_SETTINGS, make_service
@@ -49,7 +51,7 @@ def test_a_bad_crontab_renders_inline_on_its_own_field(tmp_path, monkeypatch):
     # Requiring has-error/field-error inside this specific div is what
     # actually distinguishes the two.
     idx = r.text.index('name="board.digest_cron"')
-    div_start = r.text.rindex('<div class="field', 0, idx)
+    div_start = [m.start() for m in re.finditer(r'<div class="field[ "]', r.text[:idx])][-1]
     div_end = r.text.index("</div>", idx)
     field_html = r.text[div_start:div_end]
     assert "has-error" in field_html

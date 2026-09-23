@@ -63,6 +63,13 @@ def test_the_progress_rail_lists_every_step(tmp_path, monkeypatch):
         assert title in r.text
 
 
+def test_exactly_one_step_is_announced_as_current(tmp_path, monkeypatch):
+    """A screen-reader user tabbing through the rail needs to hear which step
+    they're on; aria-current="step" is how that's announced."""
+    r = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/llm")
+    assert r.text.count('aria-current="step"') == 1
+
+
 def test_unknown_step_is_404(tmp_path, monkeypatch):
     assert signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/nope").status_code == 404
 
@@ -90,6 +97,24 @@ def test_done_page_renders(tmp_path, monkeypatch):
     r = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/done")
     assert r.status_code == 200
     assert "/settings/overview" in r.text
+
+
+def test_the_step_body_is_wrapped_for_width_and_the_rail_stays_outside_it(tmp_path, monkeypatch):
+    """.field controls are width: 100% since Task 1, so on a wide screen an
+    unwrapped step stretches its cards and inputs across the whole window.
+    wizard.css caps .wizard-body the same way settings.css caps
+    .settings-pane. The rail must stay outside that wrapper — it is not part
+    of the step content whose width is being capped."""
+    html = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/llm").text
+    assert 'class="wizard-body"' in html
+    rail_start = html.index('class="wizard-rail"')
+    rail_end = html.index("</nav>", rail_start)
+    body_start = html.index('class="wizard-body"')
+    assert rail_end < body_start, "wizard-rail nav must appear before wizard-body"
+    body_div_open = html.rindex("<div", 0, body_start)
+    assert "wizard-rail" not in html[body_div_open:], (
+        "wizard-rail nav must not be nested inside the wizard-body wrapper"
+    )
 
 
 def test_wizard_requires_a_login(tmp_path, monkeypatch):

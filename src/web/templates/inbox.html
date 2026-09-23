@@ -1,5 +1,8 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block styles %}<link rel="stylesheet" href="/static/css/pages/triage.css">{% endblock %}
 {% block content %}
+{{ ui.page_header('Triage') }}
 <form id="filters" hx-get="/jobs" hx-target="#list" hx-swap="innerHTML"
       hx-trigger="change, keyup delay:300ms from:input[name=q]" hx-include="this">
   <input type="search" name="q" placeholder="search title / company…">
@@ -8,7 +11,7 @@
   <label><input type="checkbox" name="status" value="applied" checked> Applied</label>
   <label><input type="checkbox" name="status" value="interviewing" checked> Interviewing</label>
   <label><input type="checkbox" name="status" value="dismissed"> Dismissed</label>
-  <label>score ≥ <input type="number" name="min_score" min="0" max="10" style="width:3.2em"></label>
+  <label>score ≥ <input type="number" name="min_score" min="0" max="10" class="score-min"></label>
   <label><input type="checkbox" name="has_gaps" value="true"> has gaps</label>
   <span class="wp-filter">workplace
     <label><input type="checkbox" name="workplace" value="remote" checked> remote</label>
@@ -82,7 +85,7 @@ function triageRefresh() {
 
 <div class="panes">
   <div id="list" hx-get="/jobs" hx-include="#filters" hx-trigger="load, refreshList from:body" hx-swap="innerHTML">
-    <p class="muted" style="padding:11px">Loading…</p>
+    <p class="muted list-note">Loading…</p>
   </div>
   <div id="detail"><p class="muted">Select a match to see details.</p></div>
 </div>

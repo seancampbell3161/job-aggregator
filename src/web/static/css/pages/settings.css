@@ -1,0 +1,39 @@
+/* Settings (/settings/*): section sidebar, rows lists, companies table,
+   readiness list, history. */
+.settings { display: grid; grid-template-columns: 12rem 1fr; gap: var(--space-6); }
+.settings-nav { display: flex; flex-direction: column; gap: 2px; }
+.settings-nav a { padding: .35rem .6rem; border-radius: var(--radius-sm); }
+.settings-nav a:hover { background: var(--surface-1); text-decoration: none; }
+.settings-nav a.on { background: var(--surface-2); color: var(--text); font-weight: var(--weight-strong); }
+.settings-pane { min-width: 0; max-width: 44rem; }
+.settings-pane > h2 { margin-bottom: var(--space-1); }
+.settings-pane h3 { margin-top: var(--space-6); }
+@media (max-width: 40rem) { .settings { grid-template-columns: 1fr; } }
+.back-link { margin: 0 0 var(--space-3); }
+
+.rows-list { display: flex; flex-direction: column; gap: .4rem; margin: 0 0 var(--space-2); }
+.row-entry { display: flex; align-items: center; gap: .6rem; padding: .35rem var(--space-2);
+  border: 1px solid var(--border); border-radius: var(--radius); }
+.row-summary { flex: 1; font-size: .8125rem; overflow-wrap: anywhere; }
+.row-summary-list { margin: 0 0 var(--space-4); padding-left: 1.2rem; }
+
+.company-filter { width: 100%; margin: var(--space-1) 0 .6rem; }
+#company-rows h3 { margin: 1.1rem 0 var(--space-1); font-size: var(--text-xs); letter-spacing: .04em;
+  text-transform: uppercase; color: var(--text-muted); }
+#company-rows table { width: 100%; font-size: .8125rem; }
+#company-rows th, #company-rows td { padding: .3rem var(--space-2); }
+#company-rows th { font-size: var(--text-xs); color: var(--text-muted); }
+.company-key { font-size: var(--text-xs); }
+.manual-add { margin: var(--space-3) 0; }
+.manual-add > summary { width: max-content; color: var(--accent); }
+.manual-add-list { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); padding: 0; list-style: none; }
+
+.readiness { padding: 0; list-style: none; }
+.readiness .warn { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
+  margin-bottom: .4rem; padding: .6rem .8rem; background: var(--surface-2); border-left: 3px solid var(--warning); }
+.doc-picker { margin-bottom: var(--space-3); }
+.group-list { padding: 0; list-style: none; }
+.group-list li { padding: var(--space-2) 0; border-bottom: 1px solid var(--border); }
+.history-table { width: 100%; }
+.history-diff-row td { padding: 0; border-bottom: 0; }
+.diff-list { padding-left: 1.2rem; font-size: .8125rem; }

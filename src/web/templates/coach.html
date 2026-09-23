@@ -1,20 +1,21 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 {% block content %}
-<h2>Coach</h2>
+{{ ui.page_header('Coach') }}
 {% if not enabled %}
-<div class="panel"><p class="muted">Coach is disabled — set coach.enabled: true in config.yaml.</p></div>
+{% call ui.card() %}<p class="muted">Coach is disabled — set coach.enabled: true in config.yaml.</p>{% endcall %}
 {% elif not available %}
-<div class="panel"><p class="muted">Coach is unavailable — run history needs the local SQLite runtime.</p></div>
+{% call ui.card() %}<p class="muted">Coach is unavailable — run history needs the local SQLite runtime.</p>{% endcall %}
 {% else %}
 {% if viewing_past %}
 <p class="muted"><a href="/coach">&larr; back to latest</a></p>
 {% elif can_run %}
-<form hx-post="/coach/run" hx-target="#coach-run" hx-swap="outerHTML" hx-disabled-elt="find button">
-  <button type="submit">Generate recommendations</button>
+<form hx-post="/coach/run" hx-target="#coach-run" hx-swap="outerHTML" hx-disabled-elt="find button" class="toolbar">
+  <button type="submit" class="btn primary">Generate recommendations</button>
   <span class="htmx-indicator muted"> analyzing your data — this can take a minute…</span>
 </form>
 {% else %}
-<div class="panel"><p class="muted">Coach LLM is not configured — the provider follows relevance unless coach.provider is set, and it needs its API key (or a local Ollama host).</p></div>
+{% call ui.card() %}<p class="muted">Coach LLM is not configured — the provider follows relevance unless coach.provider is set, and it needs its API key (or a local Ollama host).</p>{% endcall %}
 {% endif %}
 {% include "_coach_run.html" %}
 {% if runs %}

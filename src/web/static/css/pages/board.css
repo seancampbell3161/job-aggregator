@@ -1,0 +1,28 @@
+/* Application board (/board): manual-add form, kanban columns, archive. */
+.add-job { margin-bottom: var(--space-4); }
+.add-job > summary { width: max-content; font-size: var(--text-sm); color: var(--accent); }
+.add-job-form { max-width: 940px; margin-top: var(--space-2); }
+.add-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
+.add-job-form label { display: flex; flex-direction: column; gap: 3px; font-size: var(--text-xs); color: var(--text-muted); }
+.add-job-form label.grow { flex: 1 1 180px; }
+.add-job-form input.narrow { width: 6em; }
+.add-wide { margin-bottom: 10px; }
+.add-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: var(--text-xs); }
+
+.board { display: flex; align-items: flex-start; gap: var(--space-3); overflow-x: auto; }
+.board-col { flex: 1 1 0; min-width: 200px; }
+.board-col-head { margin: 0 0 var(--space-2); font-size: var(--text-sm); text-transform: uppercase;
+  letter-spacing: .04em; color: var(--text-muted); }
+.board-col-head .count { opacity: .6; }
+.board-card { margin-bottom: var(--space-2); padding: var(--space-2) 10px; background: var(--surface-1);
+  border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.board-card-head { display: flex; align-items: center; gap: 6px; }
+.board-card-title { font-size: var(--text-sm); }
+.board-since { margin-top: var(--space-1); font-size: var(--text-xs); }
+.board-since .stale { color: var(--warning); }
+.board-timeline { margin-top: var(--space-1); font-size: var(--text-xs); opacity: .6; }
+.board-card-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-2); }
+.board-empty { opacity: .35; }
+.board-archive { margin-top: var(--space-5); }
+.archive-row { padding: var(--space-1) 0; font-size: .8125rem; }
+.archive-row .pill { margin-right: 6px; }

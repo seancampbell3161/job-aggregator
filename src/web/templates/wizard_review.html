@@ -8,7 +8,7 @@
    review, and that walking away costs nothing. Only claim a draft when one
    was actually produced — with no LLM these are the user's own answers and
    stock defaults. #}
-<div class="panel review-intro">
+<div class="card accent-edge">
   <p><strong>Check this over before saving.</strong>
   {% if draft and draft.status == 'ok' %}
   The profile and filters below were <strong>drafted from your résumé</strong>
@@ -20,22 +20,22 @@
 </div>
 
 <form method="post" action="/wizard/review">
-  <section class="panel">
-    <h2>Your profile</h2>
+  <section class="card">
+    <h2 class="card-title">Your profile</h2>
     <p class="muted">What the scorer grades each posting against — markdown is
       fine. Edit it as much as you like; approving writes exactly what's
       below, not whatever the draft originally said.</p>
     {% if draft and draft.status == 'ok' and draft.warnings %}
     {% for note in draft.warnings %}
-    <p class="muted field-help">{{ note }}</p>
+    <p class="field-hint">{{ note }}</p>
     {% endfor %}
     {% endif %}
     <textarea id="i-profile" class="doc-edit" name="profile" rows="18"
               placeholder="## Quick summary…">{{ profile_value }}</textarea>
   </section>
 
-  <section class="panel">
-    <h2>Filters</h2>
+  <section class="card">
+    <h2 class="card-title">Filters</h2>
     <p class="muted">Hard gates every posting passes before it is scored.</p>
     {% for spec in fields %}
       {{ w.field(spec, prefilled_shown(submitted, cfg, spec, prefill), errors, required) }}
@@ -45,7 +45,7 @@
     {% endfor %}
   </section>
 
-  <p>
+  <div class="actions">
     {% if not saved_profile %}
     {# Once a profile document is saved, _ensure_draft() stops drafting
        altogether (the config is the truth from then on) -- this button
@@ -58,7 +58,7 @@
             onclick="return confirm('Discard your edits and draft again from your résumé?')">Draft again</button>
     {% endif %}
     <button type="submit" class="btn primary">Save and continue</button>
-    <button type="submit" form="wizard-skip" class="btn">Skip this step</button>
-  </p>
+    <button type="submit" form="wizard-skip" class="btn ghost">Skip this step</button>
+  </div>
 </form>
 {% endblock %}

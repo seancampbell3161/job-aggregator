@@ -5,10 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <title>{% block title %}Sign in{% endblock %} · Job Aggregator</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/pages/auth.css">
 </head>
 <body>
-  <header><span class="brand">job-aggregator</span></header>
+  <header class="site-header"><span class="brand">job-aggregator</span></header>
   <main class="auth-page">{% block content %}{% endblock %}</main>
 </body>
 </html>

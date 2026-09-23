@@ -1,7 +1,9 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block styles %}<link rel="stylesheet" href="/static/css/pages/board.css">{% endblock %}
 {% block content %}
-<h1 class="page-title">Application board</h1>
-{% if board.error %}<p class="muted">Board data is temporarily unavailable.</p>{% endif %}
+{{ ui.page_header('Application board') }}
+{% if board.error %}{{ ui.alert('warn', 'Board data is temporarily unavailable.') }}{% endif %}
 
 {# Hand-entered opportunities (recruiter DM, referral, word of mouth). Plain
    form post + 303 redirect, so no htmx and no JS: after a successful add the
@@ -9,8 +11,8 @@
    validation message needs showing. #}
 <details class="add-job"{% if add_error %} open{% endif %}>
   <summary>+ Add a job manually</summary>
-  <form class="add-job-form" method="post" action="/board/add">
-    {% if add_error %}<p class="add-error">{{ add_error }}</p>{% endif %}
+  <form class="add-job-form card" method="post" action="/board/add">
+    {% if add_error %}{{ ui.alert('bad', add_error) }}{% endif %}
     <div class="add-row">
       <label class="grow">Company
         <input name="company" required autocomplete="off" value="{{ add_form.get('company', '') }}"></label>

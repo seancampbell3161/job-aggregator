@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% import "_settings_macros.html" as w %}
+{% import "_ui.html" as ui %}
+{% block styles %}<link rel="stylesheet" href="/static/css/pages/settings.css">{% endblock %}
 {% block content %}
-<h1 class="page-title">Settings</h1>
+{{ ui.page_header('Settings') }}
 <div class="settings">
   <nav class="settings-nav">
     {% for s in sections %}
@@ -12,12 +14,11 @@
   <div class="settings-pane">
     <h2>{{ section.title }}</h2>
     {% if section.blurb %}<p class="muted">{{ section.blurb }}</p>{% endif %}
-    {% if saved %}<p class="ok">Saved — running live, no restart needed.</p>{% endif %}
-    {% for msg in form_errors %}<p class="bad{% if section.slug == 'backup' %} pre-line{% endif %}">{{ msg }}</p>{% endfor %}
+    {% if saved %}{{ ui.alert('ok', 'Saved — running live, no restart needed.') }}{% endif %}
+    {% for msg in form_errors %}{{ ui.alert('bad', msg, extra_class='pre-line' if section.slug == 'backup' else none) }}{% endfor %}
     {% block section %}{% endblock %}
   </div>
 </div>
-{# addChip() lives in base.html now — shared with wizard_base.html, which
-   also renders chip fields (via the same _settings_macros.html w.chips
-   macro) but extends base.html directly rather than this template. #}
+{# addChip() lives in base.html — shared with wizard_base.html, which also
+   renders chip fields via the same _settings_macros.html w.chips macro. #}
 {% endblock %}

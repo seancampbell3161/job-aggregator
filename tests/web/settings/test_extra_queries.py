@@ -1,4 +1,6 @@
 """The union list: hiring.cafe extra queries through the generic row editor."""
+import re
+
 from src.web.app import create_app
 from tests.auth_helpers import signed_in_client
 from tests.settings_helpers import make_service
@@ -24,9 +26,8 @@ def _field_block(html: str, name: str) -> str:
     from tests/web/settings/test_rows.py rather than imported: no test module
     in this suite imports from another one, and the helper is five lines."""
     start = html.index(f'name="{name}"')
-    end = html.find('<div class="field', start)
-    if end == -1:
-        end = html.index("</form>", start)
+    nxt = re.search(r'<div class="field[ "]', html[start:])
+    end = start + nxt.start() if nxt else html.index("</form>", start)
     return html[start:end]
 
 

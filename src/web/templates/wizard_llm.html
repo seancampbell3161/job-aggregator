@@ -1,10 +1,8 @@
 {% extends "wizard_base.html" %}
 {% import "_settings_macros.html" as w %}
+{% import "_ui.html" as ui %}
 {% block step %}
-<section class="panel recipes">
-  <h3>Start from a recipe</h3>
-  <p class="muted">Fills the fields below. Change anything you like afterwards —
-  nothing is saved until you press Save and continue.</p>
+{% call ui.card('Start from a recipe', 'Fills the fields below. Change anything you like afterwards — nothing is saved until you press Save and continue.') %}
   <div class="recipe-choices">
     {% for p in presets %}
     <div class="recipe-choice">
@@ -25,7 +23,7 @@
 {% endif %}{% endfor %}</pre>{% endif %}
   </div>
   {% endfor %}
-</section>
+{% endcall %}
 
 <form method="post" action="/wizard/llm">
   {% for spec in fields %}{{ w.field(spec, prefilled_shown(submitted, cfg, spec, prefill), errors) }}{% endfor %}
@@ -37,7 +35,7 @@
   <div id="probe-llm"></div>
   <div class="actions">
     <button type="submit" class="btn primary">Save and continue</button>
-    <button type="submit" form="wizard-skip" class="btn">Skip this step</button>
+    <button type="submit" form="wizard-skip" class="btn ghost">Skip this step</button>
   </div>
 </form>
 <script>

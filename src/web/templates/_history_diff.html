@@ -1,3 +1,4 @@
+{% import "_ui.html" as ui %}
 {# A single settings version: what restoring it would change, and the
    Restore button — src/web/settings/history.py::history_version.
 
@@ -16,8 +17,7 @@
   {% if row.note %}<p class="muted">{{ row.note }}</p>{% endif %}
 
   {% if not restorable %}
-  <p class="bad">This version cannot be restored — it no longer validates
-    against the current settings schema.</p>
+  {{ ui.alert('bad', 'This version cannot be restored — it no longer validates against the current settings schema.') }}
   {% elif not lines %}
   <p>No differences — restoring this version would change nothing.</p>
   {% else %}
@@ -28,7 +28,7 @@
 
   {% if restorable and row.id != in_effect %}
   <form method="post" action="/settings/history/{{ row.id }}/restore">
-    <button type="submit" class="btn small">Restore this version</button>
+    <button type="submit" class="btn sm">Restore this version</button>
   </form>
   {% endif %}
 </div>

@@ -1,3 +1,4 @@
+{% import "_ui.html" as ui %}
 {% macro fam_row(f, now_ms, dim=False) -%}
 <div class="fam-row sev-{{ 'hi' if f.count >= 100 else ('mid' if f.count >= 25 else 'lo') }}{{ ' dim' if dim else '' }}">
   <span class="fam-name">{{ f.family }}</span>
@@ -8,11 +9,10 @@
 </div>
 {%- endmacro %}
 {% if activity is none %}
-  <div class="panel"><h3>Cycle stats &amp; fetch failures</h3>
-    <p class="muted">unavailable — could not read cycle telemetry (the SQLite events store).</p></div>
+  {% call ui.card('Cycle stats & fetch failures') %}<p class="muted">unavailable — could not read cycle telemetry (the SQLite events store).</p>{% endcall %}
   <span id="last-cycle" class="v muted" hx-swap-oob="true">unknown</span>
   <div id="tier-freshness" class="tier-strip" hx-swap-oob="true">
-    <span class="muted" style="font-size:12px">tier freshness unavailable</span>
+    <span class="muted tier-note">tier freshness unavailable</span>
   </div>
 {% else %}
   <div id="tier-freshness" class="tier-strip" hx-swap-oob="true">
@@ -22,11 +22,10 @@
         {%- if h.stale %} · stalled ⚠{% elif not h.ok %} · failing ⚠{% elif h.degraded %} · LLM⚠{% else %} ✓{% endif %}
       </span>
     {% else %}
-      <span class="muted" style="font-size:12px">no tier cycles in window</span>
+      <span class="muted tier-note">no tier cycles in window</span>
     {% endfor %}
   </div>
-  <div class="panel">
-    <h3>Cycle stats &amp; fetch failures <span class="muted">(last {{ activity.window_days }}d)</span></h3>
+  {% call ui.card('Cycle stats & fetch failures', 'Last ' ~ activity.window_days ~ ' days') %}
     {% if activity.tiers %}
     <table>
       <tr><th>tier</th><th>cycles</th><th>avg fetched</th><th>avg matched</th><th>avg notified</th><th>avg ms</th></tr>
@@ -38,7 +37,7 @@
     </table>
     {% else %}<p class="muted">No cycles in window.</p>{% endif %}
     {# Layer 1 — headline: total + the error-type mix (only ~7 types; this is the story). #}
-    <p class="tally" style="margin-top:9px">
+    <p class="tally tally-spaced">
       <span class="muted">fetch failures ({{ activity.failures_total }}) by type:</span>
       {% for t in activity.failures_by_type %}<span class="bad{{ ' dim' if t.last_ms < dim_before_ms else '' }}">{{ t.name }} ×{{ t.count }}</span> <span class="muted">{{ t.last_ms | ago(now_ms) }}</span>{% if not loop.last %} · {% endif %}{% else %}<span class="muted">none</span>{% endfor %}
     </p>
@@ -51,7 +50,7 @@
     {% set fam_stale = activity.failures_by_family | rejectattr('last_ms', 'ge', dim_before_ms) | list %}
     <div class="fam-list">
       {% for f in fam_active %}{{ fam_row(f, now_ms) }}
-      {% else %}<p class="muted" style="margin:6px 0">no fetch failures in the last 24h ✓</p>{% endfor %}
+      {% else %}<p class="muted fam-empty">no fetch failures in the last 24h ✓</p>{% endfor %}
     </div>
     {% if fam_stale %}
     <details class="fam-stale">
@@ -72,7 +71,7 @@
       </p>
     </details>
     {% endif %}
-    <p class="tally" style="margin-top:9px">
+    <p class="tally tally-spaced">
       <span class="muted">LLM failures ({{ activity.llm_failures_total }})
         {% if activity.llm_degraded_cycles %}over {{ activity.llm_degraded_cycles }} degraded cycle{{ 's' if activity.llm_degraded_cycles != 1 else '' }}{% endif %} by stage:</span>
       {% for s in activity.llm_failures_by_stage %}
@@ -99,7 +98,7 @@
       </table>
     </details>
     {% endif %}
-  </div>
+  {% endcall %}
   <span id="last-cycle" class="v {{ heartbeat.css if heartbeat else 'muted' }}" hx-swap-oob="true">
     {{ heartbeat.label if heartbeat else 'no cycles' }}
   </span>

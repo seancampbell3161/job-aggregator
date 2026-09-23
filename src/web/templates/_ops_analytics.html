@@ -1,9 +1,9 @@
-<div class="panel">
-  <h3>Match &amp; score analytics</h3>
+{% import "_ui.html" as ui %}
+{% call ui.card('Match & score analytics') %}
   {% if analytics is none %}
     <p class="muted">unavailable — could not read seen_jobs.</p>
   {% else %}
-    <p class="muted" style="font-size:11px">SCORE DISTRIBUTION (0–10)</p>
+    <p class="eyebrow">SCORE DISTRIBUTION (0–10)</p>
     {% set hmax = analytics.histogram | max %}
     <div class="bars">
       {% for c in analytics.histogram %}
@@ -12,9 +12,9 @@
       {% endfor %}
     </div>
     <div class="barlabels">{% for c in analytics.histogram %}<span>{{ loop.index0 }}</span>{% endfor %}</div>
-    <p style="margin-top:10px">
+    <p class="ops-summary">
       <b>{{ analytics.total }}</b> notified · <b>{{ analytics.suppressed }}</b> suppressed · <b>{{ analytics.recent }}</b> in last {{ analytics.window_days }}d<br>
       <span class="muted">{% for s, n in analytics.by_status.items() %}{{ s }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</span>
     </p>
   {% endif %}
-</div>
+{% endcall %}

@@ -38,7 +38,7 @@ def test_setup_page_shows_the_import_command(tmp_path, monkeypatch):
 
 def test_exempt_prefixes_are_not_redirected(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch, make_service())
-    assert client.get("/static/app.css").status_code == 200
+    assert client.get("/static/css/tokens.css").status_code == 200
     r = client.get("/tailor", params={"job_id": "j1", "t": "bad"})
     assert r.status_code == 200  # the route's own invalid-link page, not a redirect
     r = client.get("/tailor/pdf", params={"job_id": "j1", "t": "bad"})
@@ -47,7 +47,7 @@ def test_exempt_prefixes_are_not_redirected(tmp_path, monkeypatch):
 
 def test_exemptions_match_whole_path_segments_only(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch, make_service())
-    assert client.get("/static/app.css").status_code == 200
+    assert client.get("/static/css/tokens.css").status_code == 200
     for path in ("/setupfoo", "/tailor-history", "/statically", "/tailoredx", "/tailored/x.pdf"):
         r = client.get(path)
         assert r.status_code == 303, path

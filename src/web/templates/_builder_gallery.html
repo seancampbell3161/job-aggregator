@@ -1,20 +1,21 @@
-{% if error %}<p class="bad">{{ error }}</p>{% endif %}
+{% import "_ui.html" as ui %}
+{% if error %}{{ ui.alert('bad', error) }}{% endif %}
 <div class="template-cards">
   {% for t in templates %}
   <div class="template-card">
     <strong>{{ t.name }}</strong> <span class="muted">({{ t.source }})</span>
     <p class="muted">{{ t.description }}</p>
-    <form hx-post="/builder/activate" hx-target="#gallery" style="display:inline">
+    <form hx-post="/builder/activate" hx-target="#gallery" class="inline-form">
       <input type="hidden" name="slug" value="{{ t.slug }}">
       <button type="submit" class="btn" {% if t.slug == active %}disabled{% endif %}>
         {% if t.slug == active %}Active{% else %}Use this{% endif %}</button>
     </form>
     <a class="btn" href="/builder/preview?slug={{ t.slug }}" target="_blank">Preview</a>
     {% if t.source != 'builtin' %}
-    <form hx-post="/builder/delete" hx-target="#gallery" style="display:inline"
+    <form hx-post="/builder/delete" hx-target="#gallery" class="inline-form"
           hx-confirm="Delete template '{{ t.name }}'?">
       <input type="hidden" name="slug" value="{{ t.slug }}">
-      <button type="submit" class="btn">Delete</button>
+      <button type="submit" class="btn danger">Delete</button>
     </form>
     {% endif %}
   </div>
@@ -25,10 +26,10 @@
 <div class="template-card pending">
   <strong>{{ p.name }}</strong> <span class="muted">(imported — pending review)</span>
   <a class="btn" href="/builder/preview?slug={{ p.slug }}&pending=1" target="_blank">Preview PDF</a>
-  <form hx-post="/builder/pending/accept" hx-target="#gallery" style="display:inline">
+  <form hx-post="/builder/pending/accept" hx-target="#gallery" class="inline-form">
     <input type="hidden" name="slug" value="{{ p.slug }}"><button type="submit" class="btn primary">Accept</button>
   </form>
-  <form hx-post="/builder/pending/discard" hx-target="#gallery" style="display:inline">
+  <form hx-post="/builder/pending/discard" hx-target="#gallery" class="inline-form">
     <input type="hidden" name="slug" value="{{ p.slug }}"><button type="submit" class="btn">Discard</button>
   </form>
 </div>
