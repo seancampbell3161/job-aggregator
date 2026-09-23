@@ -1,45 +1,30 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block styles %}<link rel="stylesheet" href="/static/css/pages/kit.css">{% endblock %}
 {% block content %}
-<style>
-  .kit-group { margin: 18px 0; }
-  .kit-group h2 { font-size: 15px; margin: 0 0 6px; }
-  .kit-row { display: flex; align-items: center; gap: 10px;
-             padding: 9px 0; border-bottom: 1px solid rgba(128,128,128,.25); }
-  .kit-label { flex: 0 0 38%; font-size: 13px; opacity: .8; }
-  .kit-value { flex: 1; font-size: 14px; overflow: hidden;
-               text-overflow: ellipsis; white-space: nowrap; }
-  button.kit-copy { border: 0; border-radius: 8px; padding: 8px 14px;
-                    font-size: 13px; cursor: pointer; min-width: 64px; }
-  .kit-notice { padding: 12px; border-radius: 8px; margin: 16px 0;
-                background: rgba(128,128,128,.15); font-size: 14px; }
-  a.kit-bm { display: inline-block; margin: 6px 0; padding: 8px 14px;
-             border: 1px solid rgba(128,128,128,.5); border-radius: 8px;
-             text-decoration: none; font-size: 14px; }
-</style>
-
-<h1>Apply kit</h1>
+{{ ui.page_header('Apply kit') }}
 
 {% if missing %}
-<div class="kit-notice">
+{% call ui.alert('info') %}
   No apply-kit facts yet. Start from <code>resume/facts.example.yaml</code>, save your
   copy as <code>resume/facts.yaml</code> in your settings directory, and import it:
   <pre>python -m src.settings import DIR</pre>
   It shows here on the next refresh — no restart needed.
-</div>
+{% endcall %}
 {% elif error %}
-<div class="kit-notice">Could not read the saved apply-kit facts: {{ error }}</div>
+{{ ui.alert('bad', 'Could not read the saved apply-kit facts: ' ~ error) }}
 {% endif %}
 
 {% if bookmarklet %}
-<div class="kit-notice">
+{% call ui.alert('info') %}
   <strong>Apply Autofill</strong> — drag this to your bookmark bar, then click it
   on a Greenhouse/Lever/Ashby application page to fill these facts:
-  <a class="kit-bm" href="{{ bookmarklet }}">📋 Apply Autofill</a>
-  <div style="opacity:.7;font-size:13px;margin-top:6px;">
+  <a class="btn kit-bm" href="{{ bookmarklet }}">📋 Apply Autofill</a>
+  <p class="kit-note">
     Re-drag after you re-import your facts. It never submits — it fills, highlights
     what it touched, and tells you what it couldn't match.
-  </div>
-</div>
+  </p>
+{% endcall %}
 {% endif %}
 
 {% for g in groups %}
@@ -49,7 +34,7 @@
   <div class="kit-row">
     <span class="kit-label">{{ f.label }}</span>
     <span class="kit-value">{{ f.value }}</span>
-    <button class="kit-copy" data-value="{{ f.value }}"
+    <button class="btn kit-copy" data-value="{{ f.value }}"
             onclick="kitCopy(this)">Copy</button>
   </div>
   {% endfor %}

@@ -1,0 +1,12 @@
+/* Résumé builder (/builder): settings form and template gallery. */
+.builder-settings { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; }
+.builder-settings label { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); color: var(--text-muted); }
+.builder-settings input[type=number] { width: 100px; }
+.template-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-3); }
+.template-card { padding: 10px var(--space-3); background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.template-card p { margin: 6px 0 var(--space-2); font-size: var(--text-sm); }
+.template-card .btn { margin: var(--space-1) 6px 0 0; }
+.template-card.pending { margin-top: var(--space-3); border-color: var(--warning-border); }
+.upload-form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: var(--space-4);
+  padding-top: var(--space-3); border-top: 1px solid var(--border); }

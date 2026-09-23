@@ -1,11 +1,12 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block styles %}<link rel="stylesheet" href="/static/css/pages/builder.css">{% endblock %}
 {% block content %}
-<h1 class="page-title">Resume Builder</h1>
+{{ ui.page_header('Résumé builder') }}
 
-<section class="panel">
-  <h3>Settings</h3>
-  {% if saved %}<p class="ok">Settings saved.</p>{% endif %}
-  {% if error %}<p class="bad">{{ error }}</p>{% endif %}
+{% call ui.card('Settings') %}
+  {% if saved %}{{ ui.alert('ok', 'Settings saved.') }}{% endif %}
+  {% if error %}{{ ui.alert('bad', error) }}{% endif %}
   <form method="post" action="/builder/settings" class="builder-settings">
     <label>Max bullets per experience
       <input type="number" min="1" name="max_bullets_per_experience"
@@ -29,10 +30,9 @@
              placeholder="template default"></label>
     <button type="submit" class="btn primary">Save settings</button>
   </form>
-</section>
+{% endcall %}
 
-<section class="panel">
-  <h3>Templates</h3>
+{% call ui.card('Templates') %}
   <div id="gallery">{% include "_builder_gallery.html" %}</div>
-</section>
+{% endcall %}
 {% endblock %}

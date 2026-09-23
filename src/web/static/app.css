@@ -1,21 +1,6 @@
 /* LEGACY — page rules not yet migrated to static/css/pages/*.css.
    Each task of the UI-foundation plan deletes one section; Task 11 deletes the file. */
 
-/* == builder == */
-.builder-settings { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
-.builder-settings label { display: flex; flex-direction: column; gap: 4px; font-size: 12px;
-  color: var(--muted); }
-.builder-settings input[type="number"] { width: 100px; }
-.template-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 12px; }
-.template-card { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
-  background: var(--surface); }
-.template-card p { margin: 6px 0 8px; font-size: 12px; }
-.template-card .btn { margin: 4px 6px 0 0; }
-.template-card.pending { border-color: rgba(245,158,11,.55); margin-top: 12px; }
-.upload-form { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-
 /* == settings == */
 .settings { display: grid; grid-template-columns: 12rem 1fr; gap: 1.5rem; }
 .settings-nav { display: flex; flex-direction: column; gap: .15rem; }

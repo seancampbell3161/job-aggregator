@@ -74,7 +74,7 @@ def test_delete_filesystem_error_does_not_500(tmp_path, monkeypatch):
 
     r = c.post("/builder/delete", data={"slug": "my-modern-cv"})
     assert r.status_code == 200
-    assert 'class="bad"' in r.text
+    assert 'class="alert bad"' in r.text
 
 
 @requires_weasyprint
@@ -150,7 +150,7 @@ def test_upload_rejects_bad_jinja(tmp_path, monkeypatch):
     c = signed_in_client(_app(tmp_path, monkeypatch))
     r = _upload(c, "broken.j2", b"{% for %}")
     assert r.status_code == 200  # inline error in the fragment
-    assert 'class="bad"' in r.text
+    assert 'class="alert bad"' in r.text
     from src.tailor.render.registry import list_templates
     assert "broken" not in {t.slug for t in list_templates()}
 
@@ -215,7 +215,7 @@ def test_upload_zip_rejects_decompression_bomb(tmp_path, monkeypatch):
     r = _upload(c, "bomb.zip", buf.getvalue(), "application/zip")
     assert r.status_code == 200
     assert "exceeds the limit" in r.text
-    assert 'class="bad"' in r.text
+    assert 'class="alert bad"' in r.text
     templates_dir = tmp_path / "templates"
     assert not (templates_dir / "bomb").exists()
     assert not (templates_dir / ".staging" / "bomb").exists()
@@ -231,7 +231,7 @@ def test_upload_zip_rejects_path_traversal(tmp_path, monkeypatch):
         z.writestr("template.html.j2", GOOD_TEMPLATE.decode())
     c = signed_in_client(_app(tmp_path, monkeypatch))
     r = _upload(c, "evil.zip", buf.getvalue(), "application/zip")
-    assert 'class="bad"' in r.text
+    assert 'class="alert bad"' in r.text
     assert not (tmp_path / "evil.txt").exists()
 
 
@@ -258,7 +258,7 @@ def test_upload_zip_conflicting_members_never_500s(tmp_path, monkeypatch):
     c = signed_in_client(app)
     r = _upload(c, "conflict.zip", buf.getvalue(), "application/zip")
     assert r.status_code == 200
-    assert 'class="bad"' in r.text
+    assert 'class="alert bad"' in r.text
 
     templates_dir = tmp_path / "templates"
     staging_root = templates_dir / ".staging"
@@ -284,7 +284,7 @@ def test_upload_does_not_disturb_pending_docx_review(tmp_path, monkeypatch):
 
     r = _upload(c, "foo.html", GOOD_TEMPLATE)
     assert r.status_code == 200
-    assert 'class="bad"' not in r.text
+    assert 'class="alert bad"' not in r.text
 
     # the pending docx-import survives untouched
     assert (pending_dir / "template.html.j2").read_text() == "<html>awaiting review</html>"
@@ -416,7 +416,7 @@ def test_docx_upload_importer_typeerror_never_500s(tmp_path, monkeypatch):
     r = _upload(c, "boom.docx", make_docx(),
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
     assert r.status_code == 200
-    assert 'class="bad"' in r.text
+    assert 'class="alert bad"' in r.text
     assert not (tmp_path / "templates" / ".pending" / "boom").exists()
 
 
@@ -441,7 +441,7 @@ def test_docx_reimport_failure_preserves_pending_pack_of_same_slug(tmp_path, mon
     r = _upload(c, "temp.docx", make_docx(),
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
     assert r.status_code == 200
-    assert 'class="bad"' in r.text
+    assert 'class="alert bad"' in r.text
     assert (pending_dir / "template.html.j2").read_text() == "<html>pre-existing pending</html>"
 
 
