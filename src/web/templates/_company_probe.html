@@ -1,3 +1,4 @@
+{% import "_ui.html" as ui %}
 {# The probe-result partial for the Companies page's add box
    (src/web/settings/companies.py::companies_probe / _probe_partial).
 
@@ -22,7 +23,7 @@
    it holds the ATS vendor's host, not the company's own domain (see
    fingerprint.py's probe_target) — result.name is the label to show. #}
 {% if error %}
-<p class="bad">{{ error }}</p>
+{{ ui.alert('bad', error) }}
 {% elif result %}
   {% if board_family and result.status in ("matched", "not_found") %}
   <p>
@@ -45,7 +46,7 @@
     <input type="hidden" name="name" value="{{ result.name }}">
     <input type="hidden" name="identity" value="{{ identity_json }}">
     {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
-    <button type="submit" class="btn small">Add this board</button>
+    <button type="submit" class="btn sm">Add this board</button>
   </form>
   {% endif %}
   {% elif result.status == "unsupported" %}
@@ -59,10 +60,10 @@
   {# family-less not_found: the chain ran but identified nothing at all —
      not the same as the "unsupported" card above, which DOES know a
      family, just not one this app can poll automatically yet. #}
-  <p class="bad">Couldn't identify a supported job board at that address.</p>
+  {{ ui.alert('bad', "Couldn't identify a supported job board at that address.") }}
   {% if manual_path %}<p><a href="/settings/rows/{{ manual_path }}/new">Add it manually</a></p>{% endif %}
   {% else %}
-  <p class="bad">Couldn't check that target{% if result.note %}: {{ result.note }}{% endif %}</p>
+  {{ ui.alert('bad', "Couldn't check that target" ~ (': ' ~ result.note if result.note else '')) }}
   {% if manual_path %}<p><a href="/settings/rows/{{ manual_path }}/new">Add it manually</a></p>{% endif %}
   {% endif %}
 {% endif %}

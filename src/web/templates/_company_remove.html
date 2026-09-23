@@ -1,4 +1,5 @@
 {% extends "settings_base.html" %}
+{% import "_ui.html" as ui %}
 {% block section %}
 {# The Companies page's own remove-confirm PAGE (src/web/settings/companies.py
    ::companies_remove_confirm) — a standalone page, not an htmx partial, for
@@ -11,14 +12,14 @@
    discovery independently polls this exact board and would happily
    rediscover it), but the Remove button below still posts to the SAME
    generic route — there is exactly one code path that removes a board. #}
-<p><a href="/settings/companies">&larr; Back to Companies</a></p>
+<p class="back-link"><a href="/settings/companies">&larr; Back to Companies</a></p>
 <h3>Remove &mdash; {{ entry.key }}</h3>
 <p>Remove <strong>{{ entry.label }}</strong> ({{ entry.summary }})? This stops
    job-aggregator polling this board directly.</p>
 
 {% if discovered %}
-<div class="warn-box">
-  <p class="bad">
+{% call ui.alert('warn') %}
+  <p>
     Discovery has also found this board on its own and is tracking it
     independently. Removing it here does not stop discovery — it can
     resurface the same board as a suggestion on
@@ -30,15 +31,15 @@
     address, so the name discovery observed is filled in but editable —
     check it before submitting.
   </p>
-  <form method="post" action="/settings/companies/block">
+  <form method="post" action="/settings/companies/block" class="toolbar">
     <input type="text" name="company" value="{{ block_name }}">
-    <button type="submit" class="btn small">Block this company</button>
+    <button type="submit" class="btn sm">Block this company</button>
   </form>
-</div>
+{% endcall %}
 {% endif %}
 
-<form method="post" action="/settings/rows/{{ entry.path }}/{{ entry.digest }}/remove">
-  <button type="submit" class="btn primary">Remove</button>
-  <a class="btn small" href="/settings/companies">Cancel</a>
+<form method="post" action="/settings/rows/{{ entry.path }}/{{ entry.digest }}/remove" class="actions">
+  <button type="submit" class="btn danger">Remove</button>
+  <a class="btn ghost" href="/settings/companies">Cancel</a>
 </form>
 {% endblock %}

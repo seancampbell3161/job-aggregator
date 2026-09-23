@@ -18,11 +18,11 @@
     <span class="row-summary">
       {% for name, v in row.values.items() %}{{ name }}: {{ v if v is not none else '—' }}{% if not loop.last %} &middot; {% endif %}{% endfor %}
     </span>
-    <a class="btn small" href="/settings/rows/{{ spec.path }}/{{ row.digest }}/edit">Edit</a>
-    <a class="btn small" href="/settings/rows/{{ spec.path }}/{{ row.digest }}/remove">Remove</a>
+    <a class="btn sm" href="/settings/rows/{{ spec.path }}/{{ row.digest }}/edit">Edit</a>
+    <a class="btn sm" href="/settings/rows/{{ spec.path }}/{{ row.digest }}/remove">Remove</a>
   </div>
   {% else %}
   <p class="muted">None configured.</p>
   {% endfor %}
 </div>
-<a class="btn small" href="/settings/rows/{{ spec.path }}/new">+ add one</a>
+<a class="btn sm" href="/settings/rows/{{ spec.path }}/new">+ add one</a>

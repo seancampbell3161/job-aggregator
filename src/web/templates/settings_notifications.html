@@ -8,7 +8,7 @@
   {% endfor %}
 
   <h3>Quiet hours</h3>
-  <p class="field-help">Suppresses phone pushes during a nightly window.
+  <p class="field-hint">Suppresses phone pushes during a nightly window.
     Discord delivery is unaffected, so nothing is lost.</p>
   {% set qh_on = submitted.get('quiet_hours__enabled') if submitted is not none else cfg.quiet_hours %}
   <label class="check"><input type="checkbox" name="quiet_hours__enabled"
@@ -17,6 +17,6 @@
     {{ w.field(spec, shown(submitted, cfg, spec), errors) }}
   {% endfor %}
 
-  <button type="submit" class="btn primary">Save notifications</button>
+  <div class="actions"><button type="submit" class="btn primary">Save notifications</button></div>
 </form>
 {% endblock %}

@@ -1,7 +1,8 @@
 {% extends "settings_base.html" %}
+{% import "_ui.html" as ui %}
 {% block section %}
 {% if status is none %}
-<p class="bad">status unavailable — could not read the connector health store.</p>
+{{ ui.alert('bad', 'status unavailable — could not read the connector health store.') }}
 {% endif %}
 
 {% if blocked %}
@@ -10,12 +11,12 @@
    blocking has no other visible effect on this page (it doesn't render
    filters.blocked_companies), so this is the operator's only confirmation
    that anything happened at all. #}
-<p class="ok">Blocked &ldquo;{{ blocked }}&rdquo; — future postings from this company will be filtered out.</p>
+{% call ui.alert('ok') %}Blocked &ldquo;{{ blocked }}&rdquo; — future postings from this company will be filtered out.{% endcall %}
 {% endif %}
 
-<form class="company-add" hx-post="/settings/companies/probe" hx-target="#probe-result" hx-swap="innerHTML">
+<form class="toolbar" hx-post="/settings/companies/probe" hx-target="#probe-result" hx-swap="innerHTML">
   <input type="text" name="target" placeholder="Paste a careers page URL or domain">
-  <button type="submit" class="btn small">Check</button>
+  <button type="submit" class="btn sm">Check</button>
 </form>
 <div id="probe-result"></div>
 
@@ -26,9 +27,9 @@
     branded Phenom or Avature careers domain — pick its family and fill in the
     details directly.</p>
   {% if not headless_ok %}
-  <p class="bad">Avature boards need a browser, which this image does not
+  {% call ui.alert('warn') %}Avature boards need a browser, which this image does not
     include. Add one here and it will never be polled — switch to the
-    <code>-headless</code> image tag first. (Phenom boards are unaffected.)</p>
+    <code>-headless</code> image tag first. (Phenom boards are unaffected.){% endcall %}
   {% endif %}
   <ul class="manual-add-list">
     {% for family in board_families %}

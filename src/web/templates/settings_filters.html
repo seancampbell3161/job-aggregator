@@ -5,6 +5,6 @@
   {% for spec in fields %}
     {{ w.field(spec, shown(submitted, cfg, spec), errors) }}
   {% endfor %}
-  <button type="submit" class="btn primary">Save filters</button>
+  <div class="actions"><button type="submit" class="btn primary">Save filters</button></div>
 </form>
 {% endblock %}

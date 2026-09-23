@@ -1,24 +1,24 @@
 {% extends "settings_base.html" %}
+{% import "_ui.html" as ui %}
 {% block section %}
 {% if warnings %}
 <ul class="readiness">
   {% for w in warnings %}
   <li class="warn"><span>{{ w.message }}</span>
-    <a class="btn small" href="/settings/{{ w.fix_slug }}">Fix</a></li>
+    <a class="btn sm" href="/settings/{{ w.fix_slug }}">Fix</a></li>
   {% endfor %}
 </ul>
 {% else %}
-<p class="ok">Everything needed to deliver alerts is configured.</p>
+{{ ui.alert('ok', 'Everything needed to deliver alerts is configured.') }}
 {% endif %}
 
 {% if snapshot.degraded %}
-<div class="panel bad-panel">
-  <h3>Newest settings version is invalid</h3>
+{% call ui.card('Newest settings version is invalid', extra_class='danger-edge', tag='div') %}
   <p>Version {{ snapshot.degraded.invalid_version_id }} failed validation, so
     version {{ snapshot.version_id }} is what is running.</p>
   <ul>{% for e in snapshot.degraded.errors %}
     <li><code>{{ e.loc }}</code> {{ e.msg }}</li>{% endfor %}</ul>
-</div>
+{% endcall %}
 {% endif %}
 
 <p class="muted">Version {{ snapshot.version_id }} is in effect.
