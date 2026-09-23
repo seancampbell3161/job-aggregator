@@ -81,41 +81,6 @@
 .ring-value { font-size: 17px; font-weight: 700; fill: var(--text); }
 .rate-caption { font-size: 10px; margin-top: 2px; }
 
-/* == board == */
-.board { display: flex; gap: 12px; align-items: flex-start; overflow-x: auto; }
-.board-col { flex: 1 1 0; min-width: 200px; }
-.board-col-head { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; opacity: .7; margin: 0 0 8px; }
-.board-col-head .count { opacity: .5; }
-.board-card { border: 1px solid #2a2a32; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; background: #1a1a20; }
-.board-card-head { display: flex; align-items: center; gap: 6px; }
-.board-card-title { font-size: 12px; }
-.board-since { font-size: 11px; margin-top: 4px; }
-.board-since .stale { color: #e0a23a; }
-.board-timeline { font-size: 11px; opacity: .6; margin-top: 4px; }
-.board-card-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
-.board-empty { opacity: .35; }
-.board-archive { margin-top: 20px; }
-.archive-row { padding: 4px 0; font-size: 13px; }
-.tag-manual { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; padding: 1px 5px;
-  border-radius: 4px; border: 1px solid var(--border); color: var(--muted); }
-.add-job { margin-bottom: 14px; }
-.add-job > summary { cursor: pointer; font-size: 12px; color: var(--accent); width: max-content; }
-.add-job-form { border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
-  padding: 12px 14px; margin-top: 8px; max-width: 940px; }
-.add-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
-.add-job-form label { display: flex; flex-direction: column; gap: 3px;
-  font-size: 11px; color: var(--muted); }
-.add-job-form label.grow { flex: 1 1 180px; }
-.add-job-form input.narrow { width: 6em; }
-.add-wide { margin-bottom: 10px; }
-.add-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 11px; }
-.add-error { color: #f3b0b0; background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.4);
-  border-radius: 6px; padding: 6px 9px; margin: 0 0 10px; font-size: 12px; }
-.status-tag { font-size: 10px; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; margin-right: 6px; }
-.status-tag.s-rejected { background: rgba(239,68,68,.18); color: #f3b0b0; }
-.status-tag.s-ghosted { background: rgba(148,163,184,.16); color: var(--muted); }
-.status-tag.s-dismissed { background: rgba(148,163,184,.16); color: var(--muted); }
-
 /* == builder == */
 .builder-settings { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
 .builder-settings label { display: flex; flex-direction: column; gap: 4px; font-size: 12px;
