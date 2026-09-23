@@ -63,6 +63,13 @@ def test_the_progress_rail_lists_every_step(tmp_path, monkeypatch):
         assert title in r.text
 
 
+def test_exactly_one_step_is_announced_as_current(tmp_path, monkeypatch):
+    """A screen-reader user tabbing through the rail needs to hear which step
+    they're on; aria-current="step" is how that's announced."""
+    r = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/llm")
+    assert r.text.count('aria-current="step"') == 1
+
+
 def test_unknown_step_is_404(tmp_path, monkeypatch):
     assert signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/nope").status_code == 404
 

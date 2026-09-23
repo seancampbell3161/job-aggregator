@@ -17,6 +17,11 @@
    table. */
 .wizard-body { max-width: 52rem; }
 
+/* The preview results table holds real titles and locations, which are too
+   long to keep on one line inside the 52rem-capped card; let them wrap
+   instead of overflowing it. */
+#preview-result :is(th, td) { white-space: normal; }
+
 /* LLM step: ready-made provider recipes. Each choice is a button (an action
    that fills the form) plus the one line that decides it — a key or a model
    pull — so the trade-off is visible before clicking, not after. */

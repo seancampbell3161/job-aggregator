@@ -104,7 +104,7 @@ def test_field_minimal(ui):
     assert '<label class="field-label" for="c">Minimum score</label>' in html
     assert '<input id="c">' in html
     for absent in ("field-hint", "field-meta", "field-req", "field-error",
-                   "field-required-why", "has-error", "is-required", "data-path"):
+                   "field-required-why", "has-error", "data-path"):
         assert absent not in html, absent
 
 

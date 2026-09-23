@@ -70,7 +70,7 @@ fieldset.card > legend { padding: 0 var(--space-2); font-weight: var(--weight-st
 .alert { display: block; margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3);
   font-size: .8125rem; border: 1px solid; border-radius: var(--radius); overflow-wrap: anywhere; }
 .alert > :last-child { margin-bottom: 0; }
-.alert a { color: inherit; text-decoration: underline; }
+.alert a:not(.btn) { color: inherit; text-decoration: underline; }
 .alert.ok { color: var(--success-text); background: var(--success-subtle); border-color: var(--success-border); }
 .alert.warn { color: var(--warning-text); background: var(--warning-subtle); border-color: var(--warning-border); }
 .alert.bad { color: var(--danger-text); background: var(--danger-subtle); border-color: var(--danger-border); }
@@ -151,6 +151,10 @@ fieldset.card > legend { padding: 0 var(--space-2); font-weight: var(--weight-st
 .chip-sets { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: var(--space-2) 0 var(--space-1); }
 .chip-sets .muted { font-size: .8125rem; }
 .doc-edit { width: 100%; font-family: var(--font-mono); font-size: .8125rem; line-height: 1.5; }
+/* Its own font-size above beats base.css's iOS no-zoom rule; restate it here. */
+@media (max-width: 40rem) {
+  .doc-edit { font-size: var(--text-lg); }
+}
 
 /* ---- Empty state ---- */
 .empty-state { padding: var(--space-6) var(--space-4); text-align: center;

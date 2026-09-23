@@ -5,7 +5,7 @@
 <nav class="wizard-rail">
   <ol>
     {% for s in steps %}
-    <li class="{{ 'current' if s.current else ('done' if s.done else '') }}{{ ' skipped' if s.skipped else '' }}">
+    <li class="{{ 'current' if s.current else ('done' if s.done else '') }}{{ ' skipped' if s.skipped else '' }}"{% if s.current %} aria-current="step"{% endif %}>
       {{ s.step.title }}{% if s.skipped %} <span class="muted">(skipped)</span>{% endif %}
     </li>
     {% endfor %}

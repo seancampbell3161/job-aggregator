@@ -7,6 +7,7 @@
 .settings-nav a.on { background: var(--surface-2); color: var(--text); font-weight: var(--weight-strong); }
 .settings-pane { min-width: 0; max-width: 44rem; }
 .settings-pane > h2 { margin-bottom: var(--space-1); }
+.settings-pane h3 { margin-top: var(--space-6); }
 @media (max-width: 40rem) { .settings { grid-template-columns: 1fr; } }
 .back-link { margin: 0 0 var(--space-3); }
 
