@@ -6,7 +6,7 @@ import pytest
 from src.config import AppConfig, Secrets
 from src.settings.documents import Documents
 from src.web.wizard.steps import (
-    WIZARD_STEPS, build_context, next_step, step_by_slug, step_states,
+    WIZARD_STEPS, build_context, next_step, step_by_slug, step_states, step_summary,
 )
 
 ALL_SLUGS = ["llm", "resume", "review", "companies", "notifications", "preview"]
@@ -130,7 +130,7 @@ def test_everything_skipped_returns_none():
 
 
 def test_step_states_marks_done_skipped_and_current():
-    states = step_states(_ctx(), skipped={"llm"})
+    states = step_states(_ctx(), skipped={"llm"}, viewed="resume")
     by_slug = {s.step.slug: s for s in states}
     assert by_slug["llm"].skipped is True
     assert by_slug["resume"].current is True
@@ -138,9 +138,9 @@ def test_step_states_marks_done_skipped_and_current():
     assert len(states) == len(WIZARD_STEPS)
 
 
-def test_a_skipped_step_is_not_also_current():
-    states = step_states(_ctx(), skipped={"llm"})
-    assert not any(s.skipped and s.current for s in states)
+def test_the_resume_step_is_never_a_skipped_one():
+    states = step_states(_ctx(), skipped={"llm"}, viewed="llm")
+    assert not any(s.skipped and s.resume for s in states)
 
 
 def test_step_states_done_flag_is_accurate():
@@ -153,7 +153,7 @@ def test_step_states_done_flag_is_accurate():
     )
     ctx = _ctx(cfg, documents=Documents(resume_text="r", profile="# Me"),
                secrets={"ntfy_topic_url"})
-    states = step_states(ctx, skipped=set())
+    states = step_states(ctx, skipped=set(), viewed=None)
     by_slug = {s.step.slug: s for s in states}
     # At this point: llm (incomplete), resume (complete), review (complete),
     # companies (complete), notifications (complete), preview (incomplete)
@@ -183,3 +183,115 @@ def test_companies_step_is_incomplete_on_a_fresh_install():
     ctx = _ctx()  # plain AppConfig(), nothing disabled
     assert "nothing_polled" not in ctx.codes
     assert next_step(ctx, skipped={"llm", "resume", "review"}).slug == "companies"
+
+
+# ---- summaries ----
+
+def _state(ctx, slug, *, skipped=(), viewed=None):
+    return {s.step.slug: s for s in step_states(ctx, skipped=set(skipped), viewed=viewed)}[slug]
+
+
+def test_llm_summary_names_provider_and_model():
+    cfg = AppConfig(relevance={"enabled": True, "provider": "anthropic", "model": "claude-haiku"},
+                    secrets=Secrets(anthropic_api_key="k"))
+    ctx = _ctx(cfg, secrets={"anthropic_api_key"})
+    assert step_summary(step_by_slug("llm"), ctx, skipped=False) == "Anthropic · claude-haiku"
+
+
+def test_llm_skipped_summary_names_the_consequence():
+    assert step_summary(step_by_slug("llm"), _ctx(), skipped=True) == "Skipped — keyword matches only"
+
+
+def test_notifications_skipped_summary_names_the_consequence():
+    assert step_summary(step_by_slug("notifications"), _ctx(), skipped=True) == "Skipped — no alerts"
+
+
+@pytest.mark.parametrize("slug", ["resume", "review", "companies", "preview"])
+def test_other_skipped_steps_just_say_skipped(slug):
+    assert step_summary(step_by_slug(slug), _ctx(), skipped=True) == "Skipped"
+
+
+def test_an_unreached_step_has_no_summary():
+    assert step_summary(step_by_slug("resume"), _ctx(), skipped=False) is None
+
+
+def test_done_wins_over_skipped():
+    """A step skipped in the wizard and later completed from Settings shows
+    what it produced, not "Skipped"."""
+    ctx = _ctx(documents=Documents(resume_text="r"))
+    assert step_summary(step_by_slug("resume"), ctx, skipped=True) == "Résumé saved"
+
+
+def test_review_summary_counts_titles_and_age():
+    cfg = AppConfig(filters={"titles": ["a", "b"], "max_age_days": 7})
+    ctx = _ctx(cfg, documents=Documents(profile="# Me"))
+    assert step_summary(step_by_slug("review"), ctx, skipped=False) == "2 titles · last 7 days"
+
+
+def test_review_summary_singulars():
+    cfg = AppConfig(filters={"titles": ["a"], "max_age_days": 1})
+    ctx = _ctx(cfg, documents=Documents(profile="# Me"))
+    assert step_summary(step_by_slug("review"), ctx, skipped=False) == "1 title · last 1 day"
+
+
+def test_companies_summary_counts_boards_and_notes_discovery():
+    cfg = AppConfig(sources={"greenhouse": ["stripe", "figma"], "lever": ["x"]},
+                    discovery={"enabled": True})
+    assert step_summary(step_by_slug("companies"), _ctx(cfg), skipped=False) == "3 companies · discovery on"
+
+
+def test_companies_summary_counts_structured_boards():
+    cfg = AppConfig(sources={"workday": [{"tenant": "acme", "region": "wd1", "site": "External"}]})
+    assert step_summary(step_by_slug("companies"), _ctx(cfg), skipped=False) == "1 company"
+
+
+def test_companies_summary_discovery_only():
+    cfg = AppConfig(discovery={"enabled": True})
+    assert step_summary(step_by_slug("companies"), _ctx(cfg), skipped=False) == "Discovery on"
+
+
+def test_notifications_summary_lists_channels_in_order():
+    ctx = _ctx(secrets={"ntfy_topic_url", "discord_webhook_url"})
+    assert step_summary(step_by_slug("notifications"), ctx, skipped=False) == "ntfy · Discord"
+
+
+def test_resume_and_preview_done_summaries():
+    ctx = _ctx(documents=Documents(resume_text="r"), preview_done=True)
+    assert step_summary(step_by_slug("resume"), ctx, skipped=False) == "Résumé saved"
+    assert step_summary(step_by_slug("preview"), ctx, skipped=False) == "Preview ran"
+
+
+# ---- viewed / resume / link ----
+
+def test_states_carry_index_and_summary():
+    states = step_states(_ctx(), skipped={"llm"}, viewed="resume")
+    assert [s.index for s in states] == [1, 2, 3, 4, 5, 6]
+    assert states[0].summary == "Skipped — keyword matches only"
+
+
+def test_viewed_step_is_current_and_never_a_link():
+    by = {s.step.slug: s for s in step_states(_ctx(), skipped={"llm"}, viewed="llm")}
+    assert by["llm"].current is True and by["llm"].link is False
+    assert sum(s.current for s in by.values()) == 1
+
+
+def test_resume_step_is_linked_when_viewing_an_earlier_one():
+    by = {s.step.slug: s for s in step_states(_ctx(), skipped={"llm"}, viewed="llm")}
+    assert by["resume"].resume is True
+    assert by["resume"].link is True
+
+
+def test_done_and_skipped_steps_are_links_later_steps_are_not():
+    ctx = _ctx(documents=Documents(resume_text="r"))   # resume done
+    by = {s.step.slug: s for s in step_states(ctx, skipped={"llm"}, viewed="review")}
+    assert by["llm"].link is True        # skipped
+    assert by["resume"].link is True     # done
+    assert by["review"].link is False    # viewed (and the resume step)
+    assert by["companies"].link is False  # not reached
+    assert by["preview"].link is False
+
+
+def test_no_viewed_step_on_the_done_page():
+    states = step_states(_ctx(), skipped=set(ALL_SLUGS), viewed=None)
+    assert not any(s.current for s in states)
+    assert not any(s.resume for s in states)   # next_step() is None

@@ -103,7 +103,8 @@ def current_context(request: Request):
 
 def wizard_ctx(request: Request, step, *, paths: tuple[str, ...] = (),
                secrets: tuple[str, ...] = (), **extra) -> dict:
-    states = step_states(current_context(request), request.app.state.stores.wizard.skipped())
+    states = step_states(current_context(request), request.app.state.stores.wizard.skipped(),
+                          viewed=step.slug if step else None)
     ctx = {
         "step": step,
         "steps": states,

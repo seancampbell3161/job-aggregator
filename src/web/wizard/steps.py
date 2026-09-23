@@ -21,6 +21,8 @@ class StepContext:
     documents: Documents
     codes: frozenset[str]
     preview_done: bool
+    # Delivery channels whose secret is set, for the notifications summary.
+    channels: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -36,7 +38,11 @@ class StepState:
     step: WizardStep
     done: bool
     skipped: bool
-    current: bool
+    current: bool          # the step being viewed (not necessarily the next one)
+    index: int = 0         # 1-based position, for the rail marker
+    summary: str | None = None
+    resume: bool = False   # next_step(): where Save/Skip will land
+    link: bool = False     # rendered as a link in the rail
 
 
 def _llm_done(ctx: StepContext) -> bool:
@@ -123,6 +129,65 @@ def step_by_slug(slug: str) -> WizardStep | None:
     return _BY_SLUG.get(slug)
 
 
+_CHANNELS = (("ntfy_topic_url", "ntfy"), ("discord_webhook_url", "Discord"))
+_PROVIDERS = {"anthropic": "Anthropic", "gemini": "Gemini", "ollama": "Ollama"}
+
+
+def _count(n: int, one: str, many: str) -> str:
+    return f"{n} {one if n == 1 else many}"
+
+
+def _company_count(cfg: AppConfig) -> int:
+    return sum(len(getattr(cfg.sources, f, None) or ())
+               for f in (*SLUG_SOURCE_FAMILIES, *STRUCTURED_FAMILIES))
+
+
+def _llm_summary(ctx: StepContext) -> str:
+    r = ctx.cfg.relevance
+    return f"{_PROVIDERS.get(r.provider, r.provider)} · {r.model}"
+
+
+def _review_summary(ctx: StepContext) -> str:
+    f = ctx.cfg.filters
+    parts = [_count(len(f.titles), "title", "titles")]
+    if f.max_age_days is not None:
+        parts.append("last " + _count(f.max_age_days, "day", "days"))
+    return " · ".join(parts)
+
+
+def _companies_summary(ctx: StepContext) -> str:
+    n = _company_count(ctx.cfg)
+    if n == 0:
+        return "Discovery on"
+    text = _count(n, "company", "companies")
+    return text + " · discovery on" if ctx.cfg.discovery.enabled else text
+
+
+_DONE_SUMMARY: dict[str, Callable[[StepContext], str]] = {
+    "llm": _llm_summary,
+    "resume": lambda ctx: "Résumé saved",
+    "review": _review_summary,
+    "companies": _companies_summary,
+    "notifications": lambda ctx: " · ".join(ctx.channels),
+    "preview": lambda ctx: "Preview ran",
+}
+# Skipping these two changes what the app does, so say what.
+_SKIPPED_SUMMARY = {
+    "llm": "Skipped — keyword matches only",
+    "notifications": "Skipped — no alerts",
+}
+
+
+def step_summary(step: WizardStep, ctx: StepContext, *, skipped: bool) -> str | None:
+    """The rail's one-line note under a step title. Done wins over skipped: a
+    step skipped here and finished later in Settings shows what it produced."""
+    if step.complete(ctx):
+        return _DONE_SUMMARY[step.slug](ctx)
+    if skipped:
+        return _SKIPPED_SUMMARY.get(step.slug, "Skipped")
+    return None
+
+
 def build_context(
     cfg: AppConfig,
     documents: Documents,
@@ -135,8 +200,10 @@ def build_context(
             cfg, has_profile=bool(documents.profile), secret_source=secret_source,
         )
     )
+    channels = tuple(label for name, label in _CHANNELS if secret_source(name) != "unset")
     return StepContext(
         cfg=cfg, documents=documents, codes=codes, preview_done=preview_done,
+        channels=channels,
     )
 
 
@@ -150,16 +217,25 @@ def next_step(ctx: StepContext, skipped: Iterable[str]) -> WizardStep | None:
     return None
 
 
-def step_states(ctx: StepContext, skipped: Iterable[str]) -> list[StepState]:
-    """Every step with its status, for the progress rail."""
+def step_states(
+    ctx: StepContext, skipped: Iterable[str], *, viewed: str | None,
+) -> list[StepState]:
+    """Every step with its status, for the progress rail. `viewed` is the
+    step page being rendered (None on /wizard/done). A step is a link when
+    it is not the one on screen and is done, skipped, or where Save/Skip
+    would land — so someone who went back can jump forward again."""
     skipped = set(skipped)
-    current = next_step(ctx, skipped)
-    return [
-        StepState(
-            step=step,
-            done=step.complete(ctx),
-            skipped=step.slug in skipped,
-            current=current is not None and step.slug == current.slug,
-        )
-        for step in WIZARD_STEPS
-    ]
+    resume = next_step(ctx, skipped)
+    states = []
+    for i, step in enumerate(WIZARD_STEPS, start=1):
+        done = step.complete(ctx)
+        is_skipped = step.slug in skipped
+        is_resume = resume is not None and step.slug == resume.slug
+        is_viewed = step.slug == viewed
+        states.append(StepState(
+            step=step, done=done, skipped=is_skipped, current=is_viewed,
+            index=i, summary=step_summary(step, ctx, skipped=is_skipped),
+            resume=is_resume,
+            link=not is_viewed and (done or is_skipped or is_resume),
+        ))
+    return states
