@@ -5,7 +5,7 @@
 <div class="pipeline">
   {% if p.triage %}
   <div class="pl-block">
-    <div class="pl-eyebrow">Triage · {{ p.triage.total }} matches</div>
+    <div class="eyebrow">Triage · {{ p.triage.total }} matches</div>
     <div class="pl-bar" role="img" aria-label="Triage of {{ p.triage.total }} matches:
          {%- for s in p.triage.segments %} {{ s.label }} {{ s.count }}, {{ s.share }}
          {%- if not loop.last %};{% endif %}{% endfor %}">
@@ -25,7 +25,7 @@
 
   {% if p.steps %}
   <div class="pl-block">
-    <div class="pl-eyebrow">How far they got <span class="pl-note">· % of previous stage</span></div>
+    <div class="eyebrow">How far they got <span class="pl-note">· % of previous stage</span></div>
     <div class="pl-steps">
       {% for s in p.steps %}
       <span class="pl-step-name">{{ s.label }}</span>
@@ -43,7 +43,7 @@
 
   {% if p.standing %}
   <div class="pl-block">
-    <div class="pl-eyebrow">Where those {{ p.live }} stand now</div>
+    <div class="eyebrow">Where those {{ p.live }} stand now</div>
     <div class="pl-bar" role="img" aria-label="Current status of {{ p.live }} jobs:
          {%- for s in p.standing %} {{ s.label }} {{ s.count }}, {{ s.share }}
          {%- if not loop.last %};{% endif %}{% endfor %}">

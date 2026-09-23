@@ -1,0 +1,59 @@
+/* Analytics (/analytics): breakdown tables, pipeline bands, funnel, rate rings.
+
+   Pipeline = three stacked bands, not a Sankey. The flow diagram was replaced
+   because this data is a linear funnel that barely narrows (70 -> 66 -> 63)
+   before splitting into outcomes, which drew as near-identical slabs; see
+   funnel.build_pipeline. Palette: --pl-* in tokens.css. */
+.cols { display: flex; flex-wrap: wrap; gap: var(--space-5); }
+.cols table { flex: 1; min-width: 200px; }
+.cols table + table { margin-top: 0; }   /* cancel the card sibling-margin inside the flex row */
+
+.pipeline { max-width: 1000px; }
+.pl-block { margin-bottom: 22px; }
+.pl-note { text-transform: none; letter-spacing: 0; }
+
+/* Proportional bands. flex-grow carries the proportion so no percentage
+   rounding can make the row over- or under-fill; min-width keeps a sliver
+   segment visible and hoverable for its tooltip instead of collapsing. */
+.pl-bar { display: flex; gap: 2px; height: 26px; overflow: hidden; border-radius: var(--radius); }
+.pl-seg { flex-basis: 0; min-width: 3px; }
+.pl-key { display: flex; flex-wrap: wrap; gap: var(--space-1) 18px; margin: var(--space-2) 0 0;
+  padding: 0; list-style: none; font-size: var(--text-sm); }
+.pl-key li { display: flex; align-items: center; gap: 6px; }
+.pl-dot { flex: none; width: 9px; height: 9px; border-radius: 2px; }
+
+/* Progression funnel: name | proportional bar | count | conversion. */
+.pl-steps { display: grid; grid-template-columns: auto 1fr auto auto; gap: 7px var(--space-3); align-items: center; }
+.pl-step-name { font-size: var(--text-sm); white-space: nowrap; }
+.pl-track { display: block; height: 20px; overflow: hidden; border-radius: var(--radius-sm); background: var(--surface-2); }
+.pl-fill { display: block; height: 100%; border-radius: var(--radius-sm); }
+.pl-step-n { min-width: 34px; font-size: .8125rem; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.pl-step-pct { min-width: 40px; font-size: var(--text-xs); text-align: right; font-variant-numeric: tabular-nums; }
+
+.pl-pipeline { background: var(--pl-pipeline); }
+.pl-interested { background: var(--pl-interested); }
+.pl-applied { background: var(--pl-applied); }
+.pl-interviewing { background: var(--pl-interviewing); }
+.pl-offer { background: var(--pl-offer); }
+.pl-rejected { background: var(--pl-rejected); }
+.pl-awaiting { background: var(--pl-awaiting); }
+.pl-ghosted { background: var(--pl-ghosted); }
+.pl-still_new { background: var(--pl-still_new); }
+.pl-dismissed { background: var(--pl-dismissed); }
+.pl-withdrawn { background: var(--pl-withdrawn); }
+.pl-other { background: var(--pl-other); }
+
+.pl-flows { margin-top: var(--space-1); }
+.pl-flows > summary { font-size: var(--text-sm); color: var(--text-muted); }
+
+/* A meter row under the bands rather than a column beside them: stacked
+   vertically the three tiles left a void alongside the panel. */
+.rate-tiles { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: 14px; }
+.rate-tile { flex: 1 1 220px; display: flex; align-items: center; gap: 11px; padding: var(--space-2) var(--space-3);
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.rate-label { font-size: var(--text-sm); font-weight: var(--weight-strong); }
+.ring { flex: none; width: 54px; height: 54px; }
+.ring-track { fill: none; stroke: var(--accent-subtle); stroke-width: 8; }
+.ring-fill { fill: none; stroke: var(--accent); stroke-width: 8; stroke-linecap: round; }
+.ring-value { font-size: 17px; font-weight: 700; fill: var(--text); }
+.rate-caption { margin-top: 2px; font-size: .625rem; }

@@ -1,0 +1,49 @@
+/* Pipeline (/pipeline): tier freshness chips, connector health, cycle stats, failure triage. */
+
+/* Per-tier freshness chips — colour-coded borders so a stalled/failing tier
+   reads at a glance without dominating the layout. (.ok/.warn/.bad also set
+   the text colour, as the text utilities do everywhere.) */
+.tier-strip { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-bottom: 14px; }
+.tier-chip { padding: var(--space-1) 11px; font-size: var(--text-sm); white-space: nowrap;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-pill); }
+.tier-chip b { margin-right: 3px; font-weight: var(--weight-strong); text-transform: uppercase; letter-spacing: .03em; }
+.tier-chip.ok { border-color: var(--success-border); }
+.tier-chip.warn { border-color: var(--warning-border); color: var(--warning-text); }
+.tier-chip.bad { border-color: var(--danger-border); color: var(--danger-text); background: var(--danger-subtle); }
+.tier-note { font-size: var(--text-sm); }
+.ops-note { font-size: var(--text-xs); }
+.ops-summary { margin-top: 10px; }
+
+.tally { font-size: var(--text-sm); line-height: 1.7; }
+.tally .bad { font-weight: var(--weight-strong); }
+.tally-spaced { margin-top: 9px; }
+
+/* Fetch-failure triage: connector families as severity-graded rows. A left
+   colour-bar keyed to failure volume lets the worst family read first,
+   instead of the old wall where a ×113 and a ×2 chip looked identical. */
+.fam-list { margin: var(--space-2) 0 2px; }
+.fam-row { display: flex; align-items: baseline; gap: 10px; padding: var(--space-1) 0 var(--space-1) 10px;
+  font-size: var(--text-sm); border-left: 3px solid var(--border); }
+.fam-row + .fam-row { border-top: 1px solid var(--border); }
+.fam-row .fam-name { min-width: 96px; font-weight: var(--weight-strong); }
+.fam-row .fam-count { min-width: 52px; font-variant-numeric: tabular-nums; }
+.fam-row .fam-type { color: var(--danger-text); }
+.fam-row .fam-ago { margin-left: auto; }   /* recency pinned to the right edge */
+.fam-row.sev-hi { border-left-color: var(--danger); background: var(--danger-subtle); }
+.fam-row.sev-mid { border-left-color: var(--warning); }
+.fam-row.sev-lo { border-left-color: var(--danger-border); }
+.fam-empty { margin: 6px 0; }
+.fam-stale, .fam-detail { margin-top: var(--space-2); }
+.fam-stale > summary, .fam-detail > summary { font-size: var(--text-sm); }
+.fam-detail .tally { margin-top: 6px; }
+
+/* Pack cards into two columns so wide screens aren't mostly empty. Left =
+   connector health; right = analytics + cycle stats stacked. Collapses to
+   one column below 1200px so the wide 6-col cycle table never gets squeezed.
+   align-items:start keeps each card its natural height. */
+.ops-grid { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(480px, 1.15fr);
+  gap: var(--space-4); align-items: start; }
+.ops-grid .card { margin-bottom: 0; }   /* the grid gap owns the spacing */
+.ops-col { display: grid; gap: var(--space-4); align-items: start; }
+table.wide { width: 100%; }
+@media (max-width: 1200px) { .ops-grid { grid-template-columns: 1fr; } }

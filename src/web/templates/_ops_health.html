@@ -1,16 +1,16 @@
-<div class="panel">
-  <h3>Connector health</h3>
+{% import "_ui.html" as ui %}
+{% call ui.card('Connector health') %}
   {% if health is none %}
     <p class="muted">unavailable — could not read discovered_slugs.</p>
   {% else %}
     <p><span class="v ok">{{ health.ok }}</span> ok ·
        <span class="v warn">{{ health.failed }}</span> failed ·
        <span class="v bad">{{ health.quarantined }}</span> quarantined</p>
-    <p class="muted" style="font-size:11px">
+    <p class="muted ops-note">
       discovery negative-cache: {{ health.no_match }} slugs matched no ATS (not polled)
     </p>
     {% if health.suppressed %}
-    <p class="muted" style="font-size:11px">
+    <p class="muted ops-note">
       auto-suppressed (dead 404/410, re-probed daily): {{ health.suppressed | length }}
       — {{ health.suppressed | join(', ') }}
     </p>
@@ -28,4 +28,4 @@
     <p class="muted">All tracked connectors healthy.</p>
     {% endif %}
   {% endif %}
-</div>
+{% endcall %}
