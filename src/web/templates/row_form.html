@@ -1,35 +1,42 @@
 {% extends "settings_base.html" %}
+{% import "_ui.html" as ui %}
 {% block section %}
-<p><a href="/settings/{{ section.slug }}">&larr; Back to {{ section.title }}</a></p>
+<p class="back-link"><a href="/settings/{{ section.slug }}">&larr; Back to {{ section.title }}</a></p>
 {% if not gone %}
 <h3>{{ 'Edit' if digest else 'Add' }} &mdash; {{ path }}</h3>
-<form method="post" action="{{ action }}" class="row-form">
+<form method="post" action="{{ action }}">
   {% for spec in fields %}
-  <div class="field {{ 'has-error' if spec.path in errors }}">
-    {% if spec.kind == 'bool' %}
-    <label class="check"><input type="checkbox" id="r-{{ spec.path }}" name="item.{{ spec.path }}"
-      {% if values.get(spec.path) %}checked{% endif %}> {{ spec.label }}</label>
-    {% else %}
-    <label class="field-label" for="r-{{ spec.path }}">{{ spec.label }}</label>
+  {% set rid = 'r-' ~ spec.path %}
+  {% set err = errors[spec.path] if spec.path in errors else none %}
+  {% set v = values.get(spec.path) %}
+  {% set aria %}{% if err %} aria-invalid="true" aria-describedby="{{ rid }}-error"{% endif %}{% endset %}
+  {% if spec.kind == 'bool' %}
+  {% call ui.field(control_id=rid, error=err) %}
+    <label class="check"><input type="checkbox" id="{{ rid }}" name="item.{{ spec.path }}"
+      {%- if v %} checked{% endif %}{{ aria }}> {{ spec.label }}</label>
+  {% endcall %}
+  {% else %}
+  {% call ui.field(label=spec.label, control_id=rid, error=err) %}
     {% if spec.kind == 'choice' %}
-    <select id="r-{{ spec.path }}" name="item.{{ spec.path }}">
+    <select id="{{ rid }}" name="item.{{ spec.path }}"{{ aria }}>
       {% if spec.optional %}<option value="">(unset)</option>{% endif %}
       {% for c in spec.choices %}
-      <option value="{{ c }}" {% if values.get(spec.path) == c %}selected{% endif %}>{{ c }}</option>
+      <option value="{{ c }}" {% if v == c %}selected{% endif %}>{{ c }}</option>
       {% endfor %}
     </select>
     {% elif spec.kind == 'int' %}
-    <input id="r-{{ spec.path }}" type="number" name="item.{{ spec.path }}"
-      value="{{ '' if values.get(spec.path) is none else values.get(spec.path) }}">
+    <input id="{{ rid }}" type="number" name="item.{{ spec.path }}"
+      value="{{ '' if v is none else v }}"{{ aria }}>
     {% else %}
-    <input id="r-{{ spec.path }}" name="item.{{ spec.path }}"
-      value="{{ values.get(spec.path) if values.get(spec.path) is not none else '' }}">
+    <input id="{{ rid }}" name="item.{{ spec.path }}"
+      value="{{ v if v is not none else '' }}"{{ aria }}>
     {% endif %}
-    {% endif %}
-    {% if spec.path in errors %}<p class="bad field-error">{{ errors[spec.path] }}</p>{% endif %}
-  </div>
+  {% endcall %}
+  {% endif %}
   {% endfor %}
-  <button type="submit" class="btn primary">{{ 'Save' if digest else 'Add' }}</button>
+  <div class="actions">
+    <button type="submit" class="btn primary">{{ 'Save' if digest else 'Add' }}</button>
+  </div>
 </form>
 {% endif %}
 {% endblock %}

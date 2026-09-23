@@ -78,3 +78,56 @@ def test_only_true_secrets_are_masked(tmp_path, monkeypatch):
     url_idx = notif_html.index('name="secret.ntfy_topic_url"')
     assert 'type="text"' in notif_html[url_idx - 60:url_idx]
     assert 'type="password"' not in notif_html[url_idx - 60:url_idx]
+
+
+def _int_with_default():
+    """An int field that has a default, so its label row carries meta."""
+    return next(s for s in field_map().values() if s.kind == "int" and s.default is not None)
+
+
+def test_field_error_is_wired_to_its_control(tmp_path, monkeypatch):
+    spec = field_map()["filters.max_age_days"]
+    assert spec.kind == "int"
+    html = str(_macros(tmp_path, monkeypatch).field(spec, 5, {spec.path: "too big"}))
+    cid = f"f-{spec.path}"
+    assert f'id="{cid}"' in html
+    assert 'aria-invalid="true"' in html
+    assert f'aria-describedby="{cid}-error"' in html
+    assert f'<p class="field-error" id="{cid}-error">too big</p>' in html
+    assert "has-error" in html
+
+
+def test_a_valid_field_carries_no_error_wiring(tmp_path, monkeypatch):
+    spec = field_map()["filters.max_age_days"]
+    html = str(_macros(tmp_path, monkeypatch).field(spec, 5, {}))
+    assert "aria-invalid" not in html
+    assert "field-error" not in html
+    assert "has-error" not in html
+
+
+def test_the_hint_renders_above_the_control(tmp_path, monkeypatch):
+    spec = field_map()["filters.max_age_days"]   # has help text (see the disclosure test above)
+    html = str(_macros(tmp_path, monkeypatch).field(spec, 5, {}))
+    assert html.index('class="field-hint"') < html.index(f'id="f-{spec.path}"')
+
+
+def test_the_default_sits_in_the_label_row(tmp_path, monkeypatch):
+    spec = _int_with_default()
+    html = str(_macros(tmp_path, monkeypatch).field(spec, None, {}))
+    assert f'<span class="field-meta">default {spec.default}</span>' in html
+    assert html.index("field-meta") < html.index("</label>")
+
+
+def test_a_bool_field_is_a_checkbox_label_not_a_field_label(tmp_path, monkeypatch):
+    spec = next(s for s in field_map().values() if s.kind == "bool")
+    html = str(_macros(tmp_path, monkeypatch).field(spec, True, {}))
+    assert '<label class="check">' in html
+    assert "field-label" not in html
+    assert f'id="f-{spec.path}"' in html and "checked" in html
+
+
+def test_a_multi_choice_field_labels_the_group_not_a_control(tmp_path, monkeypatch):
+    spec = field_map()["filters.seniority_allow"]
+    html = str(_macros(tmp_path, monkeypatch).field(spec, ["mid"], {}))
+    assert '<span class="field-label">' in html
+    assert f'for="f-{spec.path}"' not in html   # there is no single control to point at

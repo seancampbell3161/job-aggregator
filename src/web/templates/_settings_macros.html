@@ -1,7 +1,12 @@
+{# Config-spec adapters over ui.field (_ui.html). Settings sections and wizard
+   steps call these with a FieldSpec; the markup of a field — label row,
+   hint, control, required note, error — lives once, in ui.field. #}
+{% import "_ui.html" as ui %}
+
 {% macro help_for(path) %}
   {% set h = field_help(path) %}
   {% if h %}
-  <p class="field-help">{{ h.summary|safe }}</p>
+  <p>{{ h.summary|safe }}</p>
   {% if h.full != h.summary %}
   <details class="field-more"><summary>more</summary>{{ h.full|safe }}</details>
   {% endif %}
@@ -13,7 +18,7 @@
     {% for v in values %}<input type="text" name="{{ path }}" value="{{ v }}">{% endfor %}
     <input type="text" name="{{ path }}" value="" placeholder="add one…">
   </div>
-  <button type="button" class="btn small" onclick="addChip(this)">+ add another</button>
+  <button type="button" class="btn sm" onclick="addChip(this)">+ add another</button>
 {% endmacro %}
 
 {# One-click variant sets for a chips field. Adds only; never removes what is
@@ -24,19 +29,18 @@
 <div class="chip-sets">
   <span class="muted">Add a set:</span>
   {% for ts in sets %}
-  <button type="button" class="btn small chip-set"
+  <button type="button" class="btn sm chip-set"
           data-target="{{ path }}" data-values='{{ ts.titles | tojson }}'>{{ ts.label }}</button>
   {% endfor %}
 </div>
 {% endmacro %}
 
 {% macro secret_field(s, errors, probe_targets, test_prefix) %}
-<div class="field">
-  <label class="field-label" for="s-{{ s.name }}">{{ s.label }}
-    <span class="field-meta">{{ s.source }}</span></label>
+{% call ui.field(label=s.label, control_id='s-' ~ s.name, meta=s.source,
+                 hint=help_for('secrets.' ~ s.name) | trim) %}
   {% if s.source == 'env' %}
     <input id="s-{{ s.name }}" type="text" disabled value="set by {{ s.env_var }}">
-    <p class="field-help">The environment variable wins. Remove it from
+    <p class="field-hint">The environment variable wins. Remove it from
       <code>.env</code> and recreate the container to manage this here.</p>
   {% else %}
     <input id="s-{{ s.name }}" type="{{ 'password' if s.masked else 'text' }}"
@@ -48,12 +52,11 @@
     {% endif %}
   {% endif %}
   {% if probe_targets and s.name in probe_targets %}
-  <button type="button" class="btn small" hx-post="{{ test_prefix }}{{ probe_targets[s.name] }}"
+  <button type="button" class="btn sm" hx-post="{{ test_prefix }}{{ probe_targets[s.name] }}"
           hx-include="closest form" hx-target="#probe-{{ s.name }}">Test</button>
   <div id="probe-{{ s.name }}"></div>
   {% endif %}
-  {{ help_for('secrets.' ~ s.name) }}
-</div>
+{% endcall %}
 {% endmacro %}
 
 {# `required` maps a config path to WHY it is required — a step passes the
@@ -62,19 +65,32 @@
    this exactly as before. #}
 {% macro field(spec, value, errors, required=None) %}
 {% set why = (required or {}).get(spec.path) %}
-<div class="field {{ 'has-error' if spec.path in errors }}{{ ' is-required' if why is not none }}"
-     data-path="{{ spec.path }}">
-  {% if why is not none %}<span class="req">required</span>{% endif %}
-  {% if spec.kind == 'bool' %}
-    <label class="check"><input type="checkbox" name="{{ spec.path }}"
-      {% if value %}checked{% endif %}> {{ spec.label }}</label>
-  {% elif spec.kind == 'rows' %}
-    <span class="field-label">{{ spec.label }}</span>
+{% set err = errors[spec.path] if spec.path in errors else none %}
+{% set cid = 'f-' ~ spec.path %}
+{% set hint = help_for(spec.path) | trim %}
+{% set aria %}{% if err %} aria-invalid="true" aria-describedby="{{ cid }}-error"{% endif %}{% endset %}
+{% if spec.kind == 'bool' %}
+  {# A checkbox's own label is its label; the hint follows the box. #}
+  {% call ui.field(control_id=cid, required=why, error=err, path=spec.path) %}
+  <label class="check"><input type="checkbox" id="{{ cid }}" name="{{ spec.path }}"
+    {%- if value %} checked{% endif %}{{ aria }}> {{ spec.label }}</label>
+  {% if hint %}<div class="field-hint">{{ hint }}</div>{% endif %}
+  {% endcall %}
+{% elif spec.kind == 'rows' %}
+  {% call ui.field(label=spec.label, hint=hint, required=why, error=err, path=spec.path) %}
     {% include "_rows.html" %}
-  {% else %}
-    <label class="field-label" for="f-{{ spec.path }}">{{ spec.label }}</label>
+  {% endcall %}
+{% else %}
+  {# chips and multi_choice are groups of controls: the label names the
+     group (a <span>), not one control. #}
+  {% set single = spec.kind not in ('multi_choice', 'chips') %}
+  {% set meta = ('default ' ~ spec.default)
+       if spec.default is not none and spec.kind not in ('chips', 'multi_choice', 'read_only')
+       else none %}
+  {% call ui.field(label=spec.label, control_id=cid if single else none, hint=hint,
+                   meta=meta, required=why, error=err, path=spec.path) %}
     {% if spec.kind == 'choice' %}
-      <select id="f-{{ spec.path }}" name="{{ spec.path }}">
+      <select id="{{ cid }}" name="{{ spec.path }}"{{ aria }}>
         {% if spec.optional %}<option value="">(unset)</option>{% endif %}
         {% for c in spec.choices %}
         <option value="{{ c }}" {% if value == c %}selected{% endif %}>{{ c }}</option>
@@ -90,24 +106,18 @@
     {% elif spec.kind == 'chips' %}
       {{ chips(spec.path, value or []) }}
     {% elif spec.kind == 'int' %}
-      <input id="f-{{ spec.path }}" type="number" name="{{ spec.path }}"
+      <input id="{{ cid }}" type="number" name="{{ spec.path }}"
         value="{{ '' if value is none else value }}"
         {% if spec.ge is not none %}min="{{ spec.ge }}"{% endif %}
         {% if spec.le is not none %}max="{{ spec.le }}"{% endif %}
-        {% if spec.optional %}placeholder="unset"{% endif %}>
+        {% if spec.optional %}placeholder="unset"{% endif %}{{ aria }}>
     {% elif spec.kind == 'time' %}
-      <input id="f-{{ spec.path }}" type="time" name="{{ spec.path }}"
-        value="{{ value or '' }}">
+      <input id="{{ cid }}" type="time" name="{{ spec.path }}"
+        value="{{ value or '' }}"{{ aria }}>
     {% else %}
-      <input id="f-{{ spec.path }}" type="text" name="{{ spec.path }}"
-        value="{{ value if value is not none else '' }}">
+      <input id="{{ cid }}" type="text" name="{{ spec.path }}"
+        value="{{ value if value is not none else '' }}"{{ aria }}>
     {% endif %}
-    <span class="field-meta">
-      {%- if spec.default is not none and spec.kind not in ('chips', 'multi_choice', 'read_only') %}default {{ spec.default }}{% endif -%}
-    </span>
-  {% endif %}
-  {{ help_for(spec.path) }}
-  {% if why %}<p class="field-required-why">{{ why }}</p>{% endif %}
-  {% if spec.path in errors %}<p class="bad field-error">{{ errors[spec.path] }}</p>{% endif %}
-</div>
+  {% endcall %}
+{% endif %}
 {% endmacro %}

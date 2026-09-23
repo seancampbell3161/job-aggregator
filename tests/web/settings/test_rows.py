@@ -1,4 +1,6 @@
 """The generic row editor: add, edit, remove one entry of a rows field."""
+import re
+
 from src.settings.errors import SettingsInvalid, StaleWrite
 from src.web.app import create_app
 from tests.auth_helpers import signed_in_client
@@ -24,9 +26,8 @@ def _field_block(html: str, name: str) -> str:
     `name` attribute — so a test can assert an error is nested under the
     field it belongs to, not merely present somewhere on the page."""
     start = html.index(f'name="{name}"')
-    end = html.find('<div class="field', start)
-    if end == -1:
-        end = html.index("</form>", start)
+    nxt = re.search(r'<div class="field[ "]', html[start:])
+    end = start + nxt.start() if nxt else html.index("</form>", start)
     return html[start:end]
 
 
@@ -218,7 +219,7 @@ def test_an_invalid_value_renders_inline_and_writes_nothing(tmp_path, monkeypatc
     block = _field_block(r.text, "item.flavor")
     assert "field-error" in block            # placed under the field...
     assert "pcsx" in block                   # ...with pydantic's allowed values...
-    assert '<p class="bad">' not in r.text   # ...not dumped in the form-level banner
+    assert 'class="alert bad"' not in r.text   # ...not dumped in the form-level banner
     assert app.state.service.snapshot().cfg.sources.eightfold == []
 
 

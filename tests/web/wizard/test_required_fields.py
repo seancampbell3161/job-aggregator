@@ -32,14 +32,14 @@ def test_the_review_step_marks_its_blocking_fields_required_on_arrival(
     r = _client(tmp_path, monkeypatch).get("/wizard/review")
     assert r.status_code == 200
     for path in ("filters.titles", "filters.max_age_days"):
-        assert 'class="req"' in _field_block(r.text, path), (
+        assert 'class="field-req"' in _field_block(r.text, path), (
             f"{path} blocks the save but is not marked required")
 
 
 def test_an_unrequired_field_on_the_same_step_is_not_marked(tmp_path, monkeypatch):
     """Marking everything marks nothing."""
     r = _client(tmp_path, monkeypatch).get("/wizard/review")
-    assert 'class="req"' not in _field_block(r.text, "filters.comp_floor_usd")
+    assert 'class="field-req"' not in _field_block(r.text, "filters.comp_floor_usd")
 
 
 def test_the_posting_age_field_explains_the_consequence_not_a_rule(
