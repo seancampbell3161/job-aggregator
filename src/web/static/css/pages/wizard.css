@@ -10,6 +10,13 @@
 .wizard-rail li.done::before { content: "✓"; color: var(--text-on-accent); background: var(--success); border-color: var(--success); }
 .wizard-rail li.skipped { opacity: .7; }
 
+/* Caps step content the way .settings-pane caps settings content, so a
+   step's cards, inputs, and selects (.field is width: 100%) stay readable
+   on a wide screen instead of stretching edge to edge. 52rem, not
+   .settings-pane's 44rem, to leave room for the preview step's results
+   table. */
+.wizard-body { max-width: 52rem; }
+
 /* LLM step: ready-made provider recipes. Each choice is a button (an action
    that fills the form) plus the one line that decides it — a key or a model
    pull — so the trade-off is visible before clicking, not after. */

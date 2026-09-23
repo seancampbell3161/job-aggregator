@@ -11,6 +11,7 @@
     {% endfor %}
   </ol>
 </nav>
+<div class="wizard-body">
 {% if step %}
 {{ ui.page_header(step.title, step.blurb) }}
 {% endif %}
@@ -25,5 +26,6 @@
 {% if step and not own_skip %}
 <form id="wizard-skip" method="post" action="/wizard/{{ step.slug }}/skip" hidden></form>
 {% endif %}
+</div>{# .wizard-body #}
 {# addChip() lives in base.html — shared with settings_base.html. #}
 {% endblock %}

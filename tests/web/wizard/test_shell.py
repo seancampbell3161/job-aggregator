@@ -92,6 +92,24 @@ def test_done_page_renders(tmp_path, monkeypatch):
     assert "/settings/overview" in r.text
 
 
+def test_the_step_body_is_wrapped_for_width_and_the_rail_stays_outside_it(tmp_path, monkeypatch):
+    """.field controls are width: 100% since Task 1, so on a wide screen an
+    unwrapped step stretches its cards and inputs across the whole window.
+    wizard.css caps .wizard-body the same way settings.css caps
+    .settings-pane. The rail must stay outside that wrapper — it is not part
+    of the step content whose width is being capped."""
+    html = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/llm").text
+    assert 'class="wizard-body"' in html
+    rail_start = html.index('class="wizard-rail"')
+    rail_end = html.index("</nav>", rail_start)
+    body_start = html.index('class="wizard-body"')
+    assert rail_end < body_start, "wizard-rail nav must appear before wizard-body"
+    body_div_open = html.rindex("<div", 0, body_start)
+    assert "wizard-rail" not in html[body_div_open:], (
+        "wizard-rail nav must not be nested inside the wizard-body wrapper"
+    )
+
+
 def test_wizard_requires_a_login(tmp_path, monkeypatch):
     """Brief's original version hit /wizard/llm with no claimed password, so
     the login gate would send it to /welcome (no password set yet) rather
