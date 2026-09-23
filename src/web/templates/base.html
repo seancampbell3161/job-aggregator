@@ -8,7 +8,6 @@
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/base.css">
   <link rel="stylesheet" href="/static/css/components.css">
-  <link rel="stylesheet" href="/static/app.css">{# legacy page rules; removed in Task 11 #}
   {% block styles %}{% endblock %}
   <script src="/static/htmx.min.js"></script>
   <script>
@@ -107,7 +106,7 @@
     // call an LLM or poll a live board on submit and can sit for many
     // seconds with no sign anything happened, which reads as a dead page.
     // Delegated, so it covers every form including ones swapped in by htmx,
-    // and every <button form="..."> that submits another form.
+    // and every button[form=...] that submits another form.
     document.addEventListener("submit", function (e) {
       var btn = e.submitter;
       if (!btn || btn.dataset.busy === "off" || btn.classList.contains("is-busy")) { return; }

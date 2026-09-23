@@ -86,13 +86,3 @@
   --radius-pill: 999px;
   --focus-ring: 2px solid var(--accent);
 }
-
-/* Legacy names still read by the not-yet-migrated rules in static/app.css.
-   Deleted in Task 11 together with app.css. */
-:root {
-  --surface: var(--surface-1);
-  --muted: var(--text-muted);
-  --probe-ok: var(--success);
-  --probe-bad: var(--danger);
-  --readiness-warn: var(--warning);
-}

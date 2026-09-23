@@ -1,6 +1,5 @@
 {% extends "wizard_base.html" %}
 {% import "_settings_macros.html" as w %}
-{% import "_ui.html" as ui %}
 {% block step %}
 {% set profile_value = submitted.get('profile', [''])[0] if submitted is not none
    else (saved_profile if saved_profile else (draft.profile_md if draft and draft.status == 'ok' else '')) %}

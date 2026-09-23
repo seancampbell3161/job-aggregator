@@ -49,7 +49,7 @@ def _next(location: str) -> str | None:
 def test_public_paths_need_no_session():
     app, _ = _app()
     client = _anon(app)
-    assert client.get("/static/app.css").status_code == 200
+    assert client.get("/static/css/tokens.css").status_code == 200
     assert client.get("/login").status_code == 200
     assert client.get("/welcome").headers["location"] == "/login?claimed=1"
     r = client.get("/tailor", params={"job_id": "j1", "t": "bad"})
@@ -182,4 +182,4 @@ def test_an_unreadable_login_store_fails_closed(caplog):
         r = client.get("/board")
     assert r.status_code == 503 and r.text == "Cannot read the login database."
     assert "auth_store_unavailable" in [x.message for x in caplog.records]
-    assert client.get("/static/app.css").status_code == 200
+    assert client.get("/static/css/tokens.css").status_code == 200
