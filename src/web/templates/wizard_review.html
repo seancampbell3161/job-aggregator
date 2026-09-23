@@ -21,6 +21,10 @@
 </div>
 
 <form method="post" action="/wizard/review">
+  {# Hidden default submit. Browsers submit a plain <input>'s Enter to the
+     form's FIRST submit button -- without this one first, that would be
+     "Draft again" below, confirm() dialog and all. #}
+  <button type="submit" class="btn" hidden tabindex="-1" aria-hidden="true">Save and continue</button>
   <section class="card">
     <h2 class="card-title">Your profile</h2>
     <p class="muted">What the scorer grades each posting against — markdown is

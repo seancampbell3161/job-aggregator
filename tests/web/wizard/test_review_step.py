@@ -68,6 +68,25 @@ def test_redraft_calls_the_llm_again(tmp_path, monkeypatch):
     assert len(calls) == 2
 
 
+def test_the_forms_first_submit_button_is_the_hidden_save_default(tmp_path, monkeypatch):
+    """Browsers submit a plain <input>'s Enter (e.g. max_age_days) to the
+    form's FIRST *submit* button (the earlier one-click title-set buttons are
+    type="button", so they don't count). Before a profile is saved that would
+    be "Draft again" -- an Enter meant to move along or submit must not
+    trigger its confirm() and discard-and-redraft instead of just saving."""
+    import re
+    app = _app(tmp_path, monkeypatch)
+    _drafts(monkeypatch, DRAFT)
+    r = signed_in_client(app).get("/wizard/review")
+    form = re.search(r'<form method="post" action="/wizard/review">.*?</form>',
+                      r.text, re.S).group(0)
+    submit_buttons = re.findall(r'<button\b[^>]*type="submit"[^>]*>', form)
+    assert "Draft again" in form  # sanity: the real first-submit candidate is present
+    first_submit = submit_buttons[0]
+    assert "formaction" not in first_submit
+    assert form.index(first_submit) < form.index("Draft again")
+
+
 def test_draft_again_is_offered_before_a_profile_is_saved(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
     _drafts(monkeypatch, DRAFT)
