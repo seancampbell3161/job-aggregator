@@ -112,3 +112,33 @@ def test_integrity_check_unrecoverable(monkeypatch):
     assert res.ok is False
     assert res.repaired is True
     assert res.messages == ["still corrupt"]
+
+
+def test_seen_jobs_has_a_partial_index_on_notified(tmp_path):
+    """The sidebar badge counts notified matches on every page; the partial
+    index keeps that off a full scan of seen_jobs."""
+    conn = connect(str(tmp_path / "t.db"))
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_seen_jobs_notified'"
+    ).fetchone()
+    assert row is not None and "WHERE notified = 1" in row["sql"]
+
+
+def test_existing_db_gains_the_notified_index_on_connect(tmp_path):
+    path = str(tmp_path / "t.db")
+    connect(path).execute("DROP INDEX idx_seen_jobs_notified")   # a pre-index DB
+    names = {r["name"] for r in connect(path).execute(
+        "SELECT name FROM sqlite_master WHERE type='index'")}
+    assert "idx_seen_jobs_notified" in names
+
+
+def test_match_status_counts_uses_the_notified_index():
+    from src.state_sqlite import SqliteSeenJobsStore
+    conn = connect(":memory:")
+    sql = []
+    conn.set_trace_callback(sql.append)
+    SqliteSeenJobsStore(conn).match_status_counts()
+    conn.set_trace_callback(None)
+    (query,) = [s for s in sql if "FROM seen_jobs" in s]
+    plan = " ".join(r["detail"] for r in conn.execute("EXPLAIN QUERY PLAN " + query))
+    assert "idx_seen_jobs_notified" in plan
