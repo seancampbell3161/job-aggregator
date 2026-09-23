@@ -158,16 +158,6 @@
 .upload-form { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
-/* == auth == */
-.auth-page { display: flex; justify-content: center; padding: 8vh 16px 0; }
-.auth-form { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 360px; }
-.auth-form h1 { font-size: 18px; margin: 0; }
-.auth-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
-.auth-form p { margin: 0; }
-.auth-error { color: #f3b0b0; background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.4);
-  border-radius: 6px; padding: 6px 9px; font-size: 12px; }
-.auth-ok { color: var(--accent); }
-
 /* == settings == */
 .settings { display: grid; grid-template-columns: 12rem 1fr; gap: 1.5rem; }
 .settings-nav { display: flex; flex-direction: column; gap: .15rem; }

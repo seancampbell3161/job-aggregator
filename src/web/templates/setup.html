@@ -1,13 +1,14 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 {% block content %}
-<h1>Set up job-aggregator</h1>
+{{ ui.page_header('Set up job-aggregator') }}
 <p>This instance has no settings yet. Settings, your profile, résumé data, and
 secrets live in the app database — changes apply live, no restart.</p>
 
-{% for msg in errors %}<p class="bad">{{ msg }}</p>{% endfor %}
+{% for msg in errors %}{{ ui.alert('bad', msg) }}{% endfor %}
 
-<section class="panel">
-  <h2>Guided setup</h2>
+<section class="card">
+  <h2 class="card-title">Guided setup</h2>
   <p>Walks you through an LLM, your résumé, what counts as a good match, which
     boards to poll, and where alerts go — drafting your profile and filters
     from your résumé along the way. Every step is skippable.</p>
@@ -16,8 +17,8 @@ secrets live in the app database — changes apply live, no restart.</p>
   </form>
 </section>
 
-<section class="panel">
-  <h2>Start from defaults</h2>
+<section class="card">
+  <h2 class="card-title">Start from defaults</h2>
   <p>Creates an empty settings version and opens Settings. Nothing is polled
     or delivered until you add job titles, a company board, and a notification
     target — the Overview page tracks what is still missing.</p>
@@ -26,8 +27,8 @@ secrets live in the app database — changes apply live, no restart.</p>
   </form>
 </section>
 
-<section class="panel">
-  <h2>Restore from a backup</h2>
+<section class="card">
+  <h2 class="card-title">Restore from a backup</h2>
   <p>Restores settings, your profile, and résumé documents from a downloaded
     backup (.zip). Secrets — the ntfy topic, Discord webhook, and API keys —
     are never included in a backup; set them again on the Notifications and

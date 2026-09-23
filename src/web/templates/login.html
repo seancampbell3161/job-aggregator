@@ -1,15 +1,16 @@
 {% extends "auth_base.html" %}
+{% import "_ui.html" as ui %}
 {% block title %}Sign in{% endblock %}
 {% block content %}
-<form class="auth-form panel" method="post" action="/login">
+<form class="auth-form card" method="post" action="/login">
   <h1>Sign in</h1>
   {% if claimed %}<p class="muted">This instance already has a password.</p>{% endif %}
-  {% if error %}<p class="auth-error" role="alert">{{ error }}</p>{% endif %}
+  {% if error %}{{ ui.alert('bad', error) }}{% endif %}
   <input type="text" name="username" value="admin" autocomplete="username" hidden>
   <label>Password
     <input type="password" name="password" autocomplete="current-password" required autofocus></label>
   <input type="hidden" name="next" value="{{ next }}">
-  <button type="submit">Sign in</button>
+  <button type="submit" class="btn primary">Sign in</button>
   <p class="muted">Forgot it? On the server, run
   <code>python -m src.settings set-password</code>.</p>
 </form>
