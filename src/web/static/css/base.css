@@ -1,0 +1,57 @@
+/* Element defaults, so an un-classed element already looks right. Controls
+   use :where() (zero specificity) so any component or page rule, and the
+   [aria-invalid] state below, override them without a specificity fight. */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; font: var(--text-base)/1.45 var(--font-sans); color: var(--text); background: var(--bg); }
+[hidden] { display: none !important; }   /* a component's display:flex must never un-hide */
+
+h1, h2, h3 { margin: 0 0 var(--space-3); font-weight: var(--weight-strong); line-height: 1.25; }
+h1 { font-size: var(--text-xl); }
+h2 { font-size: var(--text-lg); }
+h3 { font-size: var(--text-base); }
+p { margin: 0 0 var(--space-2); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+summary { cursor: pointer; }
+code, pre { font-family: var(--font-mono); font-size: .9em; }
+code { padding: 0 .3em; border-radius: var(--radius-sm); background: var(--surface-inset); }
+pre { padding: var(--space-3); overflow-x: auto; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--surface-inset); }
+pre code { padding: 0; background: none; }
+
+/* Form controls */
+:where(input:not([type=checkbox], [type=radio], [type=file], [type=hidden], [type=range])),
+:where(select, textarea) {
+  font: inherit; color: var(--text); background-color: var(--surface-inset);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  padding: .4rem .6rem; max-width: 100%;
+}
+:where(select) { appearance: none; padding-right: 1.75rem;
+  background-image: var(--select-arrow); background-repeat: no-repeat; background-position: right .6rem center; }
+:where(textarea) { resize: vertical; }
+::placeholder { color: var(--text-faint); }
+:where(input, select, textarea, button):disabled { opacity: .55; cursor: not-allowed; }
+:where(input[type=checkbox], input[type=radio]) { accent-color: var(--accent); }
+:where(input[type=file]) { font: inherit; color: var(--text-muted); }
+::file-selector-button { font: inherit; font-size: var(--text-sm); color: var(--text); cursor: pointer;
+  margin-right: var(--space-3); padding: .3rem .8rem; border: 1px solid var(--border-strong);
+  border-radius: var(--radius); background: var(--surface-2); }
+[aria-invalid="true"] { border-color: var(--danger); }
+button { font: inherit; }
+
+/* One visible focus ring for keyboard users, everywhere. */
+:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+:where(input, select, textarea):focus-visible { outline-offset: 0; border-color: var(--accent); }
+
+/* Tables */
+table { border-collapse: collapse; font-size: var(--text-sm); line-height: 1.45; }
+th, td { padding: var(--space-2) var(--space-5) var(--space-2) 0; text-align: left; vertical-align: baseline;
+  border-bottom: 1px solid var(--border); }
+th { font-weight: var(--weight-strong); }
+tr:last-child td { border-bottom: none; }
+
+/* iOS zooms into any focused control under 16px; don't. */
+@media (max-width: 40rem) {
+  :where(input, select, textarea) { font-size: var(--text-lg); }
+}
