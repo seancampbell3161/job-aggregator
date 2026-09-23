@@ -1,3 +1,4 @@
+{% import "_ui.html" as ui %}
 {% if not preview %}
 <div id="preview-result"></div>
 {% elif preview.status == "running" %}
@@ -6,13 +7,13 @@
   Still looking&hellip; this can take up to a minute.
 </div>
 {% elif preview.status == "error" %}
-<div id="preview-result" class="panel">
-  <p class="bad">The preview couldn't finish: {{ preview.error }}</p>
+<div id="preview-result" class="card">
+  {{ ui.alert('bad', "The preview couldn't finish: " ~ preview.error) }}
   <p class="muted">You can still finish setup — polling runs on its own
     schedule once you're done, regardless of what happened here.</p>
 </div>
 {% elif preview.matches %}
-<div id="preview-result" class="panel">
+<div id="preview-result" class="card">
   <p class="muted">Checked {{ preview.fetched }} postings just now —
     {{ preview.matched }} matched your filters.</p>
   <table>
@@ -33,9 +34,11 @@
   </table>
 </div>
 {% else %}
-<div id="preview-result" class="panel">
-  <p class="warn">Nothing matched — your filters may be too narrow. Revisit
-    <a href="/wizard/review">Profile and filters</a> and try again.</p>
+<div id="preview-result" class="card">
+  {% call ui.alert('warn') %}
+  Nothing matched — your filters may be too narrow. Revisit
+    <a href="/wizard/review">Profile and filters</a> and try again.
+  {% endcall %}
   <p class="muted">Checked {{ preview.fetched }} postings just now.</p>
 </div>
 {% endif %}

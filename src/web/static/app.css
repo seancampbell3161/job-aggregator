@@ -1,16 +1,2 @@
 /* LEGACY — page rules not yet migrated to static/css/pages/*.css.
    Each task of the UI-foundation plan deletes one section; Task 11 deletes the file. */
-
-/* == wizard == */
-.recipe-choices { display: flex; flex-wrap: wrap; gap: .75rem; margin: .5rem 0 1rem; }
-.recipe-choice { display: flex; flex-direction: column; gap: .25rem; max-width: 14rem; }
-.recipe-summary { font-size: .8rem; line-height: 1.3; }
-.recipe-panel { border-top: 1px solid var(--border); padding-top: .75rem; }
-.recipe-panel ol { margin: .5rem 0; padding-left: 1.2rem; }
-.recipe-panel li { margin: .25rem 0; }
-.recipe-commands { margin: .5rem 0 0; font-size: .8rem; }
-.upload-chosen { color: var(--probe-ok); margin: .4rem 0 0; font-size: .9rem; }
-.resume-paste { min-height: 14rem; }
-.qr svg { width: 220px; height: auto; display: block; margin: .5rem 0;
-  background: #fff; padding: 10px; border-radius: 6px; }
-.review-intro { border-left: 3px solid var(--accent); }

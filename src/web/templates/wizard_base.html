@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block styles %}<link rel="stylesheet" href="/static/css/pages/wizard.css">{% endblock %}
 {% block content %}
 <nav class="wizard-rail">
   <ol>
@@ -10,10 +12,9 @@
   </ol>
 </nav>
 {% if step %}
-<h1>{{ step.title }}</h1>
-<p class="muted">{{ step.blurb }}</p>
+{{ ui.page_header(step.title, step.blurb) }}
 {% endif %}
-{% for msg in form_errors %}<p class="bad">{{ msg }}</p>{% endfor %}
+{% for msg in form_errors %}{{ ui.alert('bad', msg) }}{% endfor %}
 {% block step %}{% endblock %}
 {# The skip form carries no button of its own: each step puts a
    <button form="wizard-skip"> in its own actions row, so the primary action
@@ -24,5 +25,5 @@
 {% if step and not own_skip %}
 <form id="wizard-skip" method="post" action="/wizard/{{ step.slug }}/skip" hidden></form>
 {% endif %}
-{# addChip() lives in base.html now — shared with settings_base.html. #}
+{# addChip() lives in base.html — shared with settings_base.html. #}
 {% endblock %}
