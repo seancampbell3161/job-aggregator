@@ -41,7 +41,6 @@ def test_every_nav_href_is_a_registered_get_route(tmp_path, monkeypatch):
     assert [h for h in hrefs if h not in gets] == []
 
 
-@pytest.mark.skip(reason="enabled in Task 4")
 def test_coach_link_follows_coach_nav_visible(tmp_path, monkeypatch):
     import src.web.coach as coach
     app = make_app(tmp_path, monkeypatch)

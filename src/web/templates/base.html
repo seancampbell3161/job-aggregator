@@ -4,10 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>Job Aggregator</title>
+  <title>{% block title %}Job Aggregator{% endblock %}</title>
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/base.css">
   <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/shell.css">
   {% block styles %}{% endblock %}
   <script src="/static/htmx.min.js"></script>
   <script>
@@ -75,32 +76,25 @@
   </script>
 </head>
 <body>
-  <header class="site-header">
+  <div class="{{ 'minimal-shell' if shell == 'minimal' else 'app-shell' }}">
+  {% if shell == "minimal" %}
+  <header class="minimal-bar">
     <span class="brand">job-aggregator</span>
-    <nav class="topnav">
-      <a href="/">Triage</a>
-      <a href="/board">Board</a>
-      <a href="/pipeline">Pipeline</a>
-      <a href="/analytics">Analytics</a>
-      {% if coach_nav_visible(request) %}<a href="/coach">Coach</a>{% endif %}
-      <a href="/kit">Kit</a>
-      <a href="/builder">Builder</a>
-      <a href="/settings">Settings</a>
-    </nav>
-    {% if request.state.session %}
-    <div class="account">
-      <a href="/account/password">Account</a>
-      <form method="post" action="/logout"><button type="submit" class="btn ghost sm">Sign out</button></form>
-    </div>
-    {% endif %}
+    {% if leave_setup %}<a class="minimal-leave" href="/home">Leave setup</a>{% endif %}
   </header>
+  {% else %}
+  {% include "_sidebar.html" %}
+  {% endif %}
+  <main id="main" class="site-main">
   {% set snap = request.state.snapshot %}
   {% if snap and snap.degraded %}
   <div class="alert warn config-banner" role="alert">
     Settings version {{ snap.degraded.invalid_version_id }} is invalid — running on version {{ snap.version_id }}. Run <code>python -m src.settings status</code> for details.
   </div>
   {% endif %}
-  <main class="site-main">{% block content %}{% endblock %}</main>
+  {% block content %}{% endblock %}
+  </main>
+  </div>
   <script>
     // Busy state on the button that submitted a form. Several wizard steps
     // call an LLM or poll a live board on submit and can sit for many
@@ -135,6 +129,23 @@
       if (!e.persisted) { return; }
       document.querySelectorAll(".is-busy").forEach(clearBusy);
     });
+    // Phone-width menu. Without JS the sidebar just stacks above the page;
+    // the js-nav class is what lets shell.css collapse it behind the button.
+    (function () {
+      var btn = document.querySelector(".nav-toggle");
+      if (!btn) { return; }
+      var sidebar = document.getElementById("sidebar");
+      document.documentElement.classList.add("js-nav");
+      function setOpen(open) {
+        btn.setAttribute("aria-expanded", open ? "true" : "false");
+        sidebar.classList.toggle("open", open);
+      }
+      btn.addEventListener("click", function () { setOpen(btn.getAttribute("aria-expanded") !== "true"); });
+      document.addEventListener("keydown", function (e) { if (e.key === "Escape") { setOpen(false); } });
+      document.getElementById("sidebar-links").addEventListener("click", function (e) {
+        if (e.target.closest("a")) { setOpen(false); }
+      });
+    })();
   </script>
 </body>
 </html>

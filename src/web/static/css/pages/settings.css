@@ -8,7 +8,11 @@
 .settings-pane { min-width: 0; max-width: 44rem; }
 .settings-pane > h2 { margin-bottom: var(--space-1); }
 .settings-pane h3 { margin-top: var(--space-6); }
-@media (max-width: 40rem) { .settings { grid-template-columns: 1fr; } }
+@media (max-width: 40rem) {
+  .settings { grid-template-columns: 1fr; }
+  .settings-nav { flex-direction: row; overflow-x: auto; }
+  .settings-nav a { white-space: nowrap; }
+}
 .back-link { margin: 0 0 var(--space-3); }
 
 .rows-list { display: flex; flex-direction: column; gap: .4rem; margin: 0 0 var(--space-2); }
