@@ -10,7 +10,6 @@ ALERTS = {"ntfy_topic_url": "https://ntfy.sh/x"}
 
 def _done_keys(app):
     """The checklist keys the page marks done (data-key on each <li>)."""
-    import re
     html = client_for(app).get("/home").text
     return set(re.findall(r'<li class="done" data-key="(\w+)"', html))
 
@@ -139,6 +138,22 @@ def test_status_uses_the_shared_threshold(monkeypatch):
     monkeypatch.setattr(home, "stale_threshold_minutes", lambda interval: 1)
     live = Liveness(NOW - 2 * MIN, NOW - 2 * MIN, NOW - 2 * MIN)
     assert status_line(live, ats_minutes=30, now_ms=NOW).state == "stalled"
+
+
+def test_status_running_falls_back_to_last_cycle_when_ats_never_ran():
+    """Only a slow-tier cycle has run yet (e.g. discovery, not ats) — the ETA
+    anchor falls back to last_cycle_ms."""
+    live = Liveness(last_cycle_ms=NOW - 5 * MIN, last_ats_ms=None, last_success_ms=NOW - 5 * MIN)
+    s = status_line(live, ats_minutes=30, now_ms=NOW)
+    assert s.state == "running" and s.last_ago == "5m ago" and s.next_eta == "in about 25 min"
+
+
+def test_status_running_prefers_last_ats_over_last_cycle():
+    """A non-ats tier cycle ran more recently than the ats tier — the ETA
+    anchor is last_ats_ms, not the newer last_cycle_ms."""
+    live = Liveness(last_cycle_ms=NOW - 3 * MIN, last_ats_ms=NOW - 20 * MIN, last_success_ms=NOW - 3 * MIN)
+    s = status_line(live, ats_minutes=30, now_ms=NOW)
+    assert s.state == "running" and s.last_ago == "3m ago" and s.next_eta == "in about 10 min"
 
 
 # ---- Home page: status, figures, needs-attention ----
