@@ -244,6 +244,35 @@ def test_auth_pages_503_when_the_login_store_is_unreadable(path, caplog):
     assert "auth_store_unavailable" in [x.message for x in caplog.records]
 
 
+def test_login_page_without_next_renders_empty_next():
+    client, auth = _client()
+    auth.set_password(PW)
+    r = client.get("/login")
+    assert 'name="next" value=""' in r.text
+
+
+def test_login_without_next_lands_on_home_while_getting_started():
+    client, auth = _client()
+    auth.set_password(PW)
+    r = client.post("/login", data={"password": PW, "next": ""})
+    assert r.status_code == 303 and r.headers["location"] == "/home"
+
+
+def test_login_with_explicit_root_next_is_honoured():
+    client, auth = _client()
+    auth.set_password(PW)
+    r = client.post("/login", data={"password": PW, "next": "/"})
+    assert r.headers["location"] == "/"
+
+
+def test_login_without_next_lands_on_matches_once_hidden():
+    client, auth = _client()
+    auth.set_password(PW)
+    client.app.state.stores.wizard.put("getting_started_hidden", True)
+    r = client.post("/login", data={"password": PW, "next": ""})
+    assert r.headers["location"] == "/"
+
+
 @pytest.mark.parametrize("value, expected", [
     ("/board", "/board"),
     ("/board?x=1&y=2", "/board?x=1&y=2"),

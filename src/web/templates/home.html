@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block styles %}<link rel="stylesheet" href="/static/css/pages/home.css">{% endblock %}
+{% block content %}
+{{ ui.page_header('Home') }}
+<div class="home">
+{% include "_home_getting_started.html" %}
+</div>
+{% endblock %}
