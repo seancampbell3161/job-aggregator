@@ -131,6 +131,8 @@ def create_app(
     templates.env.globals["coach_nav_visible"] = coach_nav_visible
     from src.web.home import landing_url, register_home_routes
     templates.env.globals["landing_url"] = landing_url
+    from src.web.nav import nav_context
+    templates.env.globals["nav_context"] = nav_context
     app.state.templates = templates
     app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
     # Middleware runs in reverse registration order: the cross-origin guard,
