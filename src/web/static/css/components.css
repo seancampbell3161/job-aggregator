@@ -128,10 +128,6 @@ fieldset.card > legend { padding: 0 var(--space-2); font-weight: var(--weight-st
    → required-why → error. */
 .field { margin: 0 0 var(--space-5); }
 .field-label { display: flex; align-items: baseline; gap: var(--space-2); margin-bottom: 2px; font-weight: var(--weight-strong); }
-/* Historical rule (app.css): a required field's label was already bold via
-   .field-label above, but the emphasis was named explicitly here too — kept
-   for continuity rather than dropped as dead weight. */
-.field.is-required .field-label { font-weight: var(--weight-strong); }
 .field-meta { margin-left: auto; font-size: var(--text-xs); font-weight: var(--weight-normal); color: var(--text-muted); }
 .field-req {
   margin-left: auto; font-size: .625rem; font-weight: var(--weight-strong); text-transform: uppercase;

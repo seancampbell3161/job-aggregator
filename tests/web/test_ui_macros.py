@@ -113,7 +113,7 @@ def test_field_full_anatomy_in_order(ui):
         "Topic URL", control_id="c", hint="Anyone with it can read alerts.",
         required="Alerts need somewhere to go.", error="Not a URL.",
         path="secrets.ntfy", caller=control))
-    assert '<div class="field has-error is-required" data-path="secrets.ntfy">' in html
+    assert '<div class="field has-error" data-path="secrets.ntfy">' in html
     assert '<span class="field-req">required</span>' in html
     assert (html.index("field-label") < html.index("field-hint") < html.index('<input id="c">')
             < html.index("field-required-why") < html.index("field-error"))
@@ -134,7 +134,6 @@ def test_field_meta_shown_when_not_required(ui):
 
 def test_field_required_without_reason_marks_but_explains_nothing(ui):
     html = str(ui.field("Titles", required="", caller=control))
-    assert "is-required" in html
     assert "field-req" in html
     assert "field-required-why" not in html
 

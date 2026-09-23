@@ -42,6 +42,25 @@ def test_tokens_file_exists():
 STATIC = ROOT / "src/web/static"
 PY_SOURCES = ROOT / "src/web"
 
+_JINJA_COMMENT = re.compile(r"\{#.*?#\}", re.S)
+_HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+_SCRIPT_CONTENTS = re.compile(r"(<script\b[^>]*>).*?(</script>)", re.S)
+
+
+def _template_source(path: Path) -> str:
+    """A template's markup with Jinja comments, HTML comments, and <script>
+    bodies blanked out (the tags themselves stay). The guards below scan raw
+    text, not a parsed DOM or Jinja AST, so a commented-out `<button>` or a
+    comment mentioning `ui.card(...)` must not read as the real thing — and a
+    class named only in a comment must not count as "used" by any stylesheet
+    guard, or a genuinely dead CSS rule would pass silently."""
+    text = path.read_text()
+    text = _SCRIPT_CONTENTS.sub(lambda m: m.group(1) + m.group(2), text)
+    text = _HTML_COMMENT.sub(" ", text)
+    text = _JINJA_COMMENT.sub(" ", text)
+    return text
+
+
 _CLASS_ATTR = re.compile(r'\bclass="([^"]*)"')
 _EXPR = re.compile(r"\{\{(.*?)\}\}", re.S)
 _TAG = re.compile(r"\{%.*?%\}", re.S)
@@ -109,7 +128,7 @@ def template_classes(attr: str) -> set[str]:
 def _used_classes(paths) -> dict[str, set[str]]:
     used: dict[str, set[str]] = {}
     for path in paths:
-        text = path.read_text()
+        text = _template_source(path) if path.suffix == ".html" else path.read_text()
         for attr in _CLASS_ATTR.findall(text):
             for cls in template_classes(attr):
                 used.setdefault(cls, set()).add(path.name)
@@ -171,43 +190,129 @@ def test_macro_argument_classes_count_as_used(tmp_path):
     assert set(_used_classes([page])) == {"info", "danger-edge", "x"}
 
 
+# ---- _template_source: comments and script bodies must not read as markup ----
+
+def test_template_source_strips_jinja_comments(tmp_path):
+    page = tmp_path / "p.html"
+    page.write_text('before {# a <button form=x> note #} after')
+    assert "<button" not in _template_source(page)
+    assert "before" in _template_source(page) and "after" in _template_source(page)
+
+
+def test_template_source_strips_html_comments(tmp_path):
+    page = tmp_path / "p.html"
+    page.write_text('before <!-- <button form=x> --> after')
+    assert "<button" not in _template_source(page)
+
+
+def test_template_source_blanks_script_contents_but_keeps_the_tags(tmp_path):
+    page = tmp_path / "p.html"
+    page.write_text('<script>var s = "<button>fake</button>";</script>')
+    source = _template_source(page)
+    assert "<script>" in source and "</script>" in source
+    assert "fake" not in source
+
+
+def test_inline_style_ignores_commented_markup(tmp_path):
+    page = tmp_path / "p.html"
+    page.write_text('{# a stray <p style="color:red">note</p> #}')
+    assert _inline_style_offenders([page]) == []
+
+
+def test_style_block_ignores_commented_markup(tmp_path):
+    page = tmp_path / "p.html"
+    page.write_text("{# don't forget a <style>body{color:red}</style> block here #}")
+    assert _style_block_offenders([page]) == []
+
+
+def test_button_guard_ignores_commented_markup(tmp_path):
+    page = tmp_path / "p.html"
+    page.write_text("{# a <button form=x> note #}")
+    assert _unstyled_button_offenders([page]) == []
+
+
+def test_ui_import_guard_ignores_commented_mentions(tmp_path):
+    page = tmp_path / "p.html"
+    page.write_text("{# see ui.card(...) #}")
+    assert _missing_ui_import_offenders([page]) == []
+
+
+def test_used_classes_ignores_class_named_only_in_a_comment(tmp_path):
+    page = tmp_path / "p.html"
+    page.write_text('{# class="zzz-dead" #}')
+    assert _used_classes([page]) == {}
+
+
+def test_commented_class_does_not_mask_dead_css(tmp_path):
+    """The false negative from the bug report: a CSS class defined nowhere
+    but a template comment must still show up as dead, not as used."""
+    css = tmp_path / "c.css"
+    css.write_text(".zzz-dead {}")
+    page = tmp_path / "p.html"
+    page.write_text('{# class="zzz-dead" #}')
+    assert "zzz-dead" in _css_classes([css])
+    assert "zzz-dead" not in _used_classes([page])
+
+
 # ---- guards ----
 
 def test_app_css_is_gone():
     assert not (STATIC / "app.css").exists(), "static/app.css is legacy — its rules belong in static/css/"
 
 
-def test_no_static_inline_style():
+def _inline_style_offenders(paths) -> list[str]:
     """A style="" attribute is only allowed when its value is data-driven
     (a bar height, a flex-grow proportion); everything else is a class."""
     offenders = []
-    for path in _templates():
-        for m in re.finditer(r'\bstyle="([^"]*)"', path.read_text()):
+    for path in paths:
+        for m in re.finditer(r'\bstyle="([^"]*)"', _template_source(path)):
             if "{{" not in m.group(1):
                 offenders.append(f"{path.name}: style=\"{m.group(1)}\"")
+    return offenders
+
+
+def test_no_static_inline_style():
+    offenders = _inline_style_offenders(_templates())
     assert not offenders, "static inline style — use a class:\n" + "\n".join(offenders)
 
 
+def _style_block_offenders(paths) -> list[str]:
+    return [p.name for p in paths if re.search(r"<style\b", _template_source(p))]
+
+
 def test_no_style_block_in_templates():
-    offenders = [p.name for p in _templates() if re.search(r"<style\b", p.read_text())]
+    offenders = _style_block_offenders(_templates())
     assert not offenders, f"<style> block in {offenders} — move it to static/css/pages/"
 
 
-def test_every_button_is_a_styled_button():
+def _unstyled_button_offenders(paths) -> list[str]:
     offenders = []
-    for path in _templates():
-        for m in re.finditer(r"<button\b[^>]*>", path.read_text()):
+    for path in paths:
+        for m in re.finditer(r"<button\b[^>]*>", _template_source(path)):
             classes = _CLASS_ATTR.search(m.group(0))
             if not classes or "btn" not in classes.group(1).split():
                 offenders.append(f"{path.name}: {m.group(0)[:80]}")
+    return offenders
+
+
+def test_every_button_is_a_styled_button():
+    offenders = _unstyled_button_offenders(_templates())
     assert not offenders, "<button> without the btn class:\n" + "\n".join(offenders)
 
 
+def _missing_ui_import_offenders(paths) -> list[str]:
+    offenders = []
+    for p in paths:
+        if p.name == "_ui.html":
+            continue
+        source = _template_source(p)
+        if re.search(r"\bui\.\w+\(", source) and '{% import "_ui.html" as ui %}' not in source:
+            offenders.append(p.name)
+    return offenders
+
+
 def test_templates_using_ui_import_it():
-    offenders = [p.name for p in _templates()
-                 if p.name != "_ui.html"
-                 and re.search(r"\bui\.\w+\(", p.read_text())
-                 and '{% import "_ui.html" as ui %}' not in p.read_text()]
+    offenders = _missing_ui_import_offenders(_templates())
     assert not offenders, f"uses ui.* without importing _ui.html: {offenders}"
 
 

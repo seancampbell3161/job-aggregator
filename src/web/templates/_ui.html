@@ -55,7 +55,7 @@
    aria-describedby="<control_id>-error". #}
 {% macro field(label=None, control_id=None, hint=None, meta=None, required=None, error=None, path=None) -%}
 {%- set tag = 'label' if control_id else 'span' -%}
-<div class="field{% if error %} has-error{% endif %}{% if required is not none %} is-required{% endif %}"
+<div class="field{% if error %} has-error{% endif %}"
      {%- if path %} data-path="{{ path }}"{% endif %}>
 {%- if label %}
 <{{ tag }} class="field-label"{% if control_id %} for="{{ control_id }}"{% endif %}>{{ label }}
