@@ -53,7 +53,7 @@ def test_a_saving_step_keeps_its_skip_alongside_the_primary_action(
     and must stay — but on the same row, not stacked underneath."""
     r = _client(tmp_path, monkeypatch).get(f"/wizard/{slug}")
     assert r.status_code == 200
-    assert 'form="wizard-skip"' in r.text, "skip button should join the actions row"
+    assert 'form="wizard-skip"' in r.text, "skip button should join the action bar"
     bar = _bar(r.text)
     assert 'form="wizard-skip"' in bar, "skip button should sit in the action bar"
     assert ">Skip for now<" in bar

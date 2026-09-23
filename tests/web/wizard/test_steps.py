@@ -187,10 +187,6 @@ def test_companies_step_is_incomplete_on_a_fresh_install():
 
 # ---- summaries ----
 
-def _state(ctx, slug, *, skipped=(), viewed=None):
-    return {s.step.slug: s for s in step_states(ctx, skipped=set(skipped), viewed=viewed)}[slug]
-
-
 def test_llm_summary_names_provider_and_model():
     cfg = AppConfig(relevance={"enabled": True, "provider": "anthropic", "model": "claude-haiku"},
                     secrets=Secrets(anthropic_api_key="k"))
