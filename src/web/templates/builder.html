@@ -8,28 +8,36 @@
 {% call ui.card('Settings') %}
   {% if saved %}{{ ui.alert('ok', 'Settings saved.') }}{% endif %}
   {% if error %}{{ ui.alert('bad', error) }}{% endif %}
-  <form method="post" action="/builder/settings" class="builder-settings">
-    <label>Max bullets per experience
-      <input type="number" min="1" name="max_bullets_per_experience"
-             value="{{ settings.max_bullets_per_experience or '' }}" placeholder="no cap"></label>
-    <label>Max bullets per project
-      <input type="number" min="1" name="max_bullets_per_project"
-             value="{{ settings.max_bullets_per_project or '' }}" placeholder="no cap"></label>
-    <label>Min bullets per entry
-      <input type="number" min="1" name="min_bullets_per_entry"
-             value="{{ settings.min_bullets_per_entry }}"></label>
-    <label>Max pages
-      <input type="number" min="1" name="max_pages" value="{{ settings.max_pages }}"></label>
-    <label>Page size
-      <select name="page_size">
+  <form method="post" action="/builder/settings">
+    <div class="builder-fields">
+      {% call ui.field('Max bullets per experience', control_id='b-max-exp') %}
+      <input id="b-max-exp" type="number" min="1" name="max_bullets_per_experience"
+             value="{{ settings.max_bullets_per_experience or '' }}" placeholder="no cap">
+      {% endcall %}
+      {% call ui.field('Max bullets per project', control_id='b-max-proj') %}
+      <input id="b-max-proj" type="number" min="1" name="max_bullets_per_project"
+             value="{{ settings.max_bullets_per_project or '' }}" placeholder="no cap">
+      {% endcall %}
+      {% call ui.field('Min bullets per entry', control_id='b-min-entry') %}
+      <input id="b-min-entry" type="number" min="1" name="min_bullets_per_entry"
+             value="{{ settings.min_bullets_per_entry }}">
+      {% endcall %}
+      {% call ui.field('Max pages', control_id='b-max-pages') %}
+      <input id="b-max-pages" type="number" min="1" name="max_pages" value="{{ settings.max_pages }}">
+      {% endcall %}
+      {% call ui.field('Page size', control_id='b-page-size') %}
+      <select id="b-page-size" name="page_size">
         <option value="" {% if not settings.page_size %}selected{% endif %}>template default</option>
         <option value="letter" {% if settings.page_size == 'letter' %}selected{% endif %}>US Letter</option>
         <option value="a4" {% if settings.page_size == 'a4' %}selected{% endif %}>A4</option>
-      </select></label>
-    <label>Margins (CSS, e.g. 0.5in 0.58in)
-      <input type="text" name="margins" value="{{ settings.margins or '' }}"
-             placeholder="template default"></label>
-    <button type="submit" class="btn primary">Save settings</button>
+      </select>
+      {% endcall %}
+      {% call ui.field('Margins', control_id='b-margins', hint='CSS, e.g. 0.5in 0.58in') %}
+      <input id="b-margins" type="text" name="margins" value="{{ settings.margins or '' }}"
+             placeholder="template default">
+      {% endcall %}
+    </div>
+    {% call ui.action_bar(sticky=False) %}<button type="submit" class="btn primary">Save settings</button>{% endcall %}
   </form>
 {% endcall %}
 

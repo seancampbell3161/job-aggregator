@@ -67,3 +67,24 @@ def test_numeric_cells_are_marked(tmp_path, monkeypatch):
     c = client_for(app)
     assert '<td class="num">' in c.get("/analytics").text
     assert '<td class="num">' in c.get("/pipeline/cycles").text
+
+
+def _builder_client(tmp_path, monkeypatch):
+    monkeypatch.setenv("JOB_AGG_TEMPLATES_DIR", str(tmp_path / "templates"))
+    return client_for(make_app(tmp_path, monkeypatch))
+
+
+def test_builder_settings_use_stacked_fields(tmp_path, monkeypatch):
+    html = _builder_client(tmp_path, monkeypatch).get("/builder").text
+    for name in ("max_bullets_per_experience", "max_bullets_per_project", "min_bullets_per_entry",
+                 "max_pages", "page_size", "margins"):
+        m = re.search(rf'<(?:input|select)[^>]*\bid="(b-[\w-]+)"[^>]*\bname="{name}"', html)
+        assert m, f"{name} has no id"
+        assert f'<label class="field-label" for="{m.group(1)}">' in html
+    assert '<div class="field-hint">CSS, e.g. 0.5in 0.58in</div>' in html
+    assert '<div class="action-bar unpinned">' in html
+
+
+def test_audit_days_input_is_labelled(tmp_path, monkeypatch):
+    html = client_for(make_app(tmp_path, monkeypatch)).get("/audit").text
+    assert re.search(r'<label class="audit-days-field">last\s*<input[^>]*name="days"[^>]*>\s*days</label>', html)

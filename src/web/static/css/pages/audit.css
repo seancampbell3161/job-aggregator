@@ -1,4 +1,5 @@
 /* Rejection audit (/audit): filter bar and verdict buttons. */
 .audit-filters { margin-bottom: var(--space-4); }
 .audit-days { width: 5rem; }
+.audit-days-field { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); }
 .audit-table { width: 100%; }

@@ -109,10 +109,10 @@ fieldset.card > legend { padding: 0 var(--space-2); font-weight: var(--weight-st
 .stat { padding: .45rem .7rem; background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-lg); }
 .stat .v { font-size: var(--text-lg); font-weight: 700; }
 .bars { display: flex; align-items: flex-end; gap: 3px; height: 64px; margin-top: var(--space-2); }
-.bars .b { flex: 1; min-height: 1px; border-radius: 2px 2px 0 0; }
+.bars .b { flex: 1; max-width: 2.5rem; min-height: 1px; border-radius: 2px 2px 0 0; }
 .bars .b.s-vol { background: var(--accent); }
 .barlabels { display: flex; gap: 3px; margin-top: 6px; font-size: .5625rem; opacity: .55; }
-.barlabels span { flex: 1; text-align: center; }
+.barlabels span { flex: 1; max-width: 2.5rem; text-align: center; }
 
 /* ---- Form fields (ui.field in _ui.html) ----
    Anatomy, top to bottom: label row (label + meta or "required" tag) → hint → control
