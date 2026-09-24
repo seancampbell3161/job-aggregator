@@ -101,6 +101,8 @@ def test_degraded_banner_renders(tmp_path, monkeypatch):
     assert "config-banner" in r.text
     assert f"Settings version {bad} is invalid" in r.text
     assert f"running on version {good}" in r.text
+    assert '<a href="/settings/history">See settings history</a>' in r.text
+    assert "python -m src.settings status" not in r.text
 
 
 def test_no_banner_when_healthy(tmp_path, monkeypatch):

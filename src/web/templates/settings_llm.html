@@ -3,11 +3,14 @@
 {% import "_ui.html" as ui %}
 {% block section %}
 <form method="post" action="/settings/llm">
-  {% for spec in fields %}
+  {% for g in section.groups %}
+  <h3 id="{{ g.id }}">{{ g.title }}</h3>
+  {% for spec in fields if spec.root == g.root %}
     {{ w.field(spec, shown(submitted, cfg, spec), errors) }}
   {% endfor %}
+  {% endfor %}
 
-  <h3>API keys</h3>
+  <h3 id="keys">API keys</h3>
   {% for s in secrets %}
     {# No secret this section owns is a probe target (see probe_targets in
        routes.py), so this prefix is never actually used — but the macro
@@ -19,7 +22,7 @@
     <button type="button" class="btn" hx-post="/settings/llm/test/llm"
             hx-include="closest form" hx-target="#probe-llm"
             hx-swap="innerHTML show:bottom">Test scoring</button>
-    <button type="submit" class="btn primary">Save LLM settings</button>
+    <button type="submit" class="btn primary">Save AI settings</button>
   {% endcall %}
   <div id="probe-llm"></div>
 </form>

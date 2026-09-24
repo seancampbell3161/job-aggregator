@@ -35,7 +35,7 @@ def test_page_shows_secret_state_without_the_value(tmp_path, monkeypatch):
     r = signed_in_client(_app(tmp_path, monkeypatch, service)).get("/settings/llm")
     assert r.status_code == 200
     assert "sk-secret-value" not in r.text
-    assert "stored" in r.text
+    assert "Saved" in r.text
 
 
 def test_env_backed_secret_renders_disabled(tmp_path, monkeypatch):

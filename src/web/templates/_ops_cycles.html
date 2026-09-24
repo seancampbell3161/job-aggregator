@@ -4,43 +4,43 @@
   <span class="fam-name">{{ f.family }}</span>
   <span class="fam-count">{{ f.count }}×</span>
   <span class="muted">{{ f.connectors }} board{{ '' if f.connectors == 1 else 's' }}</span>
-  <span class="fam-type" title="dominant error type">{{ f.top_type }}</span>
+  <span class="fam-type" title="Most common error">{{ f.top_type }}</span>
   <span class="muted fam-ago">{{ f.last_ms | ago(now_ms) }}</span>
 </div>
 {%- endmacro %}
 {% if activity is none %}
-  {% call ui.card('Cycle stats & fetch failures') %}<p class="muted">unavailable — could not read cycle telemetry (the SQLite events store).</p>{% endcall %}
+  {% call ui.card('Checks and fetch failures') %}<p class="muted">Check history is unavailable right now.</p>{% endcall %}
   <span id="last-cycle" class="v muted" hx-swap-oob="true">unknown</span>
   <div id="tier-freshness" class="tier-strip" hx-swap-oob="true">
-    <span class="muted tier-note">tier freshness unavailable</span>
+    <span class="muted tier-note">Check status unavailable</span>
   </div>
 {% else %}
   <div id="tier-freshness" class="tier-strip" hx-swap-oob="true">
     {% for tier, h in tier_health.items() %}
       <span class="tier-chip {{ 'bad' if h.stale else ('warn' if (not h.ok) or h.degraded else 'ok') }}">
-        <b>{{ tier }}</b> {{ h.ago }}
-        {%- if h.stale %} · stalled ⚠{% elif not h.ok %} · failing ⚠{% elif h.degraded %} · LLM⚠{% else %} ✓{% endif %}
+        <b>{{ tier | tier_label }}</b> · {{ h.ago }}
+        {%- if h.stale %} · stalled ⚠{% elif not h.ok %} · failing ⚠{% elif h.degraded %} · AI scoring had errors ⚠{% else %} ✓{% endif %}
       </span>
     {% else %}
-      <span class="muted tier-note">no tier cycles in window</span>
+      <span class="muted tier-note">No checks in the last {{ activity.window_days }} days</span>
     {% endfor %}
   </div>
-  {% call ui.card('Cycle stats & fetch failures', 'Last ' ~ activity.window_days ~ ' days') %}
+  {% call ui.card('Checks and fetch failures', 'Last ' ~ activity.window_days ~ ' days') %}
     {% if activity.tiers %}
     <div class="table-wrap">
     <table>
-      <tr><th>tier</th><th class="num">cycles</th><th class="num">avg fetched</th><th class="num">avg matched</th><th class="num">avg notified</th><th class="num">avg ms</th></tr>
+      <tr><th>Check</th><th class="num">Runs</th><th class="num">Avg fetched</th><th class="num">Avg matched</th><th class="num">Avg notified</th><th class="num">Avg time (s)</th></tr>
       {% for t in activity.tiers %}
-      <tr><td>{{ t.tier }}</td><td class="num">{{ t.cycles }}</td><td class="num">{{ "%.0f"|format(t.avg_fetched) }}</td>
+      <tr><td>{{ t.tier | tier_label }}</td><td class="num">{{ t.cycles }}</td><td class="num">{{ "%.0f"|format(t.avg_fetched) }}</td>
           <td class="num">{{ "%.1f"|format(t.avg_matched) }}</td><td class="num">{{ "%.1f"|format(t.avg_notified) }}</td>
-          <td class="num">{{ "%.0f"|format(t.avg_duration_ms) }}</td></tr>
+          <td class="num">{{ "%.1f"|format(t.avg_duration_ms / 1000) }}</td></tr>
       {% endfor %}
     </table>
     </div>
-    {% else %}<p class="muted">No cycles in window.</p>{% endif %}
+    {% else %}<p class="muted">No checks in this period.</p>{% endif %}
     {# Layer 1 — headline: total + the error-type mix (only ~7 types; this is the story). #}
     <p class="tally tally-spaced">
-      <span class="muted">fetch failures ({{ activity.failures_total }}) by type:</span>
+      <span class="muted">Fetch failures ({{ activity.failures_total }}) by type:</span>
       {% for t in activity.failures_by_type %}<span class="bad{{ ' dim' if t.last_ms < dim_before_ms else '' }}">{{ t.name }} ×{{ t.count }}</span> <span class="muted">{{ t.last_ms | ago(now_ms) }}</span>{% if not loop.last %} · {% endif %}{% else %}<span class="muted">none</span>{% endfor %}
     </p>
     {# Layer 2 — triage: fetch failures rolled up by connector family, severity-graded.
@@ -52,11 +52,11 @@
     {% set fam_stale = activity.failures_by_family | rejectattr('last_ms', 'ge', dim_before_ms) | list %}
     <div class="fam-list">
       {% for f in fam_active %}{{ fam_row(f, now_ms) }}
-      {% else %}<p class="muted fam-empty">no fetch failures in the last 24h ✓</p>{% endfor %}
+      {% else %}<p class="muted fam-empty">No fetch failures in the last 24 hours ✓</p>{% endfor %}
     </div>
     {% if fam_stale %}
     <details class="fam-stale">
-      <summary class="muted">stale · {{ fam_stale | length }} famil{{ 'y' if fam_stale | length == 1 else 'ies' }} &gt;24h old</summary>
+      <summary class="muted">Older than 24 hours · {{ fam_stale | length }} source famil{{ 'y' if fam_stale | length == 1 else 'ies' }}</summary>
       <div class="fam-list">
         {% for f in fam_stale %}{{ fam_row(f, now_ms, dim=True) }}{% endfor %}
       </div>
@@ -67,35 +67,35 @@
        Guarded on its own data so it survives even if the family rollup is empty. #}
     {% if activity.failures_by_connector %}
     <details class="fam-detail">
-      <summary class="muted">all connectors ({{ activity.failures_by_connector | length }})</summary>
+      <summary class="muted">Every source ({{ activity.failures_by_connector | length }})</summary>
       <p class="tally">
         {% for t in activity.failures_by_connector %}<span class="bad{{ ' dim' if t.last_ms < dim_before_ms else '' }}">{{ t.name }} ×{{ t.count }}</span> <span class="muted">{{ t.last_ms | ago(now_ms) }}</span>{% if not loop.last %} · {% endif %}{% endfor %}
       </p>
     </details>
     {% endif %}
     <p class="tally tally-spaced">
-      <span class="muted">LLM failures ({{ activity.llm_failures_total }})
-        {% if activity.llm_degraded_cycles %}over {{ activity.llm_degraded_cycles }} degraded cycle{{ 's' if activity.llm_degraded_cycles != 1 else '' }}{% endif %} by stage:</span>
+      <span class="muted">AI scoring failures ({{ activity.llm_failures_total }})
+        {% if activity.llm_degraded_cycles %}over {{ activity.llm_degraded_cycles }} check{{ 's' if activity.llm_degraded_cycles != 1 else '' }}{% endif %} by step:</span>
       {% for s in activity.llm_failures_by_stage %}
         <span class="muted">{{ s.stage }}:</span>{% for name, n in s.by_type %} <span class="warn">{{ name }} ×{{ n }}</span>{% if not loop.last %},{% endif %}{% endfor %}{% if s.last_ms %} <span class="muted">{{ s.last_ms | ago(now_ms) }}</span>{% endif %}{% if not loop.last %} · {% endif %}
       {% else %}<span class="muted">none</span>{% endfor %}
     </p>
     {% if activity.recent %}
     <details open>
-      <summary class="muted">recent cycles ({{ activity.recent | length }})</summary>
+      <summary class="muted">Recent checks ({{ activity.recent | length }})</summary>
       <div class="table-wrap">
       <table class="wide">
-        <tr><th>when</th><th>tier</th><th class="num">fetched</th><th class="num">new</th><th class="num">matched</th><th class="num">notified</th><th class="num">ms</th><th>status</th></tr>
+        <tr><th>When</th><th>Check</th><th class="num">Fetched</th><th class="num">New</th><th class="num">Matched</th><th class="num">Notified</th><th class="num">Time (s)</th><th>Result</th></tr>
         {% for r in activity.recent %}
         <tr>
           <td class="muted">{{ r.ts_ms | ago(now_ms) }}</td>
-          <td>{{ r.tier }}</td>
+          <td>{{ r.tier | tier_label }}</td>
           <td class="num">{{ r.fetched }}</td>
           <td class="num">{{ r.new_count if r.new_count is not none else '–' }}</td>
           <td class="num">{{ r.matched }}</td>
           <td class="num">{{ r.notified }}</td>
-          <td class="num">{{ r.duration_ms }}</td>
-          <td>{% if r.ok %}<span class="ok">✓</span>{% else %}<span class="bad" title="{{ r.failures | map('join', ':') | join(', ') }}">⚠ {{ r.failures | length }}</span>{% endif %}{% if r.degraded %} <span class="warn">LLM⚠</span>{% endif %}</td>
+          <td class="num">{{ "%.1f"|format(r.duration_ms / 1000) }}</td>
+          <td>{% if r.ok %}<span class="ok">✓</span>{% else %}<span class="bad" title="{{ r.failures | map('join', ':') | join(', ') }}">⚠ {{ r.failures | length }}</span>{% endif %}{% if r.degraded %} <span class="warn">AI scoring had errors</span>{% endif %}</td>
         </tr>
         {% endfor %}
       </table>
@@ -104,7 +104,7 @@
     {% endif %}
   {% endcall %}
   <span id="last-cycle" class="v {{ heartbeat.css if heartbeat else 'muted' }}" hx-swap-oob="true">
-    {{ heartbeat.label if heartbeat else 'no cycles' }}
+    {{ heartbeat.label if heartbeat else 'no checks yet' }}
   </span>
 {% endif %}
 <span id="last-success" class="v {{ 'ok' if last_success_ago else 'muted' }}" hx-swap-oob="true">{{ last_success_ago or 'never' }}</span>

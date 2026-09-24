@@ -137,7 +137,7 @@ def test_stored_topic_is_not_regenerated_on_next_get(tmp_path, monkeypatch):
     monkeypatch.setattr("src.web.wizard.routes.suggest_topic", boom)
     r = client.get("/wizard/notifications")
     assert r.status_code == 200
-    assert "stored" in r.text.lower()
+    assert "saved" in r.text.lower()
 
 
 def test_saving_neither_sink_leaves_the_step_incomplete_and_explains_why(tmp_path, monkeypatch):

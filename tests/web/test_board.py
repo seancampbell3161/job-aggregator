@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timezone
 
 import pytest
@@ -214,6 +215,43 @@ def test_add_job_neutralises_a_hostile_link(board_client):
     client.post("/board/add", data={**ADD, "apply_url": "javascript:alert(1)"})
     assert 'href="#"' in client.get("/board").text
     assert "javascript:alert(1)" not in client.get("/board").text
+
+
+def test_advance_accepts_status_from_the_form_body(board_client):
+    client, store = board_client
+    r = client.post("/board/advance", params={"id": CARD}, data={"status": "interviewing"})
+    assert r.status_code == 200
+    assert store.get_match(CARD)["status"] == "interviewing"
+
+
+def test_advance_query_status_still_wins_for_confirm_buttons(board_client):
+    client, store = board_client
+    r = client.post(f"/board/advance?id={CARD}&status=offer")
+    assert r.status_code == 200
+    assert store.get_match(CARD)["status"] == "offer"
+
+
+def test_advance_rejects_an_unknown_body_status(board_client):
+    client, _ = board_client
+    r = client.post("/board/advance", params={"id": CARD}, data={"status": "bogus"})
+    assert r.status_code == 400
+
+
+def test_advance_without_any_status_is_rejected(board_client):
+    client, _ = board_client
+    assert client.post("/board/advance", params={"id": CARD}).status_code == 400
+
+
+def test_card_offers_a_move_menu_not_six_buttons(board_client):
+    client, _ = board_client
+    html = client.get("/board").text
+    assert 'aria-label="Move Senior Engineer at Acme to…"' in html
+    assert 'autocomplete="off"' in html
+    assert '>Rejected</button>' not in html
+    menu = re.search(r'<select name="status" class="board-move".*?</select>', html, re.S).group(0)
+    assert '<option value="" disabled selected>Move to…</option>' in menu
+    assert '<option value="interviewing">Interviewing</option>' in menu
+    assert '<option value="applied">' not in menu     # the card's current status
 
 
 def test_parse_comp_forms():

@@ -125,7 +125,7 @@ def test_jobs_list_empty_state(client):
 
 
 def test_jobs_list_blank_min_score_is_no_filter(client):
-    # the inbox number input serializes an empty box as min_score="" — must be
+    # the inbox's min_score <select> submits "" for its "Any" option — must be
     # treated as "no floor", not rejected with 422
     r = client.get("/jobs", params={"min_score": ""})
     assert r.status_code == 200
@@ -373,10 +373,79 @@ def test_pipeline_page_renders_strip_and_panels(client):
     r = client.get("/pipeline")
     assert r.status_code == 200
     assert "greenhouse:acme" in r.text          # the failing connector is listed
-    assert "Connector health" in r.text
-    assert "Match &amp; score" in r.text or "Match & score" in r.text
-    assert 'hx-get="/pipeline/cycles"' in r.text
+    assert "Sources" in r.text and "Connector health" not in r.text
     assert 'hx-trigger="load, every 60s"' in r.text
+    assert "quarantined" not in r.text.lower()
+    assert "Stopped" in r.text and "Last successful check" in r.text
+    page = r.text
+    start = page.index('<details class="tech-details">')
+    assert '<summary>Technical details</summary>' in page
+    assert page.index('hx-get="/pipeline/cycles"') > start      # the polled fragment lives inside
+    assert page.index("discovered companies aren") > start        # source notes moved in
+    assert page.index('<h2 class="card-title">Sources</h2>') < start  # Sources card stays above
+    assert "Match &amp; score analytics" not in page and "Scores" in page
+
+
+def test_pipeline_page_shows_stopped_connector_and_dash_fallback(client, monkeypatch):
+    from src.state import DiscoveredSlug
+    from src.web.ops import HealthSummary
+
+    row = DiscoveredSlug(
+        connector_name="greenhouse:deadco", ats_family="greenhouse", slug="deadco",
+        company_name=None, discovered_at="2026-06-01T00:00:00+00:00",
+        last_validated_at=None, validation_status="quarantined",
+        consecutive_failures=6, last_posting_count=0,
+    )
+    summary = HealthSummary(ok=3, failed=0, quarantined=1, no_match=0, unhealthy=[row])
+    monkeypatch.setattr(client.app.state.ops, "health", lambda: summary)
+    r = client.get("/pipeline")
+    assert r.status_code == 200
+    assert "Stopped after repeated failures" in r.text
+    assert "quarantined" not in r.text.lower()          # state shown in words, not the raw status
+    assert '<td class="muted">—</td>' in r.text          # empty last_validated_at falls back to a dash
+
+
+def test_pipeline_page_no_match_note_is_singular_for_one(client, monkeypatch):
+    from src.web.ops import HealthSummary
+
+    summary = HealthSummary(ok=3, failed=0, quarantined=0, no_match=1, unhealthy=[])
+    monkeypatch.setattr(client.app.state.ops, "health", lambda: summary)
+    r = client.get("/pipeline")
+    assert r.status_code == 200
+    assert "1 discovered company isn&#39;t on any supported job board, so it&#39;s skipped." in r.text
+
+
+def test_pipeline_page_no_match_note_is_plural_for_many(client, monkeypatch):
+    from src.web.ops import HealthSummary
+
+    summary = HealthSummary(ok=3, failed=0, quarantined=0, no_match=2, unhealthy=[])
+    monkeypatch.setattr(client.app.state.ops, "health", lambda: summary)
+    r = client.get("/pipeline")
+    assert r.status_code == 200
+    assert "2 discovered companies aren&#39;t on any supported job board, so they&#39;re skipped." in r.text
+
+
+def test_pipeline_page_dead_boards_note_is_singular_for_one(client, monkeypatch):
+    from src.web.ops import HealthSummary
+
+    summary = HealthSummary(
+        ok=3, failed=0, quarantined=0, no_match=0, unhealthy=[], suppressed=["greenhouse:dead"],
+    )
+    monkeypatch.setattr(client.app.state.ops, "health", lambda: summary)
+    r = client.get("/pipeline")
+    assert r.status_code == 200
+    assert "1 dead board hidden automatically" in r.text
+    assert "1 dead boards hidden automatically" not in r.text
+
+
+def test_pipeline_page_shows_all_sources_working_when_healthy(client, monkeypatch):
+    from src.web.ops import HealthSummary
+
+    summary = HealthSummary(ok=4, failed=0, quarantined=0, no_match=0, unhealthy=[])
+    monkeypatch.setattr(client.app.state.ops, "health", lambda: summary)
+    r = client.get("/pipeline")
+    assert r.status_code == 200
+    assert "All sources are working." in r.text
 
 
 def test_pipeline_page_health_unavailable_is_soft(client, monkeypatch):
@@ -410,7 +479,7 @@ def test_pipeline_cycles_renders_with_activity(client, monkeypatch):
     monkeypatch.setattr(client.app.state.ops, "cycles", lambda: activity)
     r = client.get("/pipeline/cycles")
     assert r.status_code == 200
-    assert "ats" in r.text and "1480" in r.text           # per-tier averages
+    assert "Job boards" in r.text and "1480" in r.text    # per-tier averages, plain tier name
     assert "DataDome" in r.text and "1h ago" in r.text    # recency rendered inline
     assert "ashby:vercel" in r.text
     assert 'class="bad dim"' in r.text                    # 3d-old tally is dimmed
@@ -449,11 +518,11 @@ def test_pipeline_cycles_renders_recent_cycles_table(client, monkeypatch):
     monkeypatch.setattr(client.app.state.ops, "cycles", lambda: activity)
     r = client.get("/pipeline/cycles")
     assert r.status_code == 200
-    assert "recent cycles" in r.text.lower()
+    assert "recent checks" in r.text.lower()
     assert "<details open>" in r.text
     assert "1480" in r.text and "1m ago" in r.text     # newest row rendered
     assert "lever:y:HTTP500" in r.text                 # failure detail in title attr
-    assert "LLM⚠" in r.text                            # degraded marker on the bad row
+    assert "AI scoring had errors" in r.text           # degraded marker on the bad row
     assert "–" in r.text                               # None new_count placeholder
 
 
@@ -465,7 +534,7 @@ def test_pipeline_cycles_hides_recent_table_when_empty(client, monkeypatch):
     )
     monkeypatch.setattr(client.app.state.ops, "cycles", lambda: activity)
     r = client.get("/pipeline/cycles")
-    assert "recent cycles" not in r.text.lower()   # no telemetry → no section
+    assert "recent checks" not in r.text.lower()   # no telemetry → no section
 
 
 def test_pipeline_cycles_unavailable_is_soft(client, monkeypatch):
@@ -609,7 +678,8 @@ def test_analytics_no_gaps_shows_enable_hint(client, monkeypatch):
     monkeypatch.setattr(client.app.state.match_analytics, "summary", lambda: summary)
     r = client.get("/analytics")
     assert r.status_code == 200
-    assert "gap_analysis" in r.text          # the enable hint is shown
+    assert "No stretch skills recorded yet." in r.text   # the enable hint is shown
+    assert "gap_analysis" not in r.text
     assert "No matches yet." not in r.text   # matches exist; only the gaps panel is empty
 
 

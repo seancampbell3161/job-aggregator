@@ -101,7 +101,8 @@ def test_kit_missing_file_renders_setup_notice(kit_client):
     client, _ = kit_client
     r = client.get("/kit")
     assert r.status_code == 200
-    assert "facts.example.yaml" in r.text  # points at the template file
+    assert "No apply-kit facts yet" in r.text
+    assert 'href="/settings/documents?kind=kit_facts"' in r.text  # points at Settings
 
 
 def test_kit_malformed_file_renders_error_banner(kit_client):
@@ -130,7 +131,11 @@ def test_nav_links_to_kit(kit_client):
 
 def test_kit_reflects_a_new_facts_document_without_restart(kit_client):
     client, set_facts = kit_client
-    assert "No apply-kit facts yet" in client.get("/kit").text
+    r = client.get("/kit")
+    assert "No apply-kit facts yet" in r.text
+    assert 'href="/settings/documents?kind=kit_facts"' in r.text
+    assert "python -m" not in r.text
+    assert 'class="empty-state"' in r.text
     set_facts(VALID)
     assert "Eligibility" in client.get("/kit").text
 

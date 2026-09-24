@@ -210,3 +210,11 @@ def test_test_button_honours_a_pending_clear(tmp_path, monkeypatch):
         **FORM, "secret.anthropic_api_key": "", "clear.anthropic_api_key": "on",
     })
     assert seen["key"] == ""
+
+
+def test_llm_step_labels_read_standalone(tmp_path, monkeypatch):
+    html = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/llm").text
+    form = html.split('<form method="post" action="/wizard/llm">', 1)[1].split("</form>", 1)[0]
+    assert "Score matches with AI" in form
+    assert "Ollama address" in form
+    assert ">Enabled<" not in form and "Ollama host" not in form

@@ -125,10 +125,12 @@ def create_app(
     app.state.tailor_boot_override = None
     app.state.page_size = page_size
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
-    from src.web.pipeline_activity import format_ago
+    from src.web.pipeline_activity import format_ago, tier_label
     templates.env.filters["ago"] = format_ago
-    from src.web.labels import choice_label
+    templates.env.filters["tier_label"] = tier_label
+    from src.web.labels import choice_label, document_label
     templates.env.filters["choice_label"] = choice_label
+    templates.env.filters["document_label"] = document_label
     from src.web.coach import coach_nav_visible
     templates.env.globals["coach_nav_visible"] = coach_nav_visible
     from src.web.home import landing_url, register_home_routes
@@ -306,13 +308,28 @@ def _ctx(request: Request, **extra) -> dict:
     return {**config_ctx(request), **extra}
 
 
+# The statuses the Matches list shows by default (inbox.html's checked boxes).
+_OPEN_STATUSES = ("new", "interested", "applied", "interviewing")
+
+
 def _empty_reason(request: Request) -> str:
     """Why the list is empty — so a newcomer is told whether to wait, widen
-    the search, or loosen the filters. Falls back to "filtered", the least
-    alarming message, when telemetry can't be read."""
+    the search, or loosen the filters, or that everything has been reviewed.
+    Falls back to "filtered", the least alarming message, when telemetry
+    can't be read."""
     from src.web.home import request_liveness, request_status_counts
     try:
-        if sum(request_status_counts(request).values()) > 0:
+        counts = request_status_counts(request)
+        if sum(counts.values()) > 0:
+            # Every match has been dealt with: nothing any filter could reveal
+            # in the default view, so say so instead of offering a reset. But
+            # "caught_up"'s only action is "Show dismissed" — if the request
+            # already has that box ticked and is still empty, some other
+            # filter (q, min_score, ...) is doing the hiding, so the ordinary
+            # "loosen your filters" message applies instead.
+            if (not any(counts.get(s, 0) for s in _OPEN_STATUSES)
+                    and "dismissed" not in request.query_params.getlist("status")):
+                return "caught_up"
             return "filtered"
         live = request_liveness(request)
     except Exception as exc:  # noqa: BLE001 — an empty-state hint never breaks the list
@@ -344,8 +361,8 @@ def _render_list(
     # Empty selection (every workplace box unchecked) → no constraint, matching how
     # the status filter fails open; a non-empty subset filters to those buckets.
     workplace_set = set(workplace) if workplace else None
-    # The inbox's <input type="number"> serializes an empty box as min_score="" —
-    # which FastAPI would reject (422) for an int param. Parse it here so a blank
+    # The inbox's min_score <select> submits "" for its "Any" option — which
+    # FastAPI would reject (422) for an int param. Parse it here so a blank
     # field means "no floor".
     try:
         min_score_val = int(min_score) if min_score.strip() else None

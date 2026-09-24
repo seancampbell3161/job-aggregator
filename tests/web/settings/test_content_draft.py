@@ -24,6 +24,8 @@ def test_the_page_offers_drafting_when_nothing_has_run(tmp_path, monkeypatch):
     r = signed_in_client(_app(tmp_path, monkeypatch)).get("/settings/documents/draft")
     assert r.status_code == 200
     assert "Draft from my résumé" in r.text
+    assert "<code>resume_content</code>" not in r.text
+    assert "résumé content (for tailoring)" in r.text
 
 
 def test_starting_without_a_resume_records_an_error_and_starts_no_task(tmp_path, monkeypatch):

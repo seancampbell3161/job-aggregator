@@ -78,7 +78,7 @@ def test_pipeline_shows_rejected_stat_linking_audit(audit_client):
     r = client.get("/pipeline")
     assert r.status_code == 200
     assert 'href="/audit"' in r.text
-    assert "rejected /7d" in r.text
+    assert "Filtered out (7 days)" in r.text
 
 
 def test_rescue_filter_reject_promotes_to_triage(audit_client):

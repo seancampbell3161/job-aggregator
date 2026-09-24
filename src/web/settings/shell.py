@@ -30,6 +30,7 @@ from typing import Mapping
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 
+from src.settings.copy import secret_label
 from src.settings.service import secret_env_var
 from src.web.settings.sections import SECTIONS, section_fields
 
@@ -42,16 +43,27 @@ from src.web.settings.sections import SECTIONS, section_fields
 # typo fails silently until the feature breaks.
 _MASKED_SECRET_SUFFIXES = ("_key", "_password", "_secret")
 
+# secret_source() returns one of these three internal states; a newcomer
+# never sees the raw word, only its plain-language equivalent.
+_SOURCE_LABELS = {
+    "unset": "Not set",
+    "stored": "Saved",
+    "env": "Set outside the app",
+}
+
 
 def secret_rows(service, names) -> list[dict]:
-    """{name, source, env_var, label, masked} for each of a section's secrets
-    — the template never sees the value, only where it currently comes from."""
+    """{name, source, source_label, env_var, label, masked} for each of a
+    section's secrets — the template never sees the value, only where it
+    currently comes from. `source` drives control logic (env disables the
+    field); `source_label` is the plain-language word shown to the user."""
     return [
         {
             "name": name,
-            "source": service.secret_source(name),
+            "source": (source := service.secret_source(name)),
+            "source_label": _SOURCE_LABELS.get(source, source),
             "env_var": secret_env_var(name),
-            "label": name.replace("_", " "),
+            "label": secret_label(name),
             "masked": name.endswith(_MASKED_SECRET_SUFFIXES),
         }
         for name in names

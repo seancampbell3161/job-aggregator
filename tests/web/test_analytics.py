@@ -153,3 +153,45 @@ def test_summary_includes_funnel_triage_and_rates(analytics_provider):
     assert [(s.id, s.count) for s in a.pipeline.triage.segments] == [("still_new", 2)]
     assert [r.label for r in a.rates] == ["Apply rate", "Interview rate", "Offer rate"]
     assert a.rates[0].num == 0 and a.rates[0].den == 2
+
+
+def test_progress_strip_has_no_gaps_window_tile(tmp_path, monkeypatch):
+    from tests.web.shell_helpers import client_for, make_app
+    html = client_for(make_app(tmp_path, monkeypatch)).get("/analytics").text
+    assert "gaps window" not in html
+    assert "Matches found" in html
+
+
+def test_no_stretch_skills_message_names_no_config_key(tmp_path, monkeypatch):
+    """A newcomer never sees the config key `gap_analysis` — the empty state
+    tells them where to turn the feature on in plain words."""
+    from tests.web.shell_helpers import client_for, make_app, seed_match
+
+    app = make_app(tmp_path, monkeypatch)
+    seed_match(app, "j1")  # seeded with gaps=[] — no stretch skills recorded
+    html = client_for(app).get("/analytics").text
+    assert "gap_analysis" not in html
+    assert "<code>" not in html
+    assert "No stretch skills recorded yet." in html
+    assert '<a href="/settings/llm#gaps">Turn on skill-gap analysis in Settings</a>' in html
+
+
+def test_summary_unavailable_message_names_no_internal_table(tmp_path, monkeypatch):
+    """When MatchAnalytics.summary() fails soft (returns None), the page must
+    not mention the internal seen_jobs table."""
+    from src.web.app import create_app
+    from tests.auth_helpers import signed_in_client
+    from tests.settings_helpers import WEB_TEST_SETTINGS, make_service
+
+    class _UnavailableAnalytics:
+        def summary(self, *, now=None):
+            return None
+
+    monkeypatch.setenv("JOB_AGG_SQLITE_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setenv("JOB_AGG_TAILORED_DIR", str(tmp_path / "tailored"))
+    app = create_app(
+        service=make_service(WEB_TEST_SETTINGS), match_analytics=_UnavailableAnalytics()
+    )
+    html = signed_in_client(app).get("/analytics").text
+    assert "seen_jobs" not in html
+    assert "Match data is unavailable right now." in html

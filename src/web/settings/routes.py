@@ -38,6 +38,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.config import Secrets
+from src.settings.copy import field_copy
 from src.settings.documents import DOCUMENT_KINDS
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import (
@@ -209,6 +210,7 @@ def register_settings_routes(app: FastAPI) -> None:
 
     env = app.state.templates.env
     env.globals["field_help"] = field_help
+    env.globals["field_copy"] = field_copy
     env.globals["group_intro"] = group_intro
     env.globals["value_at"] = value_at
     env.globals["shown"] = shown

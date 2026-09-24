@@ -63,7 +63,9 @@ class FieldSpec:
 
     @property
     def label(self) -> str:
-        return self.name.replace("_", " ").capitalize()
+        from src.settings.copy import field_copy  # copy.py imports nothing from here
+        c = field_copy(self.path)
+        return c.label if c else self.name.replace("_", " ").capitalize()
 
 
 def _resolve(ann: Any) -> Any:

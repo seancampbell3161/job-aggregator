@@ -14,35 +14,49 @@
         aria-controls="filters" aria-expanded="false">Filters</button>
 <form id="filters" hx-get="/jobs" hx-target="#list" hx-swap="innerHTML"
       hx-trigger="change, keyup delay:300ms from:input[name=q]" hx-include="this">
-  <input type="search" name="q" placeholder="search title / company…">
-  <label><input type="checkbox" name="status" value="new" checked> New</label>
-  <label><input type="checkbox" name="status" value="interested" checked> Interested</label>
-  <label><input type="checkbox" name="status" value="applied" checked> Applied</label>
-  <label><input type="checkbox" name="status" value="interviewing" checked> Interviewing</label>
-  <label><input type="checkbox" name="status" value="dismissed"> Dismissed</label>
-  <label>score ≥ <input type="number" name="min_score" min="0" max="10" class="score-min"></label>
-  <label><input type="checkbox" name="has_gaps" value="true"> has gaps</label>
-  <span class="wp-filter">workplace
-    <label><input type="checkbox" name="workplace" value="remote" checked> remote</label>
-    <label><input type="checkbox" name="workplace" value="hybrid" checked> hybrid</label>
-    <label><input type="checkbox" name="workplace" value="onsite" checked> onsite</label>
-    <label><input type="checkbox" name="workplace" value="unknown" checked> unknown</label>
-  </span>
-  <label>sort
-    <select name="sort">
-      <option value="score">score</option>
-      <option value="newest">newest</option>
-    </select>
-  </label>
-  <label>per page
-    <select name="page_size">
-      <option value="10" selected>10</option>
-      <option value="25">25</option>
-      <option value="50">50</option>
-    </select>
-  </label>
-  <button id="refresh" class="btn" type="button" title="re-fetch the list with current filters"
-          onclick="triageRefresh()">↻ Refresh<span id="new-badge"></span></button>
+  <div class="filter-row">
+    <input type="search" name="q" placeholder="Search title or company…" aria-label="Search matches">
+    <label class="filter-inline">Sort
+      <select name="sort">
+        <option value="score">Best match</option>
+        <option value="newest">Newest</option>
+      </select>
+    </label>
+    <button id="refresh" class="btn" type="button" title="Re-fetch the list with the current filters"
+            onclick="triageRefresh()">↻ Refresh<span id="new-badge"></span></button>
+  </div>
+  <div class="filter-row">
+    <fieldset class="filter-group"><legend>Status</legend>
+      <div class="toggle-group">
+        {%- for v, text, on in [('new','New',true), ('interested','Interested',true), ('applied','Applied',true), ('interviewing','Interviewing',true), ('dismissed','Dismissed',false)] %}
+        <label class="toggle"><input type="checkbox" name="status" value="{{ v }}"{% if on %} checked{% endif %}><span>{{ text }}</span></label>
+        {%- endfor %}
+      </div>
+    </fieldset>
+    <fieldset class="filter-group"><legend>Workplace</legend>
+      <div class="toggle-group">
+        {%- for v, text in [('remote','Remote'), ('hybrid','Hybrid'), ('onsite','On-site'), ('unknown','Unknown')] %}
+        <label class="toggle"><input type="checkbox" name="workplace" value="{{ v }}" checked><span>{{ text }}</span></label>
+        {%- endfor %}
+      </div>
+    </fieldset>
+    <label class="filter-inline">Min score
+      <select name="min_score">
+        <option value="">Any</option>
+        {%- for n in [5, 6, 7, 8] %}
+        <option value="{{ n }}">{{ n }}+</option>
+        {%- endfor %}
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" name="has_gaps" value="true"> Only with skill gaps</label>
+    <label class="filter-inline">Show
+      <select name="page_size">
+        <option value="10" selected>10</option>
+        <option value="25">25</option>
+        <option value="50">50</option>
+      </select>
+    </label>
+  </div>
 </form>
 <input type="hidden" id="since" value="">
 <span hx-get="/jobs/new-count" hx-trigger="every 60s" hx-include="#since"
@@ -67,7 +81,16 @@ var TRIAGE_FILTERS_KEY = "triage.filters.v1";
     form.querySelectorAll('input[name=workplace]').forEach(function (cb) {
       if (Array.isArray(saved.workplace)) cb.checked = saved.workplace.indexOf(cb.value) !== -1;
     });
-    if (typeof saved.min_score === "string") form.querySelector('[name=min_score]').value = saved.min_score;
+    if (typeof saved.min_score === "string") {
+      // An older saved value may not be an option (the box was free text):
+      // snap to the highest option not above it, else "Any".
+      var sel = form.querySelector('[name=min_score]');
+      var want = parseFloat(saved.min_score), pick = "";
+      Array.prototype.forEach.call(sel.options, function (o) {
+        if (o.value && !isNaN(want) && parseFloat(o.value) <= want) pick = o.value;
+      });
+      sel.value = pick;
+    }
     form.querySelector('[name=has_gaps]').checked = saved.has_gaps === true;
     if (typeof saved.sort === "string") form.querySelector('[name=sort]').value = saved.sort;
     if (typeof saved.page_size === "string") form.querySelector('[name=page_size]').value = saved.page_size;
@@ -95,6 +118,12 @@ function triageResetFilters() {
   try { localStorage.removeItem(TRIAGE_FILTERS_KEY); } catch (e) { /* private mode */ }
   document.getElementById("filters").reset();   // back to the markup's defaults
   htmx.trigger(document.body, "refreshList");
+}
+function triageShowDismissed() {
+  var cb = document.querySelector('#filters input[name=status][value=dismissed]');
+  cb.checked = true;
+  // Bubbles to the form: htmx re-queries /jobs and the persistence listener saves it.
+  cb.dispatchEvent(new Event("change", { bubbles: true }));
 }
 </script>
 

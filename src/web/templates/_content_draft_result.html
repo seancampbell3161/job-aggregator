@@ -2,13 +2,13 @@
 {% import "_ui.html" as ui %}
 {% if draft is none %}
 <form method="post" action="/settings/documents/draft">
-  <p>Draft your structured résumé (<code>resume_content</code>) from the
+  <p>Draft your {{ 'resume_content' | document_label | lower }} from the
     résumé you have already uploaded. Nothing is saved until you review it.</p>
   <button type="submit" class="btn primary">Draft from my résumé</button>
 </form>
 {% elif draft.status == 'confirm' %}
 <form method="post" action="/settings/documents/draft">
-  {% call ui.alert('warn') %}You already have a <code>resume_content</code> document.
+  {% call ui.alert('warn') %}You already have a {{ 'resume_content' | document_label | lower }} document.
     Saving the review below would replace it.{% endcall %}
   <label class="check">
     <input type="checkbox" name="overwrite" value="1" required> Replace it
@@ -116,7 +116,7 @@
       address them by here.</p>
   {% endcall %}
   {% if confirm_replace %}
-  {% call ui.alert('warn') %}Your <code>resume_content</code> document has changed since
+  {% call ui.alert('warn') %}Your {{ 'resume_content' | document_label | lower }} document has changed since
     this draft was made — edited as JSON, restored from a backup, or written
     by another draft. Saving this review replaces it.{% endcall %}
   <label class="check">

@@ -1,33 +1,25 @@
 {% import "_ui.html" as ui %}
-{% call ui.card('Connector health') %}
+{% call ui.card('Sources') %}
   {% if health is none %}
-    <p class="muted">unavailable — could not read discovered_slugs.</p>
+    <p class="muted">Source status is unavailable right now.</p>
   {% else %}
-    <p><span class="v ok">{{ health.ok }}</span> ok ·
-       <span class="v warn">{{ health.failed }}</span> failed ·
-       <span class="v bad">{{ health.quarantined }}</span> quarantined</p>
-    <p class="muted ops-note">
-      discovery negative-cache: {{ health.no_match }} slugs matched no ATS (not polled)
-    </p>
-    {% if health.suppressed %}
-    <p class="muted ops-note">
-      auto-suppressed (dead 404/410, re-probed daily): {{ health.suppressed | length }}
-      — {{ health.suppressed | join(', ') }}
-    </p>
-    {% endif %}
+    <p><span class="v ok">{{ health.ok }}</span> working ·
+       <span class="v warn">{{ health.failed }}</span> failing ·
+       <span class="v bad">{{ health.quarantined }}</span> stopped</p>
     {% if health.unhealthy %}
     <div class="table-wrap">
     <table class="wide">
-      <tr><th>connector</th><th>status</th><th class="num">fails</th><th class="num">postings</th><th>last ok</th></tr>
+      <tr><th>Source</th><th>State</th><th class="num">Failures in a row</th><th class="num">Jobs last seen</th><th>Last worked</th></tr>
       {% for r in health.unhealthy %}
-      <tr><td>{{ r.connector_name }}</td><td>{{ r.validation_status }}</td>
+      <tr><td>{{ r.connector_name }}</td>
+          <td>{{ 'Stopped after repeated failures' if r.validation_status == 'quarantined' else 'Failing' }}</td>
           <td class="num">{{ r.consecutive_failures }}</td><td class="num">{{ r.last_posting_count }}</td>
-          <td class="muted">{{ (r.last_validated_at or '')[:10] }}</td></tr>
+          <td class="muted">{{ (r.last_validated_at or '')[:10] or '—' }}</td></tr>
       {% endfor %}
     </table>
     </div>
     {% else %}
-    <p class="muted">All tracked connectors healthy.</p>
+    <p class="muted">All sources are working.</p>
     {% endif %}
   {% endif %}
 {% endcall %}

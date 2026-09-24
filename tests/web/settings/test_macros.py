@@ -3,6 +3,7 @@
 the one `register_settings_routes` registers `field_help`/`value_at` on and
 that has autoescaping configured the same way production does — so these
 tests exercise the exact behaviour a browser would see, not an approximation."""
+from src.settings.copy import field_copy
 from src.settings.fields import field_map
 from src.web.app import create_app
 from tests.auth_helpers import signed_in_client
@@ -41,8 +42,12 @@ def test_chips_value_is_autoescaped(tmp_path, monkeypatch):
     assert "&lt;script&gt;" in html
 
 
-def test_help_disclosure_appears_when_full_differs_from_summary(tmp_path, monkeypatch):
-    """Correction 2: the <details>/<summary> disclosure, no onclick JS."""
+def test_a_curated_fields_more_disclosure_always_shows_config_md_text(tmp_path, monkeypatch):
+    """filters.max_age_days is a curated field (src/settings/copy.py): its
+    plain hint always renders, and whenever CONFIG.md has help text for the
+    path it sits behind an unconditional <details>/<summary> "more" — unlike
+    the Advanced path below, curated copy does not first compare full text
+    against the CONFIG.md summary to decide whether there is "more" to show."""
     html = str(_macros(tmp_path, monkeypatch).help_for("filters.max_age_days"))
     assert "<details" in html
     assert "<summary>more</summary>" in html
@@ -50,7 +55,14 @@ def test_help_disclosure_appears_when_full_differs_from_summary(tmp_path, monkey
 
 
 def test_help_disclosure_is_omitted_when_full_equals_summary(tmp_path, monkeypatch):
-    html = str(_macros(tmp_path, monkeypatch).help_for("filters.seniority_allow"))
+    """filters.seniority_allow is now a curated field (src/settings/copy.py),
+    so its CONFIG.md text always sits behind "more" regardless of whether it
+    has anything beyond the first sentence — see
+    test_a_curated_field_shows_plain_hint_and_no_default_meta. This test's
+    "nothing extra to show" case only still applies to an Advanced (uncurated)
+    path, so it moves to one: sources.greenhouse has CONFIG.md help whose full
+    text is a single sentence and no curated copy of its own."""
+    html = str(_macros(tmp_path, monkeypatch).help_for("sources.greenhouse"))
     assert "<details" not in html
 
 
@@ -81,8 +93,13 @@ def test_only_true_secrets_are_masked(tmp_path, monkeypatch):
 
 
 def _int_with_default():
-    """An int field that has a default, so its label row carries meta."""
-    return next(s for s in field_map().values() if s.kind == "int" and s.default is not None)
+    """An int field that has a default, so its label row carries meta. Must be
+    an Advanced path (not in COPY) — a curated field suppresses the generated
+    "default N" meta in favour of its own hint/blank text."""
+    return next(
+        s for s in field_map().values()
+        if s.kind == "int" and s.default is not None and field_copy(s.path) is None
+    )
 
 
 def test_field_error_is_wired_to_its_control(tmp_path, monkeypatch):
@@ -135,3 +152,43 @@ def test_a_multi_choice_field_is_a_toggle_group_named_by_a_legend(tmp_path, monk
     assert '<div class="toggle-group">' in html
     assert '<label class="toggle"><input type="checkbox" name="filters.seniority_allow" value="mid" checked><span>Mid</span></label>' in html
     assert 'value="senior"><span>Senior</span>' in html   # unchecked
+
+
+def test_a_curated_field_shows_plain_hint_and_no_default_meta(tmp_path, monkeypatch):
+    spec = field_map()["filters.comp_floor_usd"]
+    html = str(_macros(tmp_path, monkeypatch).field(spec, 0, {}))
+    assert "Minimum salary (USD)" in html
+    assert "Skip postings whose advertised minimum pay" in html
+    assert "field-meta" not in html
+    assert '<details class="field-more">' in html     # CONFIG.md text stays behind "more"
+
+
+def test_a_curated_optional_choice_uses_its_blank_text(tmp_path, monkeypatch):
+    spec = field_map()["coach.provider"]
+    html = str(_macros(tmp_path, monkeypatch).field(spec, None, {}))
+    assert '<option value="">Same as match scoring</option>' in html
+    assert "(unset)" not in html
+    assert '<option value="anthropic" >Anthropic (Claude)</option>' in html
+
+
+def test_a_curated_optional_int_uses_its_blank_placeholder(tmp_path, monkeypatch):
+    spec = field_map()["filters.max_age_days"]
+    html = str(_macros(tmp_path, monkeypatch).field(spec, None, {}))
+    assert 'placeholder="Any age"' in html
+
+
+def test_a_curated_optional_text_uses_its_blank_placeholder(tmp_path, monkeypatch):
+    spec = field_map()["coach.model"]
+    html = str(_macros(tmp_path, monkeypatch).field(spec, None, {}))
+    assert 'placeholder="Same as match scoring"' in html
+
+
+def test_a_curated_required_int_states_its_default_in_the_hint(tmp_path, monkeypatch):
+    """A curated int field with a real (non-optional) default no longer hides
+    it entirely — it can't show `default N` meta (that's raw config jargon
+    placement), so the mechanical fallback names it in the hint text."""
+    spec = field_map()["schedules.ats_minutes"]
+    assert spec.kind == "int" and spec.default == 10 and not spec.optional
+    html = str(_macros(tmp_path, monkeypatch).field(spec, 10, {}))
+    assert "Default: 10." in html
+    assert "field-meta" not in html

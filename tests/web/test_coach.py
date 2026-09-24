@@ -218,7 +218,8 @@ def test_app_pages_survive_a_failing_coach_builder(tmp_path, monkeypatch):
     assert 'href="/coach"' in r.text          # nav still renders: enabled + available
     r2 = client.get("/coach")
     assert r2.status_code == 200
-    assert "not configured" in r2.text        # engine is None: can_run is False
+    assert "Coach needs an AI provider" in r2.text   # engine is None: can_run is False
+    assert 'href="/settings/llm#coach"' in r2.text
 
 
 def test_coach_page_renders_empty_state(coach_client):
@@ -304,4 +305,15 @@ def test_engineless_provider_explains_not_configured(tmp_path, monkeypatch):
                      coach=CoachProvider(store=coach_store, seen=seen))
     client = signed_in_client(app)
     r = client.get("/coach")
-    assert r.status_code == 200 and "not configured" in r.text
+    assert r.status_code == 200 and "Coach needs an AI provider" in r.text
+    assert 'href="/settings/llm#coach"' in r.text
+
+
+def test_disabled_coach_links_to_the_setting(tmp_path, monkeypatch):
+    from tests.settings_helpers import WEB_TEST_SETTINGS
+    from tests.web.shell_helpers import client_for, make_app
+    app = make_app(tmp_path, monkeypatch, settings={**WEB_TEST_SETTINGS, "coach": {"enabled": False}})
+    html = client_for(app).get("/coach").text
+    assert "Coach is turned off." in html
+    assert 'href="/settings/llm#coach"' in html
+    assert "config.yaml" not in html

@@ -106,4 +106,4 @@ def test_interview_select_options_read_as_words(tmp_path, monkeypatch):
     html = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/resume").text
     assert '<option value="ic" >Individual contributor</option>' in html or \
            '<option value="ic">Individual contributor</option>' in html
-    assert ">Allowed countries</option>" in html
+    assert ">Only in my countries</option>" in html

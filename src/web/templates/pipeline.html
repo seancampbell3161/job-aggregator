@@ -7,34 +7,42 @@
 {% block content %}
 {{ ui.page_header('System health') }}
 <div class="strip">
-  <div class="stat"><span class="muted">last cycle</span><br><span id="last-cycle" class="v muted">…</span></div>
+  <div class="stat"><span class="muted">Last check</span><br><span id="last-cycle" class="v muted">…</span></div>
+  <div class="stat"><span class="muted">Last successful check</span><br><span id="last-success" class="v {{ 'ok' if last_success_ago else 'muted' }}">{{ last_success_ago or 'never' }}</span></div>
   {% if health is not none %}
-  <div class="stat"><span class="muted">connectors</span><br><span class="v">{{ health.ok + health.failed + health.quarantined }}</span></div>
-  <div class="stat"><span class="muted">failed</span><br><span class="v warn">{{ health.failed }}</span></div>
-  <div class="stat"><span class="muted">quarantined</span><br><span class="v bad">{{ health.quarantined }}</span></div>
+  <div class="stat"><span class="muted">Sources checked</span><br><span class="v">{{ health.ok + health.failed + health.quarantined }}</span></div>
+  <div class="stat"><span class="muted">Failing</span><br><span class="v warn">{{ health.failed }}</span></div>
+  <div class="stat"><span class="muted">Stopped</span><br><span class="v bad">{{ health.quarantined }}</span></div>
   {% endif %}
   {% if analytics is not none %}
-  <div class="stat"><span class="muted">matches /{{ analytics.window_days }}d</span><br><span class="v">{{ analytics.recent }}</span></div>
+  <div class="stat"><span class="muted">Matches ({{ analytics.window_days }} days)</span><br><span class="v">{{ analytics.recent }}</span></div>
   {% endif %}
-  <div class="stat"><span class="muted">last success</span><br><span id="last-success" class="v {{ 'ok' if last_success_ago else 'muted' }}">{{ last_success_ago or 'never' }}</span></div>
   {% if rejected_7d is not none %}
-  <div class="stat"><span class="muted">rejected /7d</span><br><span class="v"><a href="/audit">{{ rejected_7d }}</a></span></div>
+  <div class="stat"><span class="muted">Filtered out (7 days)</span><br><span class="v"><a href="/audit">{{ rejected_7d }}</a></span></div>
   {% endif %}
 </div>
 
 <!-- Per-tier freshness: OOB-populated by /pipeline/cycles. Glanceable so a silently
      dead tier (e.g. ats stalls while slow keeps ticking) can't hide in a table cell. -->
 <div id="tier-freshness" class="tier-strip">
-  <span class="muted tier-note">checking tier freshness…</span>
+  <span class="muted tier-note">Checking each kind of source…</span>
 </div>
 
-<div class="ops-grid">
-  {% include "_ops_health.html" %}
-  <div class="ops-col">
+{% include "_ops_health.html" %}
+
+<details class="tech-details">
+  <summary>Technical details</summary>
+  {% if health is not none %}
+  <p class="muted ops-note">{{ health.no_match }} discovered {{ "company isn't" if health.no_match == 1 else "companies aren't" }} on any supported job board, so {{ "it's" if health.no_match == 1 else "they're" }} skipped.</p>
+  {% if health.suppressed %}
+  <p class="muted ops-note">{{ health.suppressed | length }} dead board{{ 's' if health.suppressed | length != 1 else '' }} hidden automatically — rechecked daily: {{ health.suppressed | join(', ') }}</p>
+  {% endif %}
+  {% endif %}
+  <div class="ops-grid">
     {% include "_ops_analytics.html" %}
     <div id="cycles" hx-get="/pipeline/cycles" hx-trigger="load, every 60s" hx-swap="innerHTML">
-      {% call ui.card('Cycle stats & fetch failures') %}<p class="muted">Loading…</p>{% endcall %}
+      {% call ui.card('Checks and fetch failures') %}<p class="muted">Loading…</p>{% endcall %}
     </div>
   </div>
-</div>
+</details>
 {% endblock %}
