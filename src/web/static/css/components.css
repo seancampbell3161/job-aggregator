@@ -190,7 +190,11 @@ legend.field-label { width: 100%; padding: 0; }
 /* A step whose primary is its own one-button form keeps it in the row. */
 .action-bar-end form { display: contents; }
 /* A destructive action (Backup's restore) shouldn't follow you down the page. */
-.action-bar.unpinned { position: static; }
+.action-bar.unpinned { position: static; background: none; }
+/* An unpinned bar inside a card (e.g. Résumé templates → Settings) already
+   sits right under the card's own bottom padding; the bar's usual top margin
+   would double it up. */
+.card .action-bar { margin-top: var(--space-4); }
 
 /* ---- Empty state ---- */
 .empty-state { padding: var(--space-6) var(--space-4); text-align: center;

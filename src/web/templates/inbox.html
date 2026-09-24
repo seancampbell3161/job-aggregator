@@ -2,7 +2,12 @@
 {% import "_ui.html" as ui %}
 {% block title %}Matches · Job Aggregator{% endblock %}
 {% block styles %}<link rel="stylesheet" href="/static/css/pages/triage.css">
-<script src="/static/js/triage.js" defer></script>{% endblock %}
+<script src="/static/js/triage.js" defer></script>
+{#- triage.js is deferred, so it can run after the browser has already
+   painted the filter bar open; adding js-triage here instead, synchronously
+   during head parsing, means the phone layout is folded from the first
+   paint. #}
+<script>document.documentElement.classList.add("js-triage");</script>{% endblock %}
 {% block content %}
 {{ ui.page_header('Matches') }}
 <button type="button" id="filters-toggle" class="btn sm filters-toggle"

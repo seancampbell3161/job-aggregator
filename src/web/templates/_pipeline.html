@@ -73,9 +73,9 @@
   <details class="pl-flows">
     <summary>table view</summary>
     <table>
-      <tr><th>from</th><th>to</th><th>jobs</th></tr>
+      <tr><th>from</th><th>to</th><th class="num">jobs</th></tr>
       {% for f in p.flows %}
-      <tr><td>{{ f.source }}</td><td>{{ f.target }}</td><td>{{ f.count }}</td></tr>
+      <tr><td>{{ f.source }}</td><td>{{ f.target }}</td><td class="num">{{ f.count }}</td></tr>
       {% endfor %}
     </table>
   </details>

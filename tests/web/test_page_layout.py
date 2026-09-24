@@ -93,6 +93,14 @@ def test_audit_days_input_is_labelled(tmp_path, monkeypatch):
 CSS = TEMPLATES.parent / "static" / "css"
 
 
+def test_unpinned_action_bar_paints_no_background():
+    # .action-bar.unpinned used to keep the sticky bar's own solid
+    # background, painting a dark band inside whatever card it sat in.
+    components = (CSS / "components.css").read_text()
+    assert re.search(r"\.action-bar\.unpinned\s*\{[^}]*\bbackground:\s*none\b", components)
+    assert re.search(r"\.card \.action-bar\s*\{[^}]*margin-top:\s*var\(--space-4\)", components)
+
+
 def test_phone_board_stacks_under_the_top_bar():
     tokens = (CSS / "tokens.css").read_text()
     shell = (CSS / "shell.css").read_text()
@@ -126,3 +134,18 @@ def test_detail_has_a_back_button(tmp_path, monkeypatch):
     seed_match(app, "j1")
     html = client_for(app).get("/detail?id=j1").text
     assert '<button type="button" class="btn sm ghost detail-back">← Matches</button>' in html
+
+
+def test_expired_detail_has_a_back_button(tmp_path, monkeypatch):
+    # A tap on a match that has since vanished (or expired) renders
+    # _expired.html instead — it needs the same way back to the list.
+    html = client_for(make_app(tmp_path, monkeypatch)).get("/detail?id=does-not-exist").text
+    assert '<button type="button" class="btn sm ghost detail-back">← Matches</button>' in html
+
+
+def test_llm_test_button_scrolls_the_probe_result_into_view(tmp_path, monkeypatch):
+    # The pinned action bar sits below the probe result on this long form;
+    # without this, clicking Test from the bar shows nothing on screen.
+    html = client_for(make_app(tmp_path, monkeypatch)).get("/settings/llm").text
+    m = re.search(r'<button[^>]*hx-post="/settings/llm/test/llm"[^>]*>', html)
+    assert m and 'hx-swap="innerHTML show:bottom"' in m.group(0)

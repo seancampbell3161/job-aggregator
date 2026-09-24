@@ -60,6 +60,10 @@
   /* Filters fold behind their toggle once triage.js is running. */
   .js-triage .filters-toggle { display: inline-flex; margin-bottom: var(--space-3); }
   .js-triage #filters:not(.filters-open) { display: none; }
+  /* A detail is showing full-width: the toggle and any open filter panel
+     above it would sit over the pane .panes.show-detail can't reach (it's a
+     preceding sibling), so hide them from the <html> class instead. */
+  .triage-detail .filters-toggle, .triage-detail #filters { display: none; }
 
   /* Rows: checkbox · score · text, with the status pill under the text. */
   .row { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: start; }
