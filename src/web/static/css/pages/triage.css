@@ -44,3 +44,25 @@
   border-radius: var(--radius-sm); background: var(--danger-subtle); color: var(--danger-text); font-size: var(--text-xs); }
 .status-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: var(--space-4); }
 .status-buttons .apply { margin-left: auto; }
+
+/* Toggle and back button exist only for the phone layout (triage.js). */
+.filters-toggle, .detail-back { display: none; }
+
+@media (max-width: 47.99rem) {
+  /* One pane at a time: the list, or (after a tap) the detail. */
+  .panes { display: block; }
+  #list { width: 100%; }
+  #detail { display: none; }
+  .panes.show-detail #list { display: none; }
+  .panes.show-detail #detail { display: block; }
+  .js-triage .detail-back { display: inline-flex; margin-bottom: var(--space-3); }
+
+  /* Filters fold behind their toggle once triage.js is running. */
+  .js-triage .filters-toggle { display: inline-flex; margin-bottom: var(--space-3); }
+  .js-triage #filters:not(.filters-open) { display: none; }
+
+  /* Rows: checkbox · score · text, with the status pill under the text. */
+  .row { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: start; }
+  .row > .pill { grid-column: 3; justify-self: start; }
+  .bulk-bar { flex-wrap: wrap; }
+}

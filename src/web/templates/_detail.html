@@ -1,4 +1,5 @@
 {% set statuses = ['new', 'interested', 'applied', 'interviewing', 'offer', 'rejected', 'ghosted', 'dismissed'] %}
+<button type="button" class="btn sm ghost detail-back">← Matches</button>
 <div class="detail-head">
   <span class="score s-{{ m.band(score_high, score_low) }}">{{ m.score if m.score is not none else '–' }}</span>
   <div>

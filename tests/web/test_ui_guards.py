@@ -95,6 +95,9 @@ JS_ONLY = {
     "chip-remove": "built by static/js/chips.js, the × on each chip",
     "chip-entry": "built by static/js/chips.js, the text box new chips are typed into",
     "chip-hint": "built by static/js/chips.js, the 'Press Enter to add' note",
+    "js-triage": "added to <html> by static/js/triage.js (enables the phone Matches layout)",
+    "show-detail": "toggled on .panes by static/js/triage.js when a phone opens a match",
+    "filters-open": "toggled on #filters by static/js/triage.js's Filters button",
 }
 
 

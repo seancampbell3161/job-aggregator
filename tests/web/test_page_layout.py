@@ -102,3 +102,27 @@ def test_phone_board_stacks_under_the_top_bar():
     phone = board.split("@media (max-width: 47.99rem)", 1)[1]
     assert "flex-direction: column" in phone
     assert "top: var(--topbar-h)" in phone
+
+
+def test_matches_page_loads_the_phone_script(tmp_path, monkeypatch):
+    c = client_for(make_app(tmp_path, monkeypatch))
+    html = c.get("/").text
+    assert '<script src="/static/js/triage.js" defer></script>' in html
+    assert re.search(r'<button[^>]*id="filters-toggle"[^>]*aria-controls="filters"[^>]*aria-expanded="false"', html)
+    js = c.get("/static/js/triage.js")
+    assert js.status_code == 200 and "show-detail" in js.text and "pushState" in js.text
+
+
+def test_filters_toggle_sits_outside_the_filter_form(tmp_path, monkeypatch):
+    # Inside the form it would be serialised into every /jobs request.
+    html = client_for(make_app(tmp_path, monkeypatch)).get("/").text
+    form = re.search(r'<form id="filters".*?</form>', html, re.S).group(0)
+    assert "filters-toggle" not in form
+
+
+def test_detail_has_a_back_button(tmp_path, monkeypatch):
+    from tests.web.shell_helpers import seed_match
+    app = make_app(tmp_path, monkeypatch)
+    seed_match(app, "j1")
+    html = client_for(app).get("/detail?id=j1").text
+    assert '<button type="button" class="btn sm ghost detail-back">← Matches</button>' in html
