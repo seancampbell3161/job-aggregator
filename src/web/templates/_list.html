@@ -39,6 +39,11 @@
   <a class="btn sm" href="/settings/filters">Widen your job titles</a>
   <a class="btn sm ghost" href="/audit">See what was filtered out</a>
 {% endcall %}
+{% elif empty_reason == 'caught_up' %}
+{% call ui.empty_state("You're all caught up.", 'New matches appear here after each check (every ' ~ ats_minutes ~ ' minutes).') %}
+  <a class="btn sm" href="/board">Open Applications</a>
+  <button class="btn sm ghost" type="button" onclick="triageShowDismissed()">Show dismissed</button>
+{% endcall %}
 {% else %}
 {% call ui.empty_state('Nothing matches these filters.') %}
   <button class="btn sm" type="button" onclick="triageResetFilters()">Reset filters</button>

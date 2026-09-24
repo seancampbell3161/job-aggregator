@@ -96,6 +96,12 @@ function triageResetFilters() {
   document.getElementById("filters").reset();   // back to the markup's defaults
   htmx.trigger(document.body, "refreshList");
 }
+function triageShowDismissed() {
+  var cb = document.querySelector('#filters input[name=status][value=dismissed]');
+  cb.checked = true;
+  // Bubbles to the form: htmx re-queries /jobs and the persistence listener saves it.
+  cb.dispatchEvent(new Event("change", { bubbles: true }));
+}
 </script>
 
 <div class="panes">

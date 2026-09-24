@@ -82,3 +82,30 @@ def test_board_error_is_not_reported_as_empty(tmp_path, monkeypatch):
     monkeypatch.setattr(app.state.board, "board", lambda: Board(columns={}, archive=[], error=True))
     html = client_for(app).get("/board").text
     assert "temporarily unavailable" in html and "show up here" not in html
+
+
+def test_matches_all_caught_up(tmp_path, monkeypatch):
+    app = make_app(tmp_path, monkeypatch)
+    seed_cycle(app, minutes_ago=5)
+    seed_match(app, "a:1", status="dismissed")
+    seed_match(app, "a:2", status="rejected")
+    html = client_for(app).get("/jobs", params={"status": ["new", "interested", "applied", "interviewing"]}).text
+    assert "You&#39;re all caught up." in html
+    assert 'href="/board"' in html
+    assert 'onclick="triageShowDismissed()"' in html
+    assert "Nothing matches these filters" not in html
+
+
+def test_open_matches_hidden_by_search_are_still_filtered(tmp_path, monkeypatch):
+    app = make_app(tmp_path, monkeypatch)
+    seed_cycle(app, minutes_ago=5)
+    seed_match(app, "a:1", status="dismissed")
+    seed_match(app, "a:2", status="interested")
+    html = client_for(app).get("/jobs", params={"q": "zzz-no-such-title"}).text
+    assert "Nothing matches these filters" in html
+    assert "all caught up" not in html
+
+
+def test_inbox_defines_show_dismissed(tmp_path, monkeypatch):
+    html = client_for(make_app(tmp_path, monkeypatch)).get("/").text
+    assert "function triageShowDismissed()" in html

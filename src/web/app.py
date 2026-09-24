@@ -307,13 +307,23 @@ def _ctx(request: Request, **extra) -> dict:
     return {**config_ctx(request), **extra}
 
 
+# The statuses the Matches list shows by default (inbox.html's checked boxes).
+_OPEN_STATUSES = ("new", "interested", "applied", "interviewing")
+
+
 def _empty_reason(request: Request) -> str:
     """Why the list is empty — so a newcomer is told whether to wait, widen
-    the search, or loosen the filters. Falls back to "filtered", the least
-    alarming message, when telemetry can't be read."""
+    the search, or loosen the filters, or that everything has been reviewed.
+    Falls back to "filtered", the least alarming message, when telemetry
+    can't be read."""
     from src.web.home import request_liveness, request_status_counts
     try:
-        if sum(request_status_counts(request).values()) > 0:
+        counts = request_status_counts(request)
+        if sum(counts.values()) > 0:
+            # Every match has been dealt with: nothing any filter could reveal
+            # in the default view, so say so instead of offering a reset.
+            if not any(counts.get(s, 0) for s in _OPEN_STATUSES):
+                return "caught_up"
             return "filtered"
         live = request_liveness(request)
     except Exception as exc:  # noqa: BLE001 — an empty-state hint never breaks the list
