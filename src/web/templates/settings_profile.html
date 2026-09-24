@@ -1,9 +1,10 @@
 {% extends "settings_base.html" %}
+{% import "_ui.html" as ui %}
 {% block section %}
 <form method="post" action="/settings/profile">
   <p class="field-hint">Markdown. The scorer grades every posting against this,
     so describe the work you want, not just the work you have done.</p>
   <textarea name="body" rows="24" class="doc-edit">{{ body }}</textarea>
-  <div class="actions"><button type="submit" class="btn primary">Save profile</button></div>
+  {% call ui.action_bar() %}<button type="submit" class="btn primary">Save profile</button>{% endcall %}
 </form>
 {% endblock %}

@@ -1,5 +1,6 @@
 {% extends "settings_base.html" %}
 {% import "_settings_macros.html" as w %}
+{% import "_ui.html" as ui %}
 {% block section %}
 <p class="back-link"><a href="/settings/advanced">&larr; All groups</a></p>
 {% set intro = group_intro(group.key) %}
@@ -8,6 +9,6 @@
   {% for spec in group.fields %}
     {{ w.field(spec, shown(submitted, cfg, spec), errors) }}
   {% endfor %}
-  <div class="actions"><button type="submit" class="btn primary">Save {{ group.title }}</button></div>
+  {% call ui.action_bar() %}<button type="submit" class="btn primary">Save {{ group.title }}</button>{% endcall %}
 </form>
 {% endblock %}

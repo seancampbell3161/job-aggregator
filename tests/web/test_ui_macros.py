@@ -221,6 +221,17 @@ def test_action_bar_escapes_back_href(ui):
     assert "<script>" not in html
 
 
+def test_action_bar_is_pinned_by_default(ui):
+    html = str(ui.action_bar(caller=body))
+    assert html.startswith('<div class="action-bar">')
+    assert '<div class="action-bar-end"><p id="body">body</p></div>' in html
+
+
+def test_action_bar_can_be_unpinned(ui):
+    html = str(ui.action_bar(sticky=False, caller=body))
+    assert html.startswith('<div class="action-bar unpinned">')
+
+
 # ---- field group ----
 
 def test_field_group_is_a_fieldset_with_a_legend(ui):

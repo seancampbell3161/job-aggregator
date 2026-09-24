@@ -1,5 +1,6 @@
 {% extends "settings_base.html" %}
 {% import "_settings_macros.html" as w %}
+{% import "_ui.html" as ui %}
 {% block section %}
 <form method="post" action="/settings/integrations">
   {% for s in secrets %}
@@ -9,6 +10,6 @@
     {{ w.secret_field(s, errors, probe_targets, "") }}
   {% endfor %}
 
-  <div class="actions"><button type="submit" class="btn primary">Save integrations</button></div>
+  {% call ui.action_bar() %}<button type="submit" class="btn primary">Save integrations</button>{% endcall %}
 </form>
 {% endblock %}

@@ -1,10 +1,11 @@
 {% extends "settings_base.html" %}
 {% import "_settings_macros.html" as w %}
+{% import "_ui.html" as ui %}
 {% block section %}
 <form method="post" action="/settings/filters">
   {% for spec in fields %}
     {{ w.field(spec, shown(submitted, cfg, spec), errors) }}
   {% endfor %}
-  <div class="actions"><button type="submit" class="btn primary">Save filters</button></div>
+  {% call ui.action_bar() %}<button type="submit" class="btn primary">Save filters</button>{% endcall %}
 </form>
 {% endblock %}

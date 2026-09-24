@@ -189,6 +189,8 @@ legend.field-label { width: 100%; padding: 0; }
 .action-bar-end { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-left: auto; }
 /* A step whose primary is its own one-button form keeps it in the row. */
 .action-bar-end form { display: contents; }
+/* A destructive action (Backup's restore) shouldn't follow you down the page. */
+.action-bar.unpinned { position: static; }
 
 /* ---- Empty state ---- */
 .empty-state { padding: var(--space-6) var(--space-4); text-align: center;

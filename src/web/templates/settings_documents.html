@@ -1,4 +1,5 @@
 {% extends "settings_base.html" %}
+{% import "_ui.html" as ui %}
 {% block section %}
 <p class="muted">Have a résumé uploaded? <a href="/settings/documents/draft">Draft
   your structured résumé from it</a> instead of writing the JSON by hand.</p>
@@ -14,6 +15,6 @@
 <form method="post" action="/settings/documents">
   <input type="hidden" name="kind" value="{{ kind }}">
   <textarea name="body" rows="24" class="doc-edit">{{ body }}</textarea>
-  <div class="actions"><button type="submit" class="btn primary">Save document</button></div>
+  {% call ui.action_bar() %}<button type="submit" class="btn primary">Save document</button>{% endcall %}
 </form>
 {% endblock %}
