@@ -30,6 +30,7 @@ from typing import Mapping
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 
+from src.settings.copy import secret_label
 from src.settings.service import secret_env_var
 from src.web.settings.sections import SECTIONS, section_fields
 
@@ -51,7 +52,7 @@ def secret_rows(service, names) -> list[dict]:
             "name": name,
             "source": service.secret_source(name),
             "env_var": secret_env_var(name),
-            "label": name.replace("_", " "),
+            "label": secret_label(name),
             "masked": name.endswith(_MASKED_SECRET_SUFFIXES),
         }
         for name in names

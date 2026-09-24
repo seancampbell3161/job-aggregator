@@ -152,6 +152,10 @@ def test_label_is_derived_from_the_leaf_name():
     assert field_map()["discovery.enabled"].root == "discovery"
 
 
+def test_label_prefers_curated_copy():
+    assert field_map()["filters.max_age_days"].label == "Max posting age (days)"
+
+
 def test_value_at_reads_a_dotted_path_off_a_config():
     from src.config import AppConfig
     from src.settings.fields import value_at

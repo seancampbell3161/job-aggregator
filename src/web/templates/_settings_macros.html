@@ -3,9 +3,16 @@
    hint, control, required note, error — lives once, in ui.field. #}
 {% import "_ui.html" as ui %}
 
+{# A curated field (src/settings/copy.py) shows its plain hint, with the
+   CONFIG.md reference text behind "more"; any other path shows the CONFIG.md
+   first sentence as before. #}
 {% macro help_for(path) %}
+  {% set c = field_copy(path) %}
   {% set h = field_help(path) %}
-  {% if h %}
+  {% if c %}
+  <p>{{ c.hint }}</p>
+  {% if h %}<details class="field-more"><summary>more</summary>{{ h.full|safe }}</details>{% endif %}
+  {% elif h %}
   <p>{{ h.summary|safe }}</p>
   {% if h.full != h.summary %}
   <details class="field-more"><summary>more</summary>{{ h.full|safe }}</details>
@@ -79,6 +86,7 @@
 {% set why = (required or {}).get(spec.path) %}
 {% set err = errors[spec.path] if spec.path in errors else none %}
 {% set cid = 'f-' ~ spec.path %}
+{% set copy = field_copy(spec.path) %}
 {% set hint = help_for(spec.path) | trim %}
 {% set aria %}{% if err %} aria-invalid="true" aria-describedby="{{ cid }}-error"{% endif %}{% endset %}
 {% if spec.kind == 'bool' %}
@@ -98,16 +106,16 @@
      the toggle pills of multi_choice. #}
   {% set single = spec.kind not in ('multi_choice', 'chips') %}
   {% set meta = ('default ' ~ spec.default)
-       if spec.default is not none and spec.kind not in ('chips', 'multi_choice', 'read_only')
+       if (not copy and spec.default is not none and spec.kind not in ('chips', 'multi_choice', 'read_only'))
        else none %}
   {% call ui.field(label=spec.label, control_id=cid if single else none, hint=hint,
                    meta=meta, required=why, error=err, path=spec.path,
                    group=(spec.kind == 'multi_choice')) %}
     {% if spec.kind == 'choice' %}
       <select id="{{ cid }}" name="{{ spec.path }}"{{ aria }}>
-        {% if spec.optional %}<option value="">(unset)</option>{% endif %}
+        {% if spec.optional %}<option value="">{{ copy.blank if copy and copy.blank else '(unset)' }}</option>{% endif %}
         {% for c in spec.choices %}
-        <option value="{{ c }}" {% if value == c %}selected{% endif %}>{{ c }}</option>
+        <option value="{{ c }}" {% if value == c %}selected{% endif %}>{{ c | choice_label if copy else c }}</option>
         {% endfor %}
       </select>
     {% elif spec.kind == 'multi_choice' %}
@@ -119,13 +127,14 @@
         value="{{ '' if value is none else value }}"
         {% if spec.ge is not none %}min="{{ spec.ge }}"{% endif %}
         {% if spec.le is not none %}max="{{ spec.le }}"{% endif %}
-        {% if spec.optional %}placeholder="unset"{% endif %}{{ aria }}>
+        {% if spec.optional %}placeholder="{{ copy.blank if copy and copy.blank else 'unset' }}"{% endif %}{{ aria }}>
     {% elif spec.kind == 'time' %}
       <input id="{{ cid }}" type="time" name="{{ spec.path }}"
         value="{{ value or '' }}"{{ aria }}>
     {% else %}
       <input id="{{ cid }}" type="text" name="{{ spec.path }}"
-        value="{{ value if value is not none else '' }}"{{ aria }}>
+        value="{{ value if value is not none else '' }}"
+        {% if copy and copy.blank %} placeholder="{{ copy.blank }}"{% endif %}{{ aria }}>
     {% endif %}
   {% endcall %}
 {% endif %}
