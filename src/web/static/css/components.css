@@ -204,3 +204,9 @@ legend.field-label { width: 100%; padding: 0; }
 .readiness { padding: 0; list-style: none; }
 .readiness .warn { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
   margin-bottom: .4rem; padding: .6rem .8rem; background: var(--surface-2); border-left: 3px solid var(--warning); }
+
+/* ---- Tables ---- */
+/* A table wider than its card scrolls inside it rather than widening the page. */
+.table-wrap { max-width: 100%; overflow-x: auto; }
+.table-wrap > table { margin: 0; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }

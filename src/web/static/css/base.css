@@ -44,11 +44,15 @@ button { font: inherit; }
 :focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 :where(input, select, textarea):focus-visible { outline-offset: 0; border-color: var(--accent); }
 
-/* Tables */
+/* Tables: one look everywhere. Headers borrow the sidebar group-label style,
+   which also evens out header text written in mixed case. Baseline, not top:
+   text and a .btn.sm in the same row line up on it. */
 table { border-collapse: collapse; font-size: var(--text-sm); line-height: 1.45; }
-th, td { padding: var(--space-2) var(--space-5) var(--space-2) 0; text-align: left; vertical-align: baseline;
+th, td { padding: var(--space-2) var(--space-4) var(--space-2) 0; text-align: left; vertical-align: baseline;
   border-bottom: 1px solid var(--border); }
-th { font-weight: var(--weight-strong); }
+th:last-child, td:last-child { padding-right: 0; }
+th { font-size: var(--text-xs); font-weight: var(--weight-strong); letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-faint); }
 tr:last-child td { border-bottom: none; }
 
 /* iOS zooms into any focused control under 16px; don't. */

@@ -37,12 +37,12 @@
   {% if summary.by_company or summary.by_ats %}
   <div class="cols">
     <table>
-      <tr><th>company</th><th>matches</th></tr>
-      {% for name, n in summary.by_company %}<tr><td>{{ name }}</td><td>{{ n }}</td></tr>{% endfor %}
+      <tr><th>company</th><th class="num">matches</th></tr>
+      {% for name, n in summary.by_company %}<tr><td>{{ name }}</td><td class="num">{{ n }}</td></tr>{% endfor %}
     </table>
     <table>
-      <tr><th>ATS</th><th>matches</th></tr>
-      {% for name, n in summary.by_ats %}<tr><td>{{ name }}</td><td>{{ n }}</td></tr>{% endfor %}
+      <tr><th>ATS</th><th class="num">matches</th></tr>
+      {% for name, n in summary.by_ats %}<tr><td>{{ name }}</td><td class="num">{{ n }}</td></tr>{% endfor %}
     </table>
   </div>
   {% else %}
@@ -53,9 +53,9 @@
 {% call ui.card('Stretch skills', 'Last ' ~ summary.window_days ~ ' days') %}
   {% if summary.gaps %}
     <table>
-      <tr><th>skill</th><th>matches</th></tr>
+      <tr><th>skill</th><th class="num">matches</th></tr>
       {% for name, n in summary.gaps %}
-      <tr><td>{{ name }}</td><td>{{ n }} of {{ summary.gaps_total }}</td></tr>
+      <tr><td>{{ name }}</td><td class="num">{{ n }} of {{ summary.gaps_total }}</td></tr>
       {% endfor %}
     </table>
   {% else %}

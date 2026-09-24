@@ -188,7 +188,7 @@ def test_added_job_is_counted_in_analytics(board_client):
     assert "<td>In pipeline</td><td>Interested</td><td>1</td>" in before  # the seeded card only
     client.post("/board/add", data=ADD)
     after = client.get("/analytics").text
-    assert "<td>manual</td><td>1</td>" in after            # its own ATS bucket
+    assert "<td>manual</td><td class=\"num\">1</td>" in after            # its own ATS bucket
     assert "<td>In pipeline</td><td>Interested</td><td>2</td>" in after   # and in the funnel
 
 

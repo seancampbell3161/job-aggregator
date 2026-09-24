@@ -20,7 +20,8 @@
 <div id="company-rows">
   {% for family, entries in groups %}
   <h3>{{ family }}</h3>
-  <table>
+  <table class="company-table">
+    <colgroup><col class="c-board"><col class="c-detail"><col class="c-status"><col class="c-actions"></colgroup>
     <tr><th>Board</th><th>Detail</th><th>Status</th><th></th></tr>
     {% for entry in entries %}
     {% set s = status[entry.key] if status is not none else none %}

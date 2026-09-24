@@ -37,3 +37,33 @@ def test_llm_probe_result_sits_outside_the_bar(tmp_path, monkeypatch):
     assert bar and "Test scoring" in bar.group(0)
     assert 'id="probe-llm"' not in bar.group(0)
     assert 'id="probe-llm"' in html
+
+
+# Tables wider than a 390px screen: each must sit directly in a .table-wrap,
+# so it scrolls inside its card instead of dragging the page sideways.
+_WIDE_TABLE_TEMPLATES = ["_ops_cycles.html", "_ops_health.html", "audit.html", "settings_history.html"]
+
+
+def test_wide_tables_are_wrapped():
+    for name in _WIDE_TABLE_TEMPLATES:
+        src = (TEMPLATES / name).read_text()
+        tables = len(re.findall(r"<table\b", src))
+        wrapped = len(re.findall(r'<div class="table-wrap">\s*<table\b', src))
+        assert tables and wrapped == tables, f"{name}: {wrapped}/{tables} tables wrapped"
+
+
+def test_company_tables_share_one_column_layout():
+    src = (TEMPLATES / "_company_rows.html").read_text()
+    assert '<table class="company-table">' in src
+    assert re.search(r'<colgroup>\s*<col class="c-board">\s*<col class="c-detail">\s*'
+                     r'<col class="c-status">\s*<col class="c-actions">\s*</colgroup>', src)
+
+
+def test_numeric_cells_are_marked(tmp_path, monkeypatch):
+    from tests.web.shell_helpers import seed_cycle, seed_match
+    app = make_app(tmp_path, monkeypatch)
+    seed_match(app, "j1")
+    seed_cycle(app, minutes_ago=5)
+    c = client_for(app)
+    assert '<td class="num">' in c.get("/analytics").text
+    assert '<td class="num">' in c.get("/pipeline/cycles").text
