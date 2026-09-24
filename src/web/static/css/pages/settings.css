@@ -24,9 +24,14 @@
 .company-filter { width: 100%; margin: var(--space-1) 0 .6rem; }
 #company-rows h3 { margin: 1.1rem 0 var(--space-1); font-size: var(--text-xs); letter-spacing: .04em;
   text-transform: uppercase; color: var(--text-muted); }
-#company-rows table { width: 100%; font-size: .8125rem; }
-#company-rows th, #company-rows td { padding: .3rem var(--space-2); }
-#company-rows th { font-size: var(--text-xs); color: var(--text-muted); }
+/* Fixed layout + shared column widths: every family's table lines up with the
+   next instead of sizing its columns to its own content. */
+.company-table { width: 100%; table-layout: fixed; font-size: .8125rem; }
+.company-table th, .company-table td { padding: .3rem var(--space-2); overflow-wrap: anywhere; }
+.c-board { width: 24%; }
+.c-detail { width: 34%; }
+.c-status { width: 20%; }
+.c-actions { width: 22%; }
 .company-key { font-size: var(--text-xs); }
 .manual-add { margin: var(--space-3) 0; }
 .manual-add > summary { width: max-content; color: var(--accent); }

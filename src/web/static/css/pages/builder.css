@@ -1,7 +1,7 @@
 /* Résumé builder (/builder): settings form and template gallery. */
-.builder-settings { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; }
-.builder-settings label { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); color: var(--text-muted); }
-.builder-settings input[type=number] { width: 100px; }
+/* Settings: stacked fields (label → hint → control), three across on a wide
+   screen, one on a phone. */
+.builder-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: 0 var(--space-5); }
 .template-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-3); }
 .template-card { padding: 10px var(--space-3); background: var(--surface-2);
   border: 1px solid var(--border); border-radius: var(--radius-lg); }

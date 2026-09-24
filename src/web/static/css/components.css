@@ -109,10 +109,10 @@ fieldset.card > legend { padding: 0 var(--space-2); font-weight: var(--weight-st
 .stat { padding: .45rem .7rem; background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-lg); }
 .stat .v { font-size: var(--text-lg); font-weight: 700; }
 .bars { display: flex; align-items: flex-end; gap: 3px; height: 64px; margin-top: var(--space-2); }
-.bars .b { flex: 1; min-height: 1px; border-radius: 2px 2px 0 0; }
+.bars .b { flex: 1; max-width: 2.5rem; min-height: 1px; border-radius: 2px 2px 0 0; }
 .bars .b.s-vol { background: var(--accent); }
 .barlabels { display: flex; gap: 3px; margin-top: 6px; font-size: .5625rem; opacity: .55; }
-.barlabels span { flex: 1; text-align: center; }
+.barlabels span { flex: 1; max-width: 2.5rem; text-align: center; }
 
 /* ---- Form fields (ui.field in _ui.html) ----
    Anatomy, top to bottom: label row (label + meta or "required" tag) → hint → control
@@ -189,6 +189,12 @@ legend.field-label { width: 100%; padding: 0; }
 .action-bar-end { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-left: auto; }
 /* A step whose primary is its own one-button form keeps it in the row. */
 .action-bar-end form { display: contents; }
+/* A destructive action (Backup's restore) shouldn't follow you down the page. */
+.action-bar.unpinned { position: static; background: none; }
+/* An unpinned bar inside a card (e.g. Résumé templates → Settings) already
+   sits right under the card's own bottom padding; the bar's usual top margin
+   would double it up. */
+.card .action-bar { margin-top: var(--space-4); }
 
 /* ---- Empty state ---- */
 .empty-state { padding: var(--space-6) var(--space-4); text-align: center;
@@ -202,3 +208,9 @@ legend.field-label { width: 100%; padding: 0; }
 .readiness { padding: 0; list-style: none; }
 .readiness .warn { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
   margin-bottom: .4rem; padding: .6rem .8rem; background: var(--surface-2); border-left: 3px solid var(--warning); }
+
+/* ---- Tables ---- */
+/* A table wider than its card scrolls inside it rather than widening the page. */
+.table-wrap { max-width: 100%; overflow-x: auto; }
+.table-wrap > table { margin: 0; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }

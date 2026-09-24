@@ -1,5 +1,6 @@
 {% extends "settings_base.html" %}
 {% import "_settings_macros.html" as w %}
+{% import "_ui.html" as ui %}
 {% block section %}
 <form method="post" action="/settings/llm">
   {% for spec in fields %}
@@ -14,11 +15,12 @@
     {{ w.secret_field(s, errors, probe_targets, "") }}
   {% endfor %}
 
-  <div class="actions">
-    <button type="submit" class="btn primary">Save LLM settings</button>
+  {% call ui.action_bar() %}
     <button type="button" class="btn" hx-post="/settings/llm/test/llm"
-            hx-include="closest form" hx-target="#probe-llm">Test scoring</button>
-  </div>
+            hx-include="closest form" hx-target="#probe-llm"
+            hx-swap="innerHTML show:bottom">Test scoring</button>
+    <button type="submit" class="btn primary">Save LLM settings</button>
+  {% endcall %}
   <div id="probe-llm"></div>
 </form>
 {% endblock %}

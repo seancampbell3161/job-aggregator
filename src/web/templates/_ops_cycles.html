@@ -27,14 +27,16 @@
   </div>
   {% call ui.card('Cycle stats & fetch failures', 'Last ' ~ activity.window_days ~ ' days') %}
     {% if activity.tiers %}
+    <div class="table-wrap">
     <table>
-      <tr><th>tier</th><th>cycles</th><th>avg fetched</th><th>avg matched</th><th>avg notified</th><th>avg ms</th></tr>
+      <tr><th>tier</th><th class="num">cycles</th><th class="num">avg fetched</th><th class="num">avg matched</th><th class="num">avg notified</th><th class="num">avg ms</th></tr>
       {% for t in activity.tiers %}
-      <tr><td>{{ t.tier }}</td><td>{{ t.cycles }}</td><td>{{ "%.0f"|format(t.avg_fetched) }}</td>
-          <td>{{ "%.1f"|format(t.avg_matched) }}</td><td>{{ "%.1f"|format(t.avg_notified) }}</td>
-          <td>{{ "%.0f"|format(t.avg_duration_ms) }}</td></tr>
+      <tr><td>{{ t.tier }}</td><td class="num">{{ t.cycles }}</td><td class="num">{{ "%.0f"|format(t.avg_fetched) }}</td>
+          <td class="num">{{ "%.1f"|format(t.avg_matched) }}</td><td class="num">{{ "%.1f"|format(t.avg_notified) }}</td>
+          <td class="num">{{ "%.0f"|format(t.avg_duration_ms) }}</td></tr>
       {% endfor %}
     </table>
+    </div>
     {% else %}<p class="muted">No cycles in window.</p>{% endif %}
     {# Layer 1 — headline: total + the error-type mix (only ~7 types; this is the story). #}
     <p class="tally tally-spaced">
@@ -81,21 +83,23 @@
     {% if activity.recent %}
     <details open>
       <summary class="muted">recent cycles ({{ activity.recent | length }})</summary>
+      <div class="table-wrap">
       <table class="wide">
-        <tr><th>when</th><th>tier</th><th>fetched</th><th>new</th><th>matched</th><th>notified</th><th>ms</th><th>status</th></tr>
+        <tr><th>when</th><th>tier</th><th class="num">fetched</th><th class="num">new</th><th class="num">matched</th><th class="num">notified</th><th class="num">ms</th><th>status</th></tr>
         {% for r in activity.recent %}
         <tr>
           <td class="muted">{{ r.ts_ms | ago(now_ms) }}</td>
           <td>{{ r.tier }}</td>
-          <td>{{ r.fetched }}</td>
-          <td>{{ r.new_count if r.new_count is not none else '–' }}</td>
-          <td>{{ r.matched }}</td>
-          <td>{{ r.notified }}</td>
-          <td>{{ r.duration_ms }}</td>
+          <td class="num">{{ r.fetched }}</td>
+          <td class="num">{{ r.new_count if r.new_count is not none else '–' }}</td>
+          <td class="num">{{ r.matched }}</td>
+          <td class="num">{{ r.notified }}</td>
+          <td class="num">{{ r.duration_ms }}</td>
           <td>{% if r.ok %}<span class="ok">✓</span>{% else %}<span class="bad" title="{{ r.failures | map('join', ':') | join(', ') }}">⚠ {{ r.failures | length }}</span>{% endif %}{% if r.degraded %} <span class="warn">LLM⚠</span>{% endif %}</td>
         </tr>
         {% endfor %}
       </table>
+      </div>
     </details>
     {% endif %}
   {% endcall %}

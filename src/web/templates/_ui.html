@@ -86,8 +86,8 @@
 {# A form's closing row: Back on the left, everything else (secondary
    actions, then the primary) on the right, pinned to the bottom of the
    viewport while the form scrolls. #}
-{% macro action_bar(back_href=None) -%}
-<div class="action-bar">
+{% macro action_bar(back_href=None, sticky=True) -%}
+<div class="action-bar{% if not sticky %} unpinned{% endif %}">
   {%- if back_href %}
   <a class="btn ghost" href="{{ back_href }}">Back</a>
   {%- endif %}

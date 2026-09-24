@@ -16,14 +16,16 @@
     </p>
     {% endif %}
     {% if health.unhealthy %}
+    <div class="table-wrap">
     <table class="wide">
-      <tr><th>connector</th><th>status</th><th>fails</th><th>postings</th><th>last ok</th></tr>
+      <tr><th>connector</th><th>status</th><th class="num">fails</th><th class="num">postings</th><th>last ok</th></tr>
       {% for r in health.unhealthy %}
       <tr><td>{{ r.connector_name }}</td><td>{{ r.validation_status }}</td>
-          <td>{{ r.consecutive_failures }}</td><td>{{ r.last_posting_count }}</td>
+          <td class="num">{{ r.consecutive_failures }}</td><td class="num">{{ r.last_posting_count }}</td>
           <td class="muted">{{ (r.last_validated_at or '')[:10] }}</td></tr>
       {% endfor %}
     </table>
+    </div>
     {% else %}
     <p class="muted">All tracked connectors healthy.</p>
     {% endif %}

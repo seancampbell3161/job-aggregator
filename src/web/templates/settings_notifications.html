@@ -1,5 +1,6 @@
 {% extends "settings_base.html" %}
 {% import "_settings_macros.html" as w %}
+{% import "_ui.html" as ui %}
 {% block section %}
 <form method="post" action="/settings/notifications">
   <h3>Where matches go</h3>
@@ -17,6 +18,6 @@
     {{ w.field(spec, shown(submitted, cfg, spec), errors) }}
   {% endfor %}
 
-  <div class="actions"><button type="submit" class="btn primary">Save notifications</button></div>
+  {% call ui.action_bar() %}<button type="submit" class="btn primary">Save notifications</button>{% endcall %}
 </form>
 {% endblock %}

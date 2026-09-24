@@ -5,7 +5,7 @@
    before splitting into outcomes, which drew as near-identical slabs; see
    funnel.build_pipeline. Palette: --pl-* in tokens.css. */
 .cols { display: flex; flex-wrap: wrap; gap: var(--space-5); }
-.cols table { flex: 1; min-width: 200px; }
+.cols table { flex: 1; min-width: 200px; align-self: flex-start; }
 .cols table + table { margin-top: 0; }   /* cancel the card sibling-margin inside the flex row */
 
 .pipeline { max-width: 1000px; }

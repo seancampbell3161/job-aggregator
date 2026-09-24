@@ -26,3 +26,14 @@
 .board-archive { margin-top: var(--space-5); }
 .archive-row { padding: var(--space-1) 0; font-size: .8125rem; }
 .archive-row .pill { margin-right: 6px; }
+
+/* Phone: columns stack as full-width sections; each column's heading stays
+   visible under the top bar while you scroll through its cards. Without JS
+   the sidebar isn't pinned, so the heading sticks to the very top. */
+@media (max-width: 47.99rem) {
+  .board { flex-direction: column; align-items: stretch; overflow-x: visible; }
+  .board-col { flex: none; min-width: 0; }
+  .board-col-head { position: sticky; top: 0; z-index: 1; margin: 0; padding: var(--space-2) 0;
+    background: var(--bg); }
+  .js-nav .board-col-head { top: var(--topbar-h); }
+}

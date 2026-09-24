@@ -21,13 +21,14 @@
     {% for g in gates %}<option value="{{ g }}" {% if gate == g %}selected{% endif %}>{{ g }}</option>{% endfor %}
   </select>
   <input type="text" name="q" value="{{ q }}" placeholder="title or company">
-  <input type="number" name="days" value="{{ days }}" min="1" max="90" class="audit-days">
+  <label class="audit-days-field">last <input type="number" name="days" value="{{ days }}" min="1" max="90" class="audit-days"> days</label>
   <label class="check"><input type="checkbox" name="judged" value="true" {% if judged %}checked{% endif %}> show judged</label>
   <button type="submit" class="btn">Filter</button>
 </form>
 {% if rows is none %}
 {% call ui.card() %}<p class="muted">Audit rows unavailable.</p>{% endcall %}
 {% else %}
+<div class="table-wrap">
 <table class="audit-table">
   <thead><tr><th>seen</th><th>title</th><th>company</th><th>source</th><th>why rejected</th><th></th></tr></thead>
   <tbody>
@@ -54,6 +55,7 @@
   {% endfor %}
   </tbody>
 </table>
+</div>
 {% endif %}
 {% endif %}
 {% endblock %}

@@ -34,9 +34,9 @@
   {% endcall %}
   {% endif %}
   {% endfor %}
-  <div class="actions">
+  {% call ui.action_bar() %}
     <button type="submit" class="btn primary">{{ 'Save' if digest else 'Add' }}</button>
-  </div>
+  {% endcall %}
 </form>
 {% endif %}
 {% endblock %}

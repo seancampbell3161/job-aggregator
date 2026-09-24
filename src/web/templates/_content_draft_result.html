@@ -123,10 +123,10 @@
     <input type="checkbox" name="overwrite" value="1" required> Replace it
   </label>
   {% endif %}
-  <div class="actions">
-    <button type="submit" class="btn primary">Save résumé data</button>
+  {% call ui.action_bar() %}
     <a class="btn" href="/settings/documents?kind=resume_content">Edit as JSON instead</a>
-  </div>
+    <button type="submit" class="btn primary">Save résumé data</button>
+  {% endcall %}
 </form>
 {# Outside the save form, because HTML has no nested forms. Without it the
    review was a one-way door: save this draft, or go hand-edit JSON. #}

@@ -79,6 +79,10 @@
   --space-1: .25rem;  --space-2: .5rem;  --space-3: .75rem; --space-4: 1rem;
   --space-5: 1.25rem; --space-6: 1.5rem; --space-7: 2rem;   --space-8: 2.5rem;
 
+  /* Layout: the phone-width top bar (shell.css pins it to this height so
+     sticky elements beneath it know where to stop). */
+  --topbar-h: 3.25rem;
+
   /* Shape */
   --radius-sm: 4px;
   --radius: 6px;

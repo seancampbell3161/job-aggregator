@@ -1,9 +1,17 @@
 {% extends "base.html" %}
 {% import "_ui.html" as ui %}
 {% block title %}Matches · Job Aggregator{% endblock %}
-{% block styles %}<link rel="stylesheet" href="/static/css/pages/triage.css">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/css/pages/triage.css">
+<script src="/static/js/triage.js" defer></script>
+{#- triage.js is deferred, so it can run after the browser has already
+   painted the filter bar open; adding js-triage here instead, synchronously
+   during head parsing, means the phone layout is folded from the first
+   paint. #}
+<script>document.documentElement.classList.add("js-triage");</script>{% endblock %}
 {% block content %}
 {{ ui.page_header('Matches') }}
+<button type="button" id="filters-toggle" class="btn sm filters-toggle"
+        aria-controls="filters" aria-expanded="false">Filters</button>
 <form id="filters" hx-get="/jobs" hx-target="#list" hx-swap="innerHTML"
       hx-trigger="change, keyup delay:300ms from:input[name=q]" hx-include="this">
   <input type="search" name="q" placeholder="search title / company…">

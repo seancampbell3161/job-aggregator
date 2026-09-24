@@ -46,6 +46,6 @@
     taken (an added source, a seed, or a restored history version) — it's
     unchecked by default so those are never silently dropped.
   </p>
-  <div class="actions"><button type="submit" class="btn primary">Restore from backup</button></div>
+  {% call ui.action_bar(sticky=False) %}<button type="submit" class="btn primary">Restore from backup</button>{% endcall %}
 </form>
 {% endblock %}

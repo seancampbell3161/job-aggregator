@@ -185,11 +185,11 @@ def test_added_job_is_counted_in_analytics(board_client):
     before = client.get("/analytics").text
     assert "<td>manual</td>" not in before
     # The Sankey starts after triage, so its first column is "In pipeline".
-    assert "<td>In pipeline</td><td>Interested</td><td>1</td>" in before  # the seeded card only
+    assert '<td>In pipeline</td><td>Interested</td><td class="num">1</td>' in before  # the seeded card only
     client.post("/board/add", data=ADD)
     after = client.get("/analytics").text
-    assert "<td>manual</td><td>1</td>" in after            # its own ATS bucket
-    assert "<td>In pipeline</td><td>Interested</td><td>2</td>" in after   # and in the funnel
+    assert "<td>manual</td><td class=\"num\">1</td>" in after            # its own ATS bucket
+    assert '<td>In pipeline</td><td>Interested</td><td class="num">2</td>' in after   # and in the funnel
 
 
 def test_add_job_without_company_reports_back_with_values_kept(board_client):
