@@ -88,3 +88,17 @@ def test_builder_settings_use_stacked_fields(tmp_path, monkeypatch):
 def test_audit_days_input_is_labelled(tmp_path, monkeypatch):
     html = client_for(make_app(tmp_path, monkeypatch)).get("/audit").text
     assert re.search(r'<label class="audit-days-field">last\s*<input[^>]*name="days"[^>]*>\s*days</label>', html)
+
+
+CSS = TEMPLATES.parent / "static" / "css"
+
+
+def test_phone_board_stacks_under_the_top_bar():
+    tokens = (CSS / "tokens.css").read_text()
+    shell = (CSS / "shell.css").read_text()
+    board = (CSS / "pages" / "board.css").read_text()
+    assert "--topbar-h:" in tokens
+    assert "height: var(--topbar-h)" in shell            # the bar really is that tall
+    phone = board.split("@media (max-width: 47.99rem)", 1)[1]
+    assert "flex-direction: column" in phone
+    assert "top: var(--topbar-h)" in phone
