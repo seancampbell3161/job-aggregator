@@ -35,11 +35,14 @@
       <div class="board-timeline">{% for s, d in m.stage_timeline %}{{ s | capitalize }} {{ d }}{% if not loop.last %} → {% endif %}{% endfor %}</div>
       {% endif %}
       <div class="board-card-actions">
-        {% for s in ['interested','applied','interviewing','offer','rejected','ghosted','dismissed'] %}{% if s != m.status %}
-        <button class="btn sm"
-                hx-post="/board/advance?id={{ m.job_id | urlencode }}&status={{ s }}"
-                hx-target="#board-columns" hx-swap="innerHTML">{{ s | capitalize }}</button>
-        {% endif %}{% endfor %}
+        <select name="status" class="board-move" aria-label="Move to…"
+                hx-post="/board/advance?id={{ m.job_id | urlencode }}" hx-trigger="change"
+                hx-target="#board-columns" hx-swap="innerHTML">
+          <option value="" disabled selected>Move to…</option>
+          {%- for s in ['interested','applied','interviewing','offer','rejected','ghosted','dismissed'] %}{% if s != m.status %}
+          <option value="{{ s }}">{{ s | capitalize }}</option>
+          {%- endif %}{% endfor %}
+        </select>
         <a class="btn sm apply" href="{{ m.apply_href }}" target="_blank" rel="noopener noreferrer">Apply ↗</a>
       </div>
     </article>

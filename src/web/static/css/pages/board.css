@@ -21,7 +21,8 @@
 .board-since { margin-top: var(--space-1); font-size: var(--text-xs); }
 .board-since .stale { color: var(--warning); }
 .board-timeline { margin-top: var(--space-1); font-size: var(--text-xs); opacity: .6; }
-.board-card-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-2); }
+.board-card-actions { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+.board-move { flex: 1; min-width: 0; font-size: var(--text-sm); }
 .board-empty { opacity: .35; }
 .board-archive { margin-top: var(--space-5); }
 .archive-row { padding: var(--space-1) 0; font-size: .8125rem; }

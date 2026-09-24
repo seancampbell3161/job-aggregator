@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Annotated
 from urllib.parse import parse_qs
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.state import VALID_STATUSES
@@ -143,7 +144,15 @@ def register_board_routes(app: FastAPI) -> None:
         return RedirectResponse("/board", status_code=303)
 
     @app.post("/board/advance", response_class=HTMLResponse)
-    def advance(request: Request, id: str, status: str):
+    def advance(
+        request: Request,
+        id: str,
+        status: str | None = None,
+        status_form: Annotated[str | None, Form(alias="status")] = None,
+    ):
+        # Confirm buttons put status in the query string; the card's "Move to…"
+        # select posts it as a form field (htmx sends a select's value in the body).
+        status = status or status_form
         if status not in VALID_STATUSES:
             raise HTTPException(status_code=400, detail=f"invalid status: {status}")
         request.app.state.repo.set_status(id, status)
