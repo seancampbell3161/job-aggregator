@@ -6,12 +6,9 @@
 {{ ui.page_header('Apply kit') }}
 
 {% if missing %}
-{% call ui.alert('info') %}
-  No apply-kit facts yet. Start from <code>resume/facts.example.yaml</code>, save your
-  copy as <code>resume/facts.yaml</code> in your settings directory, and import it:
-  <pre>python -m src.settings import DIR</pre>
-  It shows here on the next refresh — no restart needed.
-{% endcall %}
+{{ ui.empty_state('No apply-kit facts yet.',
+    'Add your name, contact details and standard answers once, then copy them into any application form.',
+    action_href='/settings/documents?kind=kit_facts', action_label='Add your facts') }}
 {% elif error %}
 {{ ui.alert('bad', 'Could not read the saved apply-kit facts: ' ~ error) }}
 {% endif %}

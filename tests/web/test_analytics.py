@@ -153,3 +153,10 @@ def test_summary_includes_funnel_triage_and_rates(analytics_provider):
     assert [(s.id, s.count) for s in a.pipeline.triage.segments] == [("still_new", 2)]
     assert [r.label for r in a.rates] == ["Apply rate", "Interview rate", "Offer rate"]
     assert a.rates[0].num == 0 and a.rates[0].den == 2
+
+
+def test_progress_strip_has_no_gaps_window_tile(tmp_path, monkeypatch):
+    from tests.web.shell_helpers import client_for, make_app
+    html = client_for(make_app(tmp_path, monkeypatch)).get("/analytics").text
+    assert "gaps window" not in html
+    assert "Matches found" in html

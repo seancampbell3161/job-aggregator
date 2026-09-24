@@ -4,9 +4,10 @@
 {% block content %}
 {{ ui.page_header('Coach') }}
 {% if not enabled %}
-{% call ui.card() %}<p class="muted">Coach is disabled — set coach.enabled: true in config.yaml.</p>{% endcall %}
+{{ ui.empty_state('Coach is turned off.', 'It reads your application history and suggests ways to raise your response rate.',
+    action_href='/settings/llm#coach', action_label='Turn it on in Settings') }}
 {% elif not available %}
-{% call ui.card() %}<p class="muted">Coach is unavailable — run history needs the local SQLite runtime.</p>{% endcall %}
+{{ ui.empty_state('Coach is unavailable.', 'It needs the app’s local database, which this setup does not have.') }}
 {% else %}
 {% if viewing_past %}
 <p class="muted"><a href="/coach">&larr; back to latest</a></p>
@@ -16,7 +17,9 @@
   <span class="htmx-indicator muted"> analyzing your data — this can take a minute…</span>
 </form>
 {% else %}
-{% call ui.card() %}<p class="muted">Coach LLM is not configured — the provider follows relevance unless coach.provider is set, and it needs its API key (or a local Ollama host).</p>{% endcall %}
+{{ ui.empty_state('Coach needs an AI provider.',
+    'It uses your match-scoring provider unless you pick a different one, and that provider needs an API key (or a local Ollama).',
+    action_href='/settings/llm#coach', action_label='Set it up in Settings') }}
 {% endif %}
 {% include "_coach_run.html" %}
 {% if runs %}
