@@ -5,6 +5,104 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-09-24
+
+The UI release. Until now the app was built by and for the person who wrote
+it. This release is for someone who installed it from the published image and
+has just finished the setup wizard. It aims to answer three questions without
+anyone explaining them: where do I go, is it working, and what does this word
+mean. URLs are unchanged, so bookmarks and ntfy/Discord deep links keep
+working. It comes in five parts, #25–#29.
+
+### Added
+
+- **A Home page and a grouped sidebar** (#26).
+  - The sidebar is in groups: Job search (Matches, Applications, Apply kit),
+    Résumé (Résumé templates) and Insights (Progress, Coach, System health,
+    Rejected postings). Settings and Account are pinned to the bottom.
+  - Matches shows a count of new matches. Rejected postings (`/audit`) is in
+    the nav for the first time.
+  - Below tablet width the sidebar folds behind a ☰ button.
+  - **Home** says whether the checks are running, waiting for the first one,
+    or stalled. It uses the same threshold as the pipeline-stopped alert, so
+    the two always agree. It also shows the figures that matter and anything
+    that needs attention.
+  - A **getting-started checklist** on Home covers setting up your search,
+    the first check finishing, reviewing your first matches and adding phone
+    alerts.
+- **Empty states that say what to do next.** Every empty list now tells you
+  why it's empty and offers the action that helps:
+  - Matches (#26, #29): before the first check, when nothing has matched
+    yet, when filters hide everything, and **"You're all caught up"** once
+    every match is reviewed.
+  - Applications (#26).
+  - Apply kit and Coach (#29): these now link to the Settings page that
+    fixes them, instead of giving CLI or config instructions.
+- **A guided wizard** (#27).
+  - A numbered step rail shows a one-line summary of each finished step
+    ("4 titles · last 7 days", "ntfy · Discord") and lets you jump back.
+  - Each step ends in a pinned Back · Skip for now · Continue bar.
+  - Multi-select questions are pill toggles.
+  - Every list field is a chip input: Enter adds a value, a pasted list
+    splits into one value per line, and Backspace or × removes one. Commas
+    are never split, so "Acme, Inc." stays one blocked company.
+
+### Changed
+
+- **One design system** (#25). Every page renders from one set of colour,
+  type and spacing tokens and shared components: buttons, cards, alerts,
+  status pills, form fields and empty states. Form fields read top to bottom
+  (label, hint, control, error), and each error is linked to its field for screen readers.
+  CI now fails on a stray colour, an inline style or an unstyled class, so it
+  stays consistent.
+- **Phones** (#28).
+  - Matches shows the list, and tapping a match swaps in its detail. The
+    back button or gesture returns to where you were. Filters fold behind a
+    toggle.
+  - Applications stacks its columns, with headings that stick as you scroll.
+  - Wide tables scroll inside their card, so no page scrolls sideways at
+    390px.
+- **Settings in plain language** (#28, #29).
+  - The Filters, AI, Notifications, Integrations and Schedules pages use
+    written labels and hints ("Max posting age (days)", "Skip postings older
+    than this") instead of key names like "Max age days". Choices read as
+    words ("Anthropic (Claude)", "Only in my countries"), and an empty value
+    says what it means ("Same as match scoring", "Any age"). The full
+    reference text from `docs/CONFIG.md` is still one click away under
+    "more". Advanced is unchanged.
+  - **The "LLM" section is now called "AI"** and is grouped by feature:
+    match scoring, skill gaps, résumé drafts, tailored résumés, coach, API
+    keys.
+  - Secrets show "Not set", "Saved" or "Set outside the app", and Documents
+    uses plain names.
+  - Every edit form saves from a bar pinned to the bottom of the screen.
+- **Matches filters** (#29) sit in labelled groups:
+  - Status and Workplace are pill toggles.
+  - Min score is a menu (Any, 5+ … 8+). A previously saved score snaps to
+    the nearest option.
+  - "Has gaps" is now "Only with skill gaps".
+- **Applications cards** (#29) have one "Move to…" menu instead of six
+  status buttons.
+- **System health** (#29).
+  - The page leads with a plain summary: when the last check and the last
+    successful check ran, each kind of check by name (Job boards,
+    Aggregators, Finding new companies, Browser-only boards), and a Sources
+    card listing any source that is failing or has stopped.
+  - The operator tables (per-cycle stats, fetch-failure types, AI scoring
+    failures, recent checks) are relabelled and moved into a collapsed
+    **Technical details** section.
+
+### Upgrading
+
+- **After signing in you land on Home** until the getting-started checklist
+  is complete. Choose **Hide getting started** to go straight to Matches.
+- **Settings → LLM is now Settings → AI.** The URL is still `/settings/llm`.
+- A new database index (`idx_seen_jobs_notified`) is created automatically
+  on the next start.
+- Nothing else to do. Pull the new image, or run `docker compose up -d
+  --build` from a checkout. The stylesheets changed, so a checkout needs
+  `--build`, not just a restart.
+
 ## [0.15.1] - 2026-09-22
 
 Fixes that earlier reviews had flagged and deferred, all in #23. Nothing here
@@ -1582,6 +1680,7 @@ entries below are kept for the record. From 0.12.0 on, the usual
 compare/vP.R.E..vX.Y.Z links resume (see RELEASING.md).
 -->
 
+[0.16.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.15.1..v0.16.0
 [0.15.1]: https://github.com/seancampbell3161/job-aggregator/compare/v0.15.0..v0.15.1
 [0.15.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.14.0..v0.15.0
 [0.14.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.13.0..v0.14.0

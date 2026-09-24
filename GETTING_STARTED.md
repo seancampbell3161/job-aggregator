@@ -235,7 +235,7 @@ the `would_notify` log lines (each includes the score and rationale).
 
 ### 2c. Pick your LLM provider — and re-calibrate after switching
 
-Switch providers in **Settings → LLM** (or with one `config.yaml` line,
+Switch providers in **Settings → AI** (or with one `config.yaml` line,
 imported) plus a matching key — see [§2](#2-configure-it) above for where to
 get one. All three are fail-open: if the LLM errors or times out, the posting
 goes through **unscored** rather than being dropped.
@@ -457,7 +457,7 @@ image: ghcr.io/seancampbell3161/job-aggregator:latest-headless
 (`:0.12.0-headless` / `:0.12-headless` pin it, matching the slim tag above.)
 
 **Fully-local Ollama** — no cloud key, no per-token cost: start the bundled
-service and pull a model once, then pick it in **Settings → LLM**:
+service and pull a model once, then pick it in **Settings → AI**:
 
 ```bash
 docker compose --profile ollama up -d
@@ -659,7 +659,7 @@ uv run python scripts/tune_thresholds.py --since 2026-06-01 --min-verdicts 15
 ```
 
 Run it on the box whose SQLite DB holds the verdicts. It never edits settings
-— copy the suggested values into **Settings → Filters** / **Settings → LLM**
+— copy the suggested values into **Settings → Filters** / **Settings → AI**
 directly, or `export` to a directory, edit `config.yaml`, and re-import
 (applies live either way). With few verdicts it honestly reports
 "insufficient data"; it can only recommend *lowering* `score_low` (verdicts
