@@ -125,8 +125,9 @@ def create_app(
     app.state.tailor_boot_override = None
     app.state.page_size = page_size
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
-    from src.web.pipeline_activity import format_ago
+    from src.web.pipeline_activity import format_ago, tier_label
     templates.env.filters["ago"] = format_ago
+    templates.env.filters["tier_label"] = tier_label
     from src.web.labels import choice_label, document_label
     templates.env.filters["choice_label"] = choice_label
     templates.env.filters["document_label"] = document_label

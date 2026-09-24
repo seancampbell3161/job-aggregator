@@ -8,6 +8,20 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 
+# Plain names for the poller's tiers, shared by every System health surface.
+TIER_LABELS: dict[str, str] = {
+    "ats": "Job boards",
+    "slow": "Aggregators",
+    "discovery": "Finding new companies",
+    "headless": "Browser-only boards",
+    "digest": "Weekly digest",
+}
+
+
+def tier_label(tier: str) -> str:
+    return TIER_LABELS.get(tier, tier.replace("_", " ").capitalize())
+
+
 @dataclass(frozen=True)
 class TierStats:
     tier: str
@@ -218,15 +232,15 @@ def compute_heartbeat(activity: PipelineActivity | None, now_ms: int) -> Heartbe
     )
     if stale:
         worst = stale[0]
-        return Heartbeat("bad", f"{worst.tier} stalled · {format_ago(worst.last.ts_ms, now_ms)} ⚠")
+        return Heartbeat("bad", f"{tier_label(worst.tier)} stalled · {format_ago(worst.last.ts_ms, now_ms)} ⚠")
     last = activity.last_cycle if activity else None
     if last is None:
-        return Heartbeat("muted", "no cycles")
+        return Heartbeat("muted", "no checks yet")
     ago = format_ago(last.ts_ms, now_ms)
     if not last.ok:
         return Heartbeat("bad", f"{ago} ⚠")
     if last.degraded:
-        return Heartbeat("warn", f"{ago} ✓ LLM⚠")
+        return Heartbeat("warn", f"{ago} ✓ · AI scoring had errors ⚠")
     return Heartbeat("ok", f"{ago} ✓")
 
 

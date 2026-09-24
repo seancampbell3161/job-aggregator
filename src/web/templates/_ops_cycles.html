@@ -12,17 +12,17 @@
   {% call ui.card('Cycle stats & fetch failures') %}<p class="muted">unavailable — could not read cycle telemetry (the SQLite events store).</p>{% endcall %}
   <span id="last-cycle" class="v muted" hx-swap-oob="true">unknown</span>
   <div id="tier-freshness" class="tier-strip" hx-swap-oob="true">
-    <span class="muted tier-note">tier freshness unavailable</span>
+    <span class="muted tier-note">Check status unavailable</span>
   </div>
 {% else %}
   <div id="tier-freshness" class="tier-strip" hx-swap-oob="true">
     {% for tier, h in tier_health.items() %}
       <span class="tier-chip {{ 'bad' if h.stale else ('warn' if (not h.ok) or h.degraded else 'ok') }}">
-        <b>{{ tier }}</b> {{ h.ago }}
-        {%- if h.stale %} · stalled ⚠{% elif not h.ok %} · failing ⚠{% elif h.degraded %} · LLM⚠{% else %} ✓{% endif %}
+        <b>{{ tier | tier_label }}</b> · {{ h.ago }}
+        {%- if h.stale %} · stalled ⚠{% elif not h.ok %} · failing ⚠{% elif h.degraded %} · AI scoring had errors ⚠{% else %} ✓{% endif %}
       </span>
     {% else %}
-      <span class="muted tier-note">no tier cycles in window</span>
+      <span class="muted tier-note">No checks in the last {{ activity.window_days }} days</span>
     {% endfor %}
   </div>
   {% call ui.card('Cycle stats & fetch failures', 'Last ' ~ activity.window_days ~ ' days') %}
@@ -104,7 +104,7 @@
     {% endif %}
   {% endcall %}
   <span id="last-cycle" class="v {{ heartbeat.css if heartbeat else 'muted' }}" hx-swap-oob="true">
-    {{ heartbeat.label if heartbeat else 'no cycles' }}
+    {{ heartbeat.label if heartbeat else 'no checks yet' }}
   </span>
 {% endif %}
 <span id="last-success" class="v {{ 'ok' if last_success_ago else 'muted' }}" hx-swap-oob="true">{{ last_success_ago or 'never' }}</span>

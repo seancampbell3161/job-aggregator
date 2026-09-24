@@ -1,11 +1,20 @@
 from collections import Counter
+from typing import get_args
 
 import src.web.pipeline_activity as pa
+from src.models import Tier
 from src.web.pipeline_activity import (
-    LastCycle, PipelineActivity, TierHeartbeat,
+    TIER_LABELS, LastCycle, PipelineActivity, TierHeartbeat,
     build_family_tallies, build_tier_heartbeats,
-    compute_heartbeat, format_ago, tier_stale,
+    compute_heartbeat, format_ago, tier_label, tier_stale,
 )
+
+
+def test_every_tier_has_a_plain_name():
+    for t in (*get_args(Tier), "digest"):
+        assert t in TIER_LABELS
+    assert tier_label("ats") == "Job boards"
+    assert tier_label("mystery") == "Mystery"
 
 
 def test_build_family_tallies_rolls_connectors_up():
@@ -81,7 +90,7 @@ def test_compute_heartbeat_flags_stalled_tier():
     )
     hb = compute_heartbeat(act, now)
     assert hb.css == "bad"
-    assert "ats" in hb.label and "⚠" in hb.label
+    assert "Job boards stalled" in hb.label and "⚠" in hb.label
 
 
 def test_compute_heartbeat_healthy_reflects_last_cycle():
@@ -95,13 +104,24 @@ def test_compute_heartbeat_healthy_reflects_last_cycle():
     assert hb.css == "ok" and "✓" in hb.label
 
 
+def test_compute_heartbeat_degraded_says_ai_scoring():
+    now = 10_000_000
+    act = PipelineActivity(
+        window_days=7, tiers=[], failures_by_type=[], failures_by_connector=[],
+        failures_total=0, last_cycle=LastCycle(ts_ms=now - 1000, ok=True, degraded=True),
+        tier_heartbeats=[_hb("ats", now - 60_000, 60_000)],
+    )
+    hb = compute_heartbeat(act, now)
+    assert hb.css == "warn" and "AI scoring had errors" in hb.label and "LLM" not in hb.label
+
+
 def test_compute_heartbeat_no_cycles():
     act = PipelineActivity(
         window_days=7, tiers=[], failures_by_type=[], failures_by_connector=[],
         failures_total=0, last_cycle=None,
     )
     hb = compute_heartbeat(act, 10_000_000)
-    assert hb.css == "muted" and hb.label == "no cycles"
+    assert hb.css == "muted" and hb.label == "no checks yet"
 
 
 def test_format_ago():

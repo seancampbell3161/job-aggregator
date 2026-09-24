@@ -373,10 +373,12 @@ def test_pipeline_page_renders_strip_and_panels(client):
     r = client.get("/pipeline")
     assert r.status_code == 200
     assert "greenhouse:acme" in r.text          # the failing connector is listed
-    assert "Connector health" in r.text
+    assert "Sources" in r.text and "Connector health" not in r.text
     assert "Match &amp; score" in r.text or "Match & score" in r.text
     assert 'hx-get="/pipeline/cycles"' in r.text
     assert 'hx-trigger="load, every 60s"' in r.text
+    assert "quarantined" not in r.text.lower()
+    assert "Stopped" in r.text and "Last successful check" in r.text
 
 
 def test_pipeline_page_health_unavailable_is_soft(client, monkeypatch):

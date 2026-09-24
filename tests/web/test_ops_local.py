@@ -157,9 +157,10 @@ def _template_env():
     """Bare Jinja env for direct template renders — must mirror create_app's
     filter registration or _ops_cycles.html fails to compile."""
     from jinja2 import Environment, FileSystemLoader
-    from src.web.pipeline_activity import format_ago
+    from src.web.pipeline_activity import format_ago, tier_label
     env = Environment(loader=FileSystemLoader("src/web/templates"), autoescape=True)
     env.filters["ago"] = format_ago
+    env.filters["tier_label"] = tier_label
     return env
 
 
@@ -184,14 +185,14 @@ def test_ops_cycles_template_renders_llm_failures_and_degraded_heartbeat():
     # heartbeat is computed in Python (compute_heartbeat) and passed in; the
     # template just renders its css + label.
     html = env.get_template("_ops_cycles.html").render(
-        activity=activity, heartbeat=Heartbeat("warn", "2m ago ✓ LLM⚠"),
+        activity=activity, heartbeat=Heartbeat("warn", "2m ago ✓ · AI scoring had errors ⚠"),
         tier_health={"ats": {"ago": "2m ago", "stale": False, "ok": True, "degraded": True}},
     )
 
     assert "LLM failures (15)" in html
     assert "3 degraded" in html
     assert "relevance" in html and "ConnectError" in html
-    assert "LLM⚠" in html              # degraded marker on the heartbeat
+    assert "AI scoring had errors" in html  # degraded marker on the heartbeat
     assert 'class="v warn"' in html     # amber, not green/red
 
 
@@ -207,7 +208,7 @@ def test_ops_cycles_template_clean_heartbeat_when_not_degraded():
     )
     html = env.get_template("_ops_cycles.html").render(
         activity=activity, heartbeat=Heartbeat("ok", "1m ago ✓"), tier_health={})
-    assert "LLM⚠" not in html
+    assert "AI scoring had errors" not in html
     assert "✓" in html
 
 
@@ -225,10 +226,11 @@ def test_ops_cycles_template_shows_stalled_tier_in_last_column():
         llm_failures_total=0, llm_degraded_cycles=0, llm_failures_by_stage=[],
     )
     html = env.get_template("_ops_cycles.html").render(
-        activity=activity, heartbeat=Heartbeat("bad", "ats stalled · 2d ago ⚠"),
+        activity=activity, heartbeat=Heartbeat("bad", "Job boards stalled · 2d ago ⚠"),
         tier_health={"ats": {"ago": "2d ago", "stale": True, "ok": False, "degraded": False}},
     )
     assert "stalled" in html              # per-tier "last" column flags it
+    assert "Job boards" in html           # plain tier name, not the raw "ats" key
     assert 'class="v bad"' in html        # overall heartbeat is red
 
 
