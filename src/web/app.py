@@ -127,8 +127,9 @@ def create_app(
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
     from src.web.pipeline_activity import format_ago
     templates.env.filters["ago"] = format_ago
-    from src.web.labels import choice_label
+    from src.web.labels import choice_label, document_label
     templates.env.filters["choice_label"] = choice_label
+    templates.env.filters["document_label"] = document_label
     from src.web.coach import coach_nav_visible
     templates.env.globals["coach_nav_visible"] = coach_nav_visible
     from src.web.home import landing_url, register_home_routes

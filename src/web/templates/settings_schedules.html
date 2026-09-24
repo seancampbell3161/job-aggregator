@@ -6,7 +6,7 @@
   {% for spec in fields %}
     {{ w.field(spec, shown(submitted, cfg, spec), errors) }}
   {% endfor %}
-  <p class="field-hint">Cron fields are five-field crontab in UTC.</p>
+  <p class="field-hint">Schedule fields use cron format — minute, hour, day of month, month, day of week — in UTC.</p>
   {% call ui.action_bar() %}<button type="submit" class="btn primary">Save schedules</button>{% endcall %}
 </form>
 {% endblock %}

@@ -7,7 +7,7 @@
   <label>Document
     <select name="kind" onchange="this.form.submit()">
       {% for k in kinds %}
-      <option value="{{ k }}" {% if k == kind %}selected{% endif %}>{{ k }}</option>
+      <option value="{{ k }}" {% if k == kind %}selected{% endif %}>{{ k | document_label }}</option>
       {% endfor %}
     </select></label>
   <noscript><button type="submit" class="btn sm">Open</button></noscript>

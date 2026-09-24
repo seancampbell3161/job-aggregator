@@ -14,6 +14,16 @@ from src.settings.filters import FILTER_PATHS
 
 
 @dataclass(frozen=True)
+class FieldGroup:
+    """A named cluster of fields within a hand-built section, e.g. the LLM
+    page's "Match scoring" heading. `root` is the config key whose fields
+    the group holds (FieldSpec.root), and `id` is the page anchor."""
+    id: str      # the page anchor (/settings/llm#coach)
+    title: str
+    root: str    # the config key whose fields the group holds
+
+
+@dataclass(frozen=True)
 class Section:
     slug: str
     title: str
@@ -21,6 +31,7 @@ class Section:
     paths: tuple[str, ...] = ()
     secrets: tuple[str, ...] = ()
     blurb: str = ""
+    groups: tuple[FieldGroup, ...] = ()
     bulk_save: bool = True  # False: this section has no whole-page form; every write goes through its own routes
 
 
@@ -51,6 +62,13 @@ SECTIONS: tuple[Section, ...] = (
             "coach.enabled", "coach.provider", "coach.model",
         ),
         secrets=("anthropic_api_key", "google_api_key", "ollama_api_key"),
+        groups=(
+            FieldGroup("scoring", "Match scoring", "relevance"),
+            FieldGroup("gaps", "Skill-gap analysis", "gap_analysis"),
+            FieldGroup("drafts", "Résumé drafts", "resume_draft"),
+            FieldGroup("tailoring", "Tailored résumés", "tailoring"),
+            FieldGroup("coach", "Coach", "coach"),
+        ),
     ),
     Section(
         slug="notifications", title="Notifications", template="settings_notifications.html",
@@ -78,7 +96,7 @@ SECTIONS: tuple[Section, ...] = (
     ),
     Section(
         slug="schedules", title="Schedules", template="settings_schedules.html",
-        blurb="How often each tier runs. Cron fields are UTC, five-field crontab.",
+        blurb="How often the app checks each kind of source, and when its scheduled messages go out.",
         paths=(
             "schedules.ats_minutes", "schedules.slow_minutes",
             "schedules.discovery_hours", "schedules.headless_minutes",

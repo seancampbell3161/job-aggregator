@@ -82,6 +82,22 @@ def test_section_fields_are_returned_in_claim_order():
     assert [f.path for f in section_fields(filters)] == list(filters.paths)
 
 
+def test_every_llm_field_belongs_to_a_group():
+    llm = section_by_slug("llm")
+    roots = {g.root for g in llm.groups}
+    assert {p.split(".", 1)[0] for p in llm.paths} == roots
+
+
+def test_llm_page_renders_group_headings_with_anchors(tmp_path, monkeypatch):
+    html = signed_in_client(_app(tmp_path, monkeypatch)).get("/settings/llm").text
+    for gid, title in [("scoring", "Match scoring"), ("gaps", "Skill-gap analysis"),
+                        ("drafts", "Résumé drafts"), ("tailoring", "Tailored résumés"),
+                        ("coach", "Coach"), ("keys", "API keys")]:
+        assert f'<h3 id="{gid}">{title}</h3>' in html
+    assert html.index('id="scoring"') < html.index('name="relevance.provider"') < html.index('id="gaps"')
+    assert html.index('id="coach"') < html.index('name="coach.provider"') < html.index('id="keys"')
+
+
 def test_nav_order_starts_at_overview_and_ends_at_backup():
     assert SECTIONS[0].slug == "overview"
     assert SECTIONS[-1].slug == "backup"
