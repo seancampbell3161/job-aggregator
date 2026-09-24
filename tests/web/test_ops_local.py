@@ -189,8 +189,8 @@ def test_ops_cycles_template_renders_llm_failures_and_degraded_heartbeat():
         tier_health={"ats": {"ago": "2m ago", "stale": False, "ok": True, "degraded": True}},
     )
 
-    assert "LLM failures (15)" in html
-    assert "3 degraded" in html
+    assert "AI scoring failures (15)" in html
+    assert "over 3 checks" in html
     assert "relevance" in html and "ConnectError" in html
     assert "AI scoring had errors" in html  # degraded marker on the heartbeat
     assert 'class="v warn"' in html     # amber, not green/red
@@ -260,8 +260,8 @@ def test_ops_cycles_template_renders_family_triage_active_and_stale():
     assert "sev-hi" in html and "sev-lo" in html
     assert "workday" in html and ">61 boards</span>" in html and "HTTPStatusError" in html
     assert ">1 board</span>" in html                        # singular pluralization (oraclecloud)
-    assert "stale · 1 family" in html
-    assert "all connectors (1)" in html                    # layer-3 full detail present
+    assert "Older than 24 hours · 1 source family" in html
+    assert "Every source (1)" in html                      # layer-3 full detail present
 
 
 def test_aggregate_event_rows_builds_recent_newest_first():
@@ -317,3 +317,21 @@ def test_cycles_survives_anchor_query_failure(monkeypatch):
     activity = ops.cycles()
     assert activity is not None                          # merge degrades, panel survives
     assert [hb.tier for hb in activity.tier_heartbeats] == ["ats"]
+
+
+def test_cycle_table_uses_plain_headers_and_seconds():
+    from types import SimpleNamespace
+    from src.web.pipeline_activity import Heartbeat
+    env = _template_env()
+    activity = SimpleNamespace(
+        window_days=7,
+        tiers=[SimpleNamespace(tier="slow", cycles=4, avg_fetched=10.0,
+                               avg_matched=1.0, avg_notified=0.0, avg_duration_ms=12500.0)],
+        failures_total=0, failures_by_type=[], failures_by_connector=[], failures_by_family=[],
+        llm_failures_total=0, llm_degraded_cycles=0, llm_failures_by_stage=[],
+    )
+    html = env.get_template("_ops_cycles.html").render(
+        activity=activity, heartbeat=Heartbeat("ok", "1m ago ✓"), tier_health={})
+    assert "<th>Check</th>" in html and "Avg time (s)" in html
+    assert "<td>Aggregators</td>" in html and ">12.5<" in html
+    assert "avg ms" not in html

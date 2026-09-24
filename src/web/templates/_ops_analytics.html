@@ -1,9 +1,9 @@
 {% import "_ui.html" as ui %}
-{% call ui.card('Match & score analytics') %}
+{% call ui.card('Scores') %}
   {% if analytics is none %}
-    <p class="muted">unavailable — could not read seen_jobs.</p>
+    <p class="muted">Score data is unavailable right now.</p>
   {% else %}
-    <p class="eyebrow">SCORE DISTRIBUTION (0–10)</p>
+    <p class="eyebrow">How matches scored (0–10)</p>
     {% set hmax = analytics.histogram | max %}
     <div class="bars">
       {% for c in analytics.histogram %}
@@ -13,8 +13,8 @@
     </div>
     <div class="barlabels">{% for c in analytics.histogram %}<span>{{ loop.index0 }}</span>{% endfor %}</div>
     <p class="ops-summary">
-      <b>{{ analytics.total }}</b> notified · <b>{{ analytics.suppressed }}</b> suppressed · <b>{{ analytics.recent }}</b> in last {{ analytics.window_days }}d<br>
-      <span class="muted">{% for s, n in analytics.by_status.items() %}{{ s }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</span>
+      <b>{{ analytics.total }}</b> sent to you · <b>{{ analytics.suppressed }}</b> hidden as low scores · <b>{{ analytics.recent }}</b> in the last {{ analytics.window_days }} days<br>
+      <span class="muted">{% for s, n in analytics.by_status.items() %}{{ s | choice_label }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</span>
     </p>
   {% endif %}
 {% endcall %}

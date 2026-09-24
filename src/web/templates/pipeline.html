@@ -28,13 +28,21 @@
   <span class="muted tier-note">Checking each kind of source…</span>
 </div>
 
-<div class="ops-grid">
-  {% include "_ops_health.html" %}
-  <div class="ops-col">
+{% include "_ops_health.html" %}
+
+<details class="tech-details">
+  <summary>Technical details</summary>
+  {% if health is not none %}
+  <p class="muted ops-note">{{ health.no_match }} discovered companies aren't on any supported job board, so they're skipped.</p>
+  {% if health.suppressed %}
+  <p class="muted ops-note">{{ health.suppressed | length }} dead boards hidden automatically — rechecked daily: {{ health.suppressed | join(', ') }}</p>
+  {% endif %}
+  {% endif %}
+  <div class="ops-grid">
     {% include "_ops_analytics.html" %}
     <div id="cycles" hx-get="/pipeline/cycles" hx-trigger="load, every 60s" hx-swap="innerHTML">
-      {% call ui.card('Cycle stats & fetch failures') %}<p class="muted">Loading…</p>{% endcall %}
+      {% call ui.card('Checks and fetch failures') %}<p class="muted">Loading…</p>{% endcall %}
     </div>
   </div>
-</div>
+</details>
 {% endblock %}

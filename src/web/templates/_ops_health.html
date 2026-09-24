@@ -21,9 +21,5 @@
     {% else %}
     <p class="muted">All sources are working.</p>
     {% endif %}
-    <p class="muted ops-note">{{ health.no_match }} discovered companies aren't on any supported job board, so they're skipped.</p>
-    {% if health.suppressed %}
-    <p class="muted ops-note">{{ health.suppressed | length }} dead boards hidden automatically — rechecked daily: {{ health.suppressed | join(', ') }}</p>
-    {% endif %}
   {% endif %}
 {% endcall %}

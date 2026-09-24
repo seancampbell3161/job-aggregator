@@ -374,11 +374,16 @@ def test_pipeline_page_renders_strip_and_panels(client):
     assert r.status_code == 200
     assert "greenhouse:acme" in r.text          # the failing connector is listed
     assert "Sources" in r.text and "Connector health" not in r.text
-    assert "Match &amp; score" in r.text or "Match & score" in r.text
-    assert 'hx-get="/pipeline/cycles"' in r.text
     assert 'hx-trigger="load, every 60s"' in r.text
     assert "quarantined" not in r.text.lower()
     assert "Stopped" in r.text and "Last successful check" in r.text
+    page = r.text
+    start = page.index('<details class="tech-details">')
+    assert '<summary>Technical details</summary>' in page
+    assert page.index('hx-get="/pipeline/cycles"') > start      # the polled fragment lives inside
+    assert page.index("discovered companies aren") > start        # source notes moved in
+    assert "Sources" in page[:start]                              # Sources card stays above
+    assert "Match &amp; score analytics" not in page and "Scores" in page
 
 
 def test_pipeline_page_health_unavailable_is_soft(client, monkeypatch):
@@ -412,7 +417,7 @@ def test_pipeline_cycles_renders_with_activity(client, monkeypatch):
     monkeypatch.setattr(client.app.state.ops, "cycles", lambda: activity)
     r = client.get("/pipeline/cycles")
     assert r.status_code == 200
-    assert "ats" in r.text and "1480" in r.text           # per-tier averages
+    assert "Job boards" in r.text and "1480" in r.text    # per-tier averages, plain tier name
     assert "DataDome" in r.text and "1h ago" in r.text    # recency rendered inline
     assert "ashby:vercel" in r.text
     assert 'class="bad dim"' in r.text                    # 3d-old tally is dimmed
@@ -451,11 +456,11 @@ def test_pipeline_cycles_renders_recent_cycles_table(client, monkeypatch):
     monkeypatch.setattr(client.app.state.ops, "cycles", lambda: activity)
     r = client.get("/pipeline/cycles")
     assert r.status_code == 200
-    assert "recent cycles" in r.text.lower()
+    assert "recent checks" in r.text.lower()
     assert "<details open>" in r.text
     assert "1480" in r.text and "1m ago" in r.text     # newest row rendered
     assert "lever:y:HTTP500" in r.text                 # failure detail in title attr
-    assert "LLM⚠" in r.text                            # degraded marker on the bad row
+    assert "AI scoring had errors" in r.text           # degraded marker on the bad row
     assert "–" in r.text                               # None new_count placeholder
 
 
@@ -467,7 +472,7 @@ def test_pipeline_cycles_hides_recent_table_when_empty(client, monkeypatch):
     )
     monkeypatch.setattr(client.app.state.ops, "cycles", lambda: activity)
     r = client.get("/pipeline/cycles")
-    assert "recent cycles" not in r.text.lower()   # no telemetry → no section
+    assert "recent checks" not in r.text.lower()   # no telemetry → no section
 
 
 def test_pipeline_cycles_unavailable_is_soft(client, monkeypatch):

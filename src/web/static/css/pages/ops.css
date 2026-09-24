@@ -44,6 +44,10 @@
 .ops-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
   gap: var(--space-4); align-items: start; }
 .ops-grid .card { margin-bottom: 0; }   /* the grid gap owns the spacing */
-.ops-col { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); align-items: start; }
 table.wide { width: 100%; }
 @media (max-width: 1200px) { .ops-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Operator-only tables (cycle stats, failure triage, score breakdown) tucked
+   behind a disclosure so the page reads as status-at-a-glance first. */
+.tech-details { margin-top: var(--space-4); }
+.tech-details > summary { cursor: pointer; color: var(--text-muted); margin-bottom: var(--space-3); }
