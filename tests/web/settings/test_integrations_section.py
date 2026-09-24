@@ -42,7 +42,7 @@ def test_a_stored_value_never_appears_in_the_response_body(tmp_path, monkeypatch
     app = _app(tmp_path, monkeypatch, service)
     r = signed_in_client(app).get("/settings/integrations")
     assert "super-secret-value" not in r.text
-    assert "stored" in r.text
+    assert "Saved" in r.text
 
 
 def test_a_stored_value_never_appears_after_a_failed_save(tmp_path, monkeypatch):

@@ -42,8 +42,12 @@ def test_chips_value_is_autoescaped(tmp_path, monkeypatch):
     assert "&lt;script&gt;" in html
 
 
-def test_help_disclosure_appears_when_full_differs_from_summary(tmp_path, monkeypatch):
-    """Correction 2: the <details>/<summary> disclosure, no onclick JS."""
+def test_a_curated_fields_more_disclosure_always_shows_config_md_text(tmp_path, monkeypatch):
+    """filters.max_age_days is a curated field (src/settings/copy.py): its
+    plain hint always renders, and whenever CONFIG.md has help text for the
+    path it sits behind an unconditional <details>/<summary> "more" — unlike
+    the Advanced path below, curated copy does not first compare full text
+    against the CONFIG.md summary to decide whether there is "more" to show."""
     html = str(_macros(tmp_path, monkeypatch).help_for("filters.max_age_days"))
     assert "<details" in html
     assert "<summary>more</summary>" in html
@@ -177,3 +181,14 @@ def test_a_curated_optional_text_uses_its_blank_placeholder(tmp_path, monkeypatc
     spec = field_map()["coach.model"]
     html = str(_macros(tmp_path, monkeypatch).field(spec, None, {}))
     assert 'placeholder="Same as match scoring"' in html
+
+
+def test_a_curated_required_int_states_its_default_in_the_hint(tmp_path, monkeypatch):
+    """A curated int field with a real (non-optional) default no longer hides
+    it entirely — it can't show `default N` meta (that's raw config jargon
+    placement), so the mechanical fallback names it in the hint text."""
+    spec = field_map()["schedules.ats_minutes"]
+    assert spec.kind == "int" and spec.default == 10 and not spec.optional
+    html = str(_macros(tmp_path, monkeypatch).field(spec, 10, {}))
+    assert "Default: 10." in html
+    assert "field-meta" not in html

@@ -50,7 +50,7 @@ SECTIONS: tuple[Section, ...] = (
         blurb="What the scorer grades each posting against.",
     ),
     Section(
-        slug="llm", title="LLM", template="settings_llm.html",
+        slug="llm", title="AI", template="settings_llm.html",
         blurb="Scoring, gap analysis, tailoring, and coaching.",
         paths=(
             "relevance.enabled", "relevance.provider", "relevance.model",
@@ -72,7 +72,7 @@ SECTIONS: tuple[Section, ...] = (
     ),
     Section(
         slug="notifications", title="Notifications", template="settings_notifications.html",
-        blurb="Where matches and ops alerts go.",
+        blurb="Where matches and problem alerts go.",
         # ops_notify has no `enabled` flag — ops alerts turn on by setting one of
         # the ops URLs below. Its thresholds stay in Advanced.
         paths=("quiet_hours.timezone", "quiet_hours.start", "quiet_hours.end"),
