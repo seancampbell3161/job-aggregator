@@ -69,4 +69,8 @@
   .row { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: start; }
   .row > .pill { grid-column: 3; justify-self: start; }
   .bulk-bar { flex-wrap: wrap; }
+
+  /* The search box takes its own row so its placeholder isn't squeezed
+     next to Sort and Refresh; those wrap to the next line. */
+  .filter-row input[type=search] { flex-basis: 100%; }
 }

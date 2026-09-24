@@ -405,6 +405,39 @@ def test_pipeline_page_shows_stopped_connector_and_dash_fallback(client, monkeyp
     assert '<td class="muted">—</td>' in r.text          # empty last_validated_at falls back to a dash
 
 
+def test_pipeline_page_no_match_note_is_singular_for_one(client, monkeypatch):
+    from src.web.ops import HealthSummary
+
+    summary = HealthSummary(ok=3, failed=0, quarantined=0, no_match=1, unhealthy=[])
+    monkeypatch.setattr(client.app.state.ops, "health", lambda: summary)
+    r = client.get("/pipeline")
+    assert r.status_code == 200
+    assert "1 discovered company isn&#39;t on any supported job board, so it&#39;s skipped." in r.text
+
+
+def test_pipeline_page_no_match_note_is_plural_for_many(client, monkeypatch):
+    from src.web.ops import HealthSummary
+
+    summary = HealthSummary(ok=3, failed=0, quarantined=0, no_match=2, unhealthy=[])
+    monkeypatch.setattr(client.app.state.ops, "health", lambda: summary)
+    r = client.get("/pipeline")
+    assert r.status_code == 200
+    assert "2 discovered companies aren&#39;t on any supported job board, so they&#39;re skipped." in r.text
+
+
+def test_pipeline_page_dead_boards_note_is_singular_for_one(client, monkeypatch):
+    from src.web.ops import HealthSummary
+
+    summary = HealthSummary(
+        ok=3, failed=0, quarantined=0, no_match=0, unhealthy=[], suppressed=["greenhouse:dead"],
+    )
+    monkeypatch.setattr(client.app.state.ops, "health", lambda: summary)
+    r = client.get("/pipeline")
+    assert r.status_code == 200
+    assert "1 dead board hidden automatically" in r.text
+    assert "1 dead boards hidden automatically" not in r.text
+
+
 def test_pipeline_page_shows_all_sources_working_when_healthy(client, monkeypatch):
     from src.web.ops import HealthSummary
 

@@ -33,9 +33,9 @@
 <details class="tech-details">
   <summary>Technical details</summary>
   {% if health is not none %}
-  <p class="muted ops-note">{{ health.no_match }} discovered companies aren't on any supported job board, so they're skipped.</p>
+  <p class="muted ops-note">{{ health.no_match }} discovered {{ "company isn't" if health.no_match == 1 else "companies aren't" }} on any supported job board, so {{ "it's" if health.no_match == 1 else "they're" }} skipped.</p>
   {% if health.suppressed %}
-  <p class="muted ops-note">{{ health.suppressed | length }} dead boards hidden automatically — rechecked daily: {{ health.suppressed | join(', ') }}</p>
+  <p class="muted ops-note">{{ health.suppressed | length }} dead board{{ 's' if health.suppressed | length != 1 else '' }} hidden automatically — rechecked daily: {{ health.suppressed | join(', ') }}</p>
   {% endif %}
   {% endif %}
   <div class="ops-grid">
