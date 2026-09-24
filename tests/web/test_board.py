@@ -245,7 +245,8 @@ def test_advance_without_any_status_is_rejected(board_client):
 def test_card_offers_a_move_menu_not_six_buttons(board_client):
     client, _ = board_client
     html = client.get("/board").text
-    assert 'aria-label="Move to…"' in html
+    assert 'aria-label="Move Senior Engineer at Acme to…"' in html
+    assert 'autocomplete="off"' in html
     assert '>Rejected</button>' not in html
     menu = re.search(r'<select name="status" class="board-move".*?</select>', html, re.S).group(0)
     assert '<option value="" disabled selected>Move to…</option>' in menu

@@ -1,6 +1,6 @@
 import re
 
-from tests.web.shell_helpers import client_for, make_app
+from tests.web.shell_helpers import client_for, make_app, seed_match
 
 
 def _form(tmp_path, monkeypatch):
@@ -34,6 +34,11 @@ def test_min_score_is_a_select_whose_any_submits_empty(tmp_path, monkeypatch):
 
 
 def test_min_score_values_still_filter(tmp_path, monkeypatch):
-    c = client_for(make_app(tmp_path, monkeypatch))
-    assert c.get("/jobs", params={"min_score": ""}).status_code == 200
-    assert c.get("/jobs", params={"min_score": "7"}).status_code == 200
+    # shell_helpers.seed_match always scores 7 — prove the select's value
+    # actually reaches the filter, not just that the request doesn't 500.
+    app = make_app(tmp_path, monkeypatch)
+    seed_match(app, "a:1", title="Scored Seven")
+    c = client_for(app)
+    assert "Scored Seven" in c.get("/jobs", params={"min_score": ""}).text
+    assert "Scored Seven" in c.get("/jobs", params={"min_score": "7"}).text
+    assert "Scored Seven" not in c.get("/jobs", params={"min_score": "8"}).text

@@ -322,8 +322,13 @@ def _empty_reason(request: Request) -> str:
         counts = request_status_counts(request)
         if sum(counts.values()) > 0:
             # Every match has been dealt with: nothing any filter could reveal
-            # in the default view, so say so instead of offering a reset.
-            if not any(counts.get(s, 0) for s in _OPEN_STATUSES):
+            # in the default view, so say so instead of offering a reset. But
+            # "caught_up"'s only action is "Show dismissed" — if the request
+            # already has that box ticked and is still empty, some other
+            # filter (q, min_score, ...) is doing the hiding, so the ordinary
+            # "loosen your filters" message applies instead.
+            if (not any(counts.get(s, 0) for s in _OPEN_STATUSES)
+                    and "dismissed" not in request.query_params.getlist("status")):
                 return "caught_up"
             return "filtered"
         live = request_liveness(request)
@@ -356,8 +361,8 @@ def _render_list(
     # Empty selection (every workplace box unchecked) → no constraint, matching how
     # the status filter fails open; a non-empty subset filters to those buckets.
     workplace_set = set(workplace) if workplace else None
-    # The inbox's <input type="number"> serializes an empty box as min_score="" —
-    # which FastAPI would reject (422) for an int param. Parse it here so a blank
+    # The inbox's min_score <select> submits "" for its "Any" option — which
+    # FastAPI would reject (422) for an int param. Parse it here so a blank
     # field means "no floor".
     try:
         min_score_val = int(min_score) if min_score.strip() else None

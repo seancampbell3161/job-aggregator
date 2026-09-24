@@ -14,7 +14,7 @@ TIER_LABELS: dict[str, str] = {
     "slow": "Aggregators",
     "discovery": "Finding new companies",
     "headless": "Browser-only boards",
-    "digest": "Weekly digest",
+    "digest": "Weekly skills summary",
 }
 
 

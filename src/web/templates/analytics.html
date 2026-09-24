@@ -6,7 +6,7 @@
 {{ ui.page_header('Progress') }}
 {% if summary is none %}
   {% call ui.card('Match analytics') %}
-    <p class="muted">unavailable — could not read seen_jobs.</p>
+    <p class="muted">Match data is unavailable right now.</p>
   {% endcall %}
 {% else %}
 <div class="strip">
@@ -58,7 +58,7 @@
       {% endfor %}
     </table>
   {% else %}
-    <p class="muted">No stretch-skills recorded yet — enable <code>gap_analysis</code> to populate this.</p>
+    <p class="muted">No stretch skills recorded yet. <a href="/settings/llm#gaps">Turn on skill-gap analysis in Settings</a>.</p>
   {% endif %}
 {% endcall %}
 {% endif %}

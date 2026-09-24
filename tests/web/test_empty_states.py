@@ -109,3 +109,22 @@ def test_open_matches_hidden_by_search_are_still_filtered(tmp_path, monkeypatch)
 def test_inbox_defines_show_dismissed(tmp_path, monkeypatch):
     html = client_for(make_app(tmp_path, monkeypatch)).get("/").text
     assert "function triageShowDismissed()" in html
+
+
+def test_already_showing_dismissed_and_still_empty_is_filtered_not_caught_up(tmp_path, monkeypatch):
+    """"Show dismissed" already ticked, but a search term hides every match —
+    the reader is already looking at dismissed rows, so "you're all caught
+    up" (whose only action is Show dismissed) would be a dead end."""
+    app = make_app(tmp_path, monkeypatch)
+    seed_cycle(app, minutes_ago=5)
+    seed_match(app, "a:1", status="dismissed")
+    seed_match(app, "a:2", status="rejected")
+    html = client_for(app).get(
+        "/jobs",
+        params={
+            "status": ["new", "interested", "applied", "interviewing", "dismissed"],
+            "q": "zzz-no-such-title",
+        },
+    ).text
+    assert "Nothing matches these filters" in html
+    assert "all caught up" not in html

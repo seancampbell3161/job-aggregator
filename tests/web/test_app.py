@@ -125,7 +125,7 @@ def test_jobs_list_empty_state(client):
 
 
 def test_jobs_list_blank_min_score_is_no_filter(client):
-    # the inbox number input serializes an empty box as min_score="" — must be
+    # the inbox's min_score <select> submits "" for its "Any" option — must be
     # treated as "no floor", not rejected with 422
     r = client.get("/jobs", params={"min_score": ""})
     assert r.status_code == 200
@@ -382,8 +382,37 @@ def test_pipeline_page_renders_strip_and_panels(client):
     assert '<summary>Technical details</summary>' in page
     assert page.index('hx-get="/pipeline/cycles"') > start      # the polled fragment lives inside
     assert page.index("discovered companies aren") > start        # source notes moved in
-    assert "Sources" in page[:start]                              # Sources card stays above
+    assert page.index('<h2 class="card-title">Sources</h2>') < start  # Sources card stays above
     assert "Match &amp; score analytics" not in page and "Scores" in page
+
+
+def test_pipeline_page_shows_stopped_connector_and_dash_fallback(client, monkeypatch):
+    from src.state import DiscoveredSlug
+    from src.web.ops import HealthSummary
+
+    row = DiscoveredSlug(
+        connector_name="greenhouse:deadco", ats_family="greenhouse", slug="deadco",
+        company_name=None, discovered_at="2026-06-01T00:00:00+00:00",
+        last_validated_at=None, validation_status="quarantined",
+        consecutive_failures=6, last_posting_count=0,
+    )
+    summary = HealthSummary(ok=3, failed=0, quarantined=1, no_match=0, unhealthy=[row])
+    monkeypatch.setattr(client.app.state.ops, "health", lambda: summary)
+    r = client.get("/pipeline")
+    assert r.status_code == 200
+    assert "Stopped after repeated failures" in r.text
+    assert "quarantined" not in r.text.lower()          # state shown in words, not the raw status
+    assert '<td class="muted">—</td>' in r.text          # empty last_validated_at falls back to a dash
+
+
+def test_pipeline_page_shows_all_sources_working_when_healthy(client, monkeypatch):
+    from src.web.ops import HealthSummary
+
+    summary = HealthSummary(ok=4, failed=0, quarantined=0, no_match=0, unhealthy=[])
+    monkeypatch.setattr(client.app.state.ops, "health", lambda: summary)
+    r = client.get("/pipeline")
+    assert r.status_code == 200
+    assert "All sources are working." in r.text
 
 
 def test_pipeline_page_health_unavailable_is_soft(client, monkeypatch):
@@ -616,7 +645,8 @@ def test_analytics_no_gaps_shows_enable_hint(client, monkeypatch):
     monkeypatch.setattr(client.app.state.match_analytics, "summary", lambda: summary)
     r = client.get("/analytics")
     assert r.status_code == 200
-    assert "gap_analysis" in r.text          # the enable hint is shown
+    assert "No stretch skills recorded yet." in r.text   # the enable hint is shown
+    assert "gap_analysis" not in r.text
     assert "No matches yet." not in r.text   # matches exist; only the gaps panel is empty
 
 
