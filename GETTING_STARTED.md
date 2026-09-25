@@ -85,8 +85,9 @@ After the password, **/setup** offers four ways in:
   now — it delivers nothing and marks nothing as seen). Everything works
   without an LLM; nothing is polled or delivered until titles, a company
   board, and a notification sink all exist.
-- **Start from defaults** — skip the wizard: an empty settings version,
-  then straight into Settings.
+- **Start from defaults** — skip the wizard: an empty settings version with
+  the starter pack and discovery both turned on, then straight into
+  Settings. Nothing matches until you add job titles.
 - **Restore from a backup** — upload the `.zip` file **Settings → Backup**
   on an existing instance produced.
 - **Import existing files** — a `config.yaml` (plus `profile.md`/
@@ -832,9 +833,11 @@ Taleo, iCIMS) get a live verify — and healthy ones join `ats` polling
 automatically. Once a mined board is polled directly, the aggregator stops
 re-emitting its postings, so you never get duplicate alerts for the same role.
 
-It runs whenever discovery is on (new installs turn it on in the setup
-wizard; otherwise set `discovery.enabled: true`) but does nothing unless an
-aggregator source is enabled. Tune under `discovery:` (defaults shown):
+Staging runs whenever an aggregator source is enabled
+(`discovery.hiringcafe_mining_enabled`, on by default); validating and
+promoting a candidate into polling needs discovery on too (new installs turn
+it on in the setup wizard; otherwise set `discovery.enabled: true`). Tune
+under `discovery:` (defaults shown):
 
 ```yaml
 discovery:
