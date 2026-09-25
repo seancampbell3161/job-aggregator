@@ -29,6 +29,7 @@ from src.coach import AnthropicCoach, CoachEngine, GeminiCoach, OllamaCoach
 from src.gaps import AnthropicGapAnalyzer, GapAnalyzer, GeminiGapAnalyzer, OllamaGapAnalyzer
 from src.relevance import GeminiRelevanceScorer, OllamaRelevanceScorer, RelevanceScorer
 from src.settings.service import ConfigService
+from src.starter_pack import default_pack, gate_stores, reconcile
 from src.stores import build_stores
 
 log = logging.getLogger(__name__)
@@ -273,12 +274,14 @@ async def _run(
             board_quarantine_after_failures=cfg.discovery.board_quarantine_after_failures,
         )
 
+        gated_discovered, _ = gate_stores(cfg, discovered, stores.boards)
+
         async with httpx.AsyncClient() as client:
             await run_discovery(
                 client=client,
                 yc_oss=yc_oss,
                 active_set=active_set,
-                store=discovered,
+                store=gated_discovered,   # revalidation skips gated-off starter rows
                 cfg=d_cfg,
                 boards=stores.boards,
             )
@@ -314,6 +317,7 @@ async def _run(
                         )
                 except Exception:  # noqa: BLE001 — a broken portfolio fetch must never skip recover_suppressed
                     log.exception("vc_discovery_failed")
+            # raw stores: a gated-off starter row must not be cleared as "orphaned"
             await recover_suppressed(cfg=cfg, discovered=discovered, boards=stores.boards, health=health, client=client)
         return {"tier": "discovery"}
 
@@ -373,7 +377,14 @@ async def _run(
         and discovered is not None
     ):
         sightings = []
-    connectors = build_connectors(cfg, tier=tier, discovered=discovered, boards=stores.boards, suppressed=suppressed, sightings=sightings)  # type: ignore[arg-type]
+    if tier == "ats" and cfg.discovery.starter_pack:
+        try:
+            reconcile(default_pack(), eu_enabled=cfg.discovery.eu_seeds_enabled,
+                      slugs_store=discovered, boards_store=stores.boards)
+        except Exception:  # noqa: BLE001 — a seeding failure must never cost the cycle
+            log.exception("starter_pack_reconcile_failed")
+    poll_discovered, poll_boards = gate_stores(cfg, discovered, stores.boards)
+    connectors = build_connectors(cfg, tier=tier, discovered=poll_discovered, boards=poll_boards, suppressed=suppressed, sightings=sightings)  # type: ignore[arg-type]
     sinks = _build_sinks(cfg)
     relevance_scorer = _build_relevance_scorer(cfg, snap.documents.profile)
     gap_analyzer = _build_gap_analyzer(cfg, snap.documents.resume_text)
