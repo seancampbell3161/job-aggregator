@@ -86,6 +86,31 @@ def test_reconcile_never_touches_existing_rows_and_is_idempotent(tmp_path):
     assert (second.inserted, second.skipped) == (0, 2)
 
 
+class _Spy:
+    def __init__(self, inner):
+        self._inner = inner
+        self.calls: dict[str, int] = {}
+
+    def __getattr__(self, name):
+        attr = getattr(self._inner, name)
+
+        def wrapped(*a, **k):
+            self.calls[name] = self.calls.get(name, 0) + 1
+            return attr(*a, **k)
+        return wrapped
+
+
+def test_reconcile_reads_keys_once_and_seeds_only_missing(tmp_path):
+    slugs, boards = _stores()
+    pack = load_pack(_write(tmp_path, PACK))
+    reconcile(pack, eu_enabled=False, slugs_store=slugs, boards_store=boards)
+    s_spy, b_spy = _Spy(slugs), _Spy(boards)
+    result = reconcile(pack, eu_enabled=True, slugs_store=s_spy, boards_store=b_spy)
+    assert (result.inserted, result.skipped) == (1, 2)   # only the EU slug is new
+    assert s_spy.calls == {"list_all": 1, "seed_ok": 1}
+    assert b_spy.calls == {"list_all": 1}
+
+
 def test_starter_visible_rules():
     assert starter_visible(None, pack_enabled=False, eu_enabled=False)
     assert starter_visible("hiringcafe", pack_enabled=False, eu_enabled=False)

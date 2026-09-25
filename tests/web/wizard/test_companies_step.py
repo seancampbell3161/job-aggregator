@@ -110,6 +110,30 @@ def test_empty_pack_save_never_turns_the_flag_on_or_off(tmp_path, monkeypatch):
     assert not app2.state.service.snapshot().cfg.discovery.starter_pack
 
 
+def test_step_already_done_before_upgrade_shows_saved_values(tmp_path, monkeypatch):
+    """An install that finished this step before the pack existed (a board
+    configured, no companies_choice marker) sees its real settings, not a
+    fresh pre-tick it never chose."""
+    service = make_service({**WEB_TEST_SETTINGS, "sources": {"greenhouse": ["stripe"]}})
+    r = signed_in_client(_app(tmp_path, monkeypatch, service)).get("/wizard/companies")
+    assert "checked" not in _checkbox(r.text, "starter_pack")
+    assert "checked" not in _checkbox(r.text, "discovery")
+
+
+def test_unticking_the_pack_also_dismisses_the_companies_banner(tmp_path, monkeypatch):
+    from src.web.settings.companies import STARTER_BANNER_KEY
+    app = _app(tmp_path, monkeypatch)
+    signed_in_client(app).post("/wizard/companies", data={"discovery": "1"})
+    assert app.state.stores.wizard.get(STARTER_BANNER_KEY) is not None
+
+
+def test_ticking_the_pack_leaves_the_banner_key_alone(tmp_path, monkeypatch):
+    from src.web.settings.companies import STARTER_BANNER_KEY
+    app = _app(tmp_path, monkeypatch)
+    signed_in_client(app).post("/wizard/companies", data={"starter_pack": "1"})
+    assert app.state.stores.wizard.get(STARTER_BANNER_KEY) is None
+
+
 def test_both_boxes_pretick_on_first_visit(tmp_path, monkeypatch):
     r = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/companies")
     assert "checked" in _checkbox(r.text, "starter_pack")

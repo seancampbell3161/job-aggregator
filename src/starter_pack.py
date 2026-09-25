@@ -177,19 +177,27 @@ def _origin(region: str) -> str:
 
 
 def reconcile(pack: StarterPack, *, eu_enabled: bool, slugs_store, boards_store) -> ReconcileResult:
-    """Insert every eligible pack entry that has no row yet. Idempotent."""
+    """Insert every eligible pack entry that has no row yet. Idempotent.
+
+    Runs every ATS cycle, so the existing keys are read once per store and
+    only missing keys are written; seed_ok stays insert-if-absent as the
+    guard against a row appearing in between."""
     slugs, boards = pack.eligible(eu_enabled)
+    have_slugs = {r.connector_name for r in slugs_store.list_all()}
+    have_boards = {b.domain for b in boards_store.list_all()}
     inserted = skipped = 0
     for s in slugs:
-        if slugs_store.seed_ok(s.connector_name, company_name=s.company,
-                               origin=_origin(s.region), last_posting_count=s.postings):
+        if s.connector_name not in have_slugs and slugs_store.seed_ok(
+                s.connector_name, company_name=s.company,
+                origin=_origin(s.region), last_posting_count=s.postings):
             inserted += 1
         else:
             skipped += 1
     for b in boards:
-        if boards_store.seed_ok(b.domain, name=b.company or b.domain, family=b.family,
-                                identity=b.identity, connector_name=b.connector_name,
-                                company=b.company, origin=_origin(b.region)):
+        if b.domain not in have_boards and boards_store.seed_ok(
+                b.domain, name=b.company or b.domain, family=b.family,
+                identity=b.identity, connector_name=b.connector_name,
+                company=b.company, origin=_origin(b.region)):
             inserted += 1
         else:
             skipped += 1

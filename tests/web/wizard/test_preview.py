@@ -233,11 +233,14 @@ from types import SimpleNamespace
 from src.web.wizard.preview import order_for_preview
 
 
-def test_order_puts_user_boards_first_then_biggest_starter():
-    conns = [SimpleNamespace(name=n) for n in ("lever:small", "greenhouse:mine", "ashby:big")]
-    ranks = {"lever:small": 3, "ashby:big": 400}
-    out = [c.name for c in order_for_preview(conns, ranks)]
-    assert out == ["greenhouse:mine", "ashby:big", "lever:small"]
+def test_order_puts_user_boards_first_then_biggest_starter_then_other_discovered():
+    conns = [SimpleNamespace(name=n) for n in (
+        "lever:found", "lever:small", "greenhouse:mine", "ashby:big", "ashby:also-mine")]
+    # ashby:also-mine is in the pack too, but configured boards always lead.
+    ranks = {"lever:small": 3, "ashby:big": 400, "ashby:also-mine": 1}
+    mine = {"greenhouse:mine", "ashby:also-mine"}
+    out = [c.name for c in order_for_preview(conns, ranks, mine)]
+    assert out == ["greenhouse:mine", "ashby:also-mine", "ashby:big", "lever:small", "lever:found"]
 
 
 @pytest.mark.asyncio

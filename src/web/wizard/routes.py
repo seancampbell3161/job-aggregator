@@ -25,6 +25,7 @@ from src.settings.patch import apply_patch
 from src.settings.service import canonical_doc
 from src.starter_pack import default_pack
 from src.web.settings.backup import MAX_UPLOAD_BYTES, _read_bounded
+from src.web.settings.companies import STARTER_BANNER_KEY
 from src.web.settings.forms import decode, decode_secrets, errors_by_path
 from src.web.settings.probes import ProbeResult, probe_discord, probe_llm, probe_ntfy
 from src.web.settings.readiness import AGGREGATOR_FAMILIES, check
@@ -35,7 +36,7 @@ from src.web.wizard.ntfy_topic import suggest_topic, topic_qr_svg
 from src.web.wizard.presets import LLM_PRESETS, preset_for_provider
 from src.web.wizard.title_sets import TITLE_SETS
 from src.web.wizard.steps import (
-    WIZARD_STEPS, build_context, next_step, step_by_slug, step_states,
+    WIZARD_STEPS, build_context, companies_chosen, next_step, step_by_slug, step_states,
 )
 
 # Template per step slug. A step with no bespoke page would 500 on render, so
@@ -162,12 +163,15 @@ def companies_extra(request: Request) -> dict:
     "family: slug" isn't a sensible display for them, and the "Full companies
     page" link is where they're actually managed.
 
-    Also the starter-pack/discovery checkbox state: pre-ticked until the step
-    has actually been submitted once (COMPANIES_CHOICE_KEY absent), after
-    which they reflect the saved config — see that key's own docstring
-    above."""
+    Also the starter-pack/discovery checkbox state: pre-ticked only while the
+    step is genuinely unanswered — never submitted (COMPANIES_CHOICE_KEY
+    absent, see that key's own docstring above) AND not already done by
+    other means. An install that finished this step before the pack existed
+    has no marker but does have a board or discovery on; it sees its saved
+    values, not a pre-tick it never chose."""
     cfg = request.state.snapshot.cfg
-    chosen = request.app.state.stores.wizard.get(COMPANIES_CHOICE_KEY) is not None
+    chosen = (request.app.state.stores.wizard.get(COMPANIES_CHOICE_KEY) is not None
+              or companies_chosen(cfg))
     extra = {
         "configured": [
             (family, slug)
@@ -370,10 +374,12 @@ async def _ensure_draft(request: Request) -> tuple[dict | None, str | None]:
     return record, None
 
 
-# Steps whose own primary button posts straight at /wizard/<slug>/skip when
-# they are incomplete (see wizard_companies.html / wizard_preview.html): for
-# these the shared "Skip for now" form would be a second button pointing at
-# the identical URL, so the base template renders none.
+# Steps that render their own way forward, so the base template's shared
+# "Skip for now" form would be a redundant second button: the preview step's
+# primary button posts straight at /wizard/preview/skip when incomplete, and
+# the companies step's Continue submits its own form to POST /wizard/companies,
+# which records an explicit skip itself when nothing was chosen (see
+# wizard_companies.html / wizard_preview.html).
 OWN_SKIP_STEPS = frozenset({"companies", "preview"})
 
 
@@ -755,6 +761,9 @@ def register_wizard_routes(app: FastAPI) -> None:
                 return RedirectResponse("/setup", status_code=303)
         wizard = request.app.state.stores.wizard
         wizard.put(COMPANIES_CHOICE_KEY, True)
+        if want.get("discovery.starter_pack") is False:
+            # Declined here: the Companies page banner must not re-offer it.
+            wizard.put(STARTER_BANNER_KEY, True)
         if not any(want.values()) and not board_entries(service.snapshot().cfg):
             wizard.skip("companies")
         return RedirectResponse("/wizard", status_code=303)

@@ -14,6 +14,7 @@ import httpx
 
 from src.connectors.base import build_connectors
 from src.orchestrator import run_once
+from src.settings.boards import board_entries
 from src.starter_pack import default_pack, gate_stores, reconcile
 
 log = logging.getLogger(__name__)
@@ -24,13 +25,16 @@ MAX_BOARDS = 5
 BUDGET_SECONDS = 60
 
 
-def order_for_preview(connectors: list, ranks: dict[str, int]) -> list:
-    """The user's own boards first (built order), then starter boards with the
-    most postings — five slots should show what the pack is worth, not
-    whichever tiny board sorts first."""
-    mine = [c for c in connectors if c.name not in ranks]
-    starter = sorted((c for c in connectors if c.name in ranks), key=lambda c: -ranks[c.name])
-    return mine + starter
+def order_for_preview(connectors: list, ranks: dict[str, int], mine: set[str]) -> list:
+    """The user's own configured boards first (built order, even when the pack
+    has them too), then starter boards with the most postings — five slots
+    should show what the pack is worth, not whichever tiny board sorts first —
+    then any other discovered boards."""
+    own = [c for c in connectors if c.name in mine]
+    starter = sorted((c for c in connectors if c.name not in mine and c.name in ranks),
+                     key=lambda c: -ranks[c.name])
+    rest = [c for c in connectors if c.name not in mine and c.name not in ranks]
+    return own + starter + rest
 
 
 async def run_preview(app) -> dict:
@@ -66,7 +70,7 @@ async def _run(app) -> dict:
     discovered, boards = gate_stores(cfg, stores.discovered, stores.boards)
     connectors = order_for_preview(list(build_connectors(
         cfg, tier="ats", discovered=discovered, boards=boards, suppressed=frozenset(),
-    )), pack.postings_by_connector())[:MAX_BOARDS]
+    )), pack.postings_by_connector(), {e.key for e in board_entries(cfg)})[:MAX_BOARDS]
 
     result = await run_once(
         cfg=cfg, tier="ats", store=stores.seen, source_state=stores.source_state,

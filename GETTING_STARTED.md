@@ -833,8 +833,8 @@ Taleo, iCIMS) get a live verify — and healthy ones join `ats` polling
 automatically. Once a mined board is polled directly, the aggregator stops
 re-emitting its postings, so you never get duplicate alerts for the same role.
 
-Staging runs whenever an aggregator source is enabled
-(`discovery.hiringcafe_mining_enabled`, on by default); validating and
+Staging runs whenever an aggregator source is enabled and
+`discovery.hiringcafe_mining_enabled` is on (the default); validating and
 promoting a candidate into polling needs discovery on too (new installs turn
 it on in the setup wizard; otherwise set `discovery.enabled: true`). Tune
 under `discovery:` (defaults shown):
