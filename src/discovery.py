@@ -260,7 +260,7 @@ async def _run_candidate_chain(
         if winner is not None:
             fam, count = winner
             store.upsert_ok(f"{fam}:{variant}", company_name=name,
-                            last_posting_count=count, origin=origin)
+                            last_posting_count=count, origin=origin, website=website)
             return budget, "ok"
         methods_tried.append(f"{kind}:{variant}")
 
@@ -274,7 +274,7 @@ async def _run_candidate_chain(
                 store.upsert_ok(
                     f"{result.family}:{result.identity['slug']}",
                     company_name=name, last_posting_count=result.posting_count,
-                    origin=origin,
+                    origin=origin, website=website,
                 )
                 return budget, "ok"
             if boards is not None:

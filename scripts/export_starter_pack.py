@@ -4,11 +4,17 @@
         [--discovered-only] [--out scripts/seeds/starter_pack.json] [--version YYYY-MM-DD]
 
 Run it against the production box's SQLite file (copy it off the box, or run
-inside the container), review the diff, and commit. Read-only on the DB."""
+inside the container), review the diff, and commit.
+
+Read-only on the DB: it is opened with SQLite's mode=ro, so a mistyped --db
+fails instead of creating an empty database (and overwriting the committed
+pack with nothing), and an older copy is read as-is, never migrated. An empty
+result is refused unless --allow-empty is passed."""
 from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 import time
 from datetime import date
@@ -21,7 +27,7 @@ if str(REPO_ROOT) not in sys.path:
 from src.fingerprint import EU_SEEDS, load_seeds  # noqa: E402
 from src.settings.service import ConfigService  # noqa: E402
 from src.settings.store import SqliteSettingsStore  # noqa: E402
-from src.sqlite_db import connect  # noqa: E402
+from src.slugging import seed_domain  # noqa: E402
 from src.starter_pack import BOARD_FAMILIES, ORIGIN_US, SLUG_FAMILIES, STARTER_PACK_PATH  # noqa: E402
 from src.state_sqlite import (  # noqa: E402
     SqliteConnectorHealthStore, SqliteDiscoveredBoardsStore, SqliteDiscoveredSlugsStore,
@@ -32,6 +38,21 @@ _EU_FAMILIES = frozenset({"personio", "recruitee", "teamtailor"})
 
 def _region(family: str, domain: str | None, eu_domains: set[str]) -> str:
     return "eu" if family in _EU_FAMILIES or (domain and domain in eu_domains) else "us"
+
+
+def _website_domain(website: str | None) -> str | None:
+    """A slug row's website as a bare seed domain (scheme, www. and path
+    stripped), comparable with eu_companies.csv."""
+    return seed_domain(website) if website else None
+
+
+def open_readonly(path: str) -> sqlite3.Connection:
+    """Open an existing SQLite file read-only, with the stores' row factory.
+    Raises sqlite3.OperationalError if the file does not exist."""
+    uri = Path(path).resolve().as_uri() + "?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 def _is_starter(origin: str | None) -> bool:
@@ -72,7 +93,8 @@ def build_pack(conn, *, discovered_only: bool, version: str, eu_domains: set[str
             continue
         slugs[r.connector_name] = {
             "ats": r.ats_family, "slug": r.slug, "company": r.company_name,
-            "region": _region(r.ats_family, None, eu_domains), "postings": r.last_posting_count,
+            "region": _region(r.ats_family, _website_domain(r.website), eu_domains),
+            "postings": r.last_posting_count,
         }
     for b in SqliteDiscoveredBoardsStore(conn).list_healthy():
         if (b.family not in BOARD_FAMILIES or not b.identity or not b.connector_name
@@ -114,11 +136,27 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", default=str(STARTER_PACK_PATH))
     ap.add_argument("--version", default=date.today().isoformat())
     ap.add_argument("--discovered-only", action="store_true")
+    ap.add_argument("--allow-empty", action="store_true",
+                    help="write the pack even when it has no entries")
     args = ap.parse_args(argv)
-    conn = connect(args.db)
-    eu_domains = {s.domain for s in load_seeds(EU_SEEDS)}
-    pack = build_pack(conn, discovered_only=args.discovered_only,
-                      version=args.version, eu_domains=eu_domains)
+    try:
+        conn = open_readonly(args.db)
+    except sqlite3.Error as exc:
+        print(f"error: cannot open {args.db} read-only: {exc}", file=sys.stderr)
+        return 2
+    try:
+        eu_domains = {s.domain for s in load_seeds(EU_SEEDS)}
+        pack = build_pack(conn, discovered_only=args.discovered_only,
+                          version=args.version, eu_domains=eu_domains)
+    except sqlite3.Error as exc:
+        print(f"error: cannot read {args.db}: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        conn.close()
+    if not pack["slugs"] and not pack["boards"] and not args.allow_empty:
+        print(f"error: the pack from {args.db} is empty; refusing to overwrite {args.out} "
+              "(pass --allow-empty to write it anyway)", file=sys.stderr)
+        return 1
     Path(args.out).write_text(json.dumps(pack, indent=1, sort_keys=True) + "\n")
     print(f"wrote {len(pack['slugs'])} slugs + {len(pack['boards'])} boards to {args.out}")
     return 0
