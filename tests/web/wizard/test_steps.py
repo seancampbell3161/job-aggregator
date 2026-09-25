@@ -6,7 +6,8 @@ import pytest
 from src.config import AppConfig, Secrets
 from src.settings.documents import Documents
 from src.web.wizard.steps import (
-    WIZARD_STEPS, build_context, next_step, step_by_slug, step_states, step_summary,
+    WIZARD_STEPS, _companies_done, build_context, next_step, step_by_slug, step_states,
+    step_summary,
 )
 
 ALL_SLUGS = ["llm", "resume", "review", "companies", "notifications", "preview"]
@@ -183,6 +184,11 @@ def test_companies_step_is_incomplete_on_a_fresh_install():
     ctx = _ctx()  # plain AppConfig(), nothing disabled
     assert "nothing_polled" not in ctx.codes
     assert next_step(ctx, skipped={"llm", "resume", "review"}).slug == "companies"
+
+
+def test_companies_done_with_starter_pack_only():
+    cfg = AppConfig.model_validate({"discovery": {"starter_pack": True}})
+    assert _companies_done(_ctx(cfg))
 
 
 # ---- summaries ----

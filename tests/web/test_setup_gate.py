@@ -137,6 +137,30 @@ def test_start_from_defaults_is_a_no_op_when_already_set_up(tmp_path, monkeypatc
     assert service.snapshot().cfg.filters.titles == ["staff engineer"]
 
 
+def test_setup_start_turns_on_pack_and_discovery(tmp_path, monkeypatch):
+    """No wizard step will ask a /setup/start user where to look (they never
+    see the wizard at all), so this route starts them broad instead: the
+    bundled starter pack plus ongoing discovery, both on."""
+    service = make_service()
+    client = _client(tmp_path, monkeypatch, service)
+    client.post("/setup/start")
+    cfg = service.snapshot().cfg
+    assert cfg.discovery.starter_pack and cfg.discovery.enabled
+
+
+def test_setup_wizard_stays_defaults_only(tmp_path, monkeypatch):
+    """/setup/wizard's first save must stay defaults-only: the wizard's own
+    companies step is what asks about the starter pack and discovery, and
+    _companies_done treats discovery.enabled/starter_pack as "the user
+    chose" — turning them on here would mark that step complete before the
+    user ever saw it."""
+    service = make_service()
+    client = _client(tmp_path, monkeypatch, service)
+    client.post("/setup/wizard")
+    cfg = service.snapshot().cfg
+    assert not cfg.discovery.starter_pack and not cfg.discovery.enabled
+
+
 def test_start_from_defaults_needs_a_session(tmp_path, monkeypatch):
     # /setup/start is exempt from the setup gate but NOT from the login gate,
     # so a password must be claimed (and a session held) before it can write

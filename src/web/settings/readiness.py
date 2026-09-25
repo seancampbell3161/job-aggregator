@@ -48,7 +48,7 @@ def check(
             "Add at least one title.",
             "filters",
         ))
-    if not _has_sources(cfg) and not cfg.discovery.enabled:
+    if not _has_sources(cfg) and not cfg.discovery.enabled and not cfg.discovery.starter_pack:
         out.append(Warning(
             "nothing_polled",
             "No company boards are configured and discovery is off, "

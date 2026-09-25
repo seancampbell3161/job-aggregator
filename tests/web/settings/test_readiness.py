@@ -48,6 +48,11 @@ def test_discovery_enabled_clears_nothing_polled():
     assert "nothing_polled" not in _check(doc)
 
 
+def test_starter_pack_clears_nothing_polled():
+    doc = {"sources": _NO_AGGREGATORS, "discovery": {"starter_pack": True}}
+    assert "nothing_polled" not in _check(doc)
+
+
 def test_no_delivery_sink_is_reported():
     assert "no_sink" in _check()
     assert "no_sink" not in _check(secrets=("ntfy_topic_url",))
