@@ -65,16 +65,21 @@ async def test_configured_and_starter_board_polled_once(monkeypatch, pack):
 
 
 @pytest.mark.asyncio
-async def test_discovery_tier_keeps_raw_stores_for_active_set_and_recovery(monkeypatch, pack):
+async def test_discovery_tier_gates_active_set_but_recovers_on_raw_stores(monkeypatch, pack):
+    """Pack off: a hidden starter row is not "already polled", so discovery may
+    find the same company (I1); recovery still sees every row."""
     from src.handler import _run
     seed_settings({"discovery": {"enabled": True, "starter_pack": False,
                                  "board_discovery_enabled": False}})
-    build_stores().discovered.seed_ok("greenhouse:stripe", company_name="Stripe", origin="starter")
+    stores = build_stores()
+    stores.discovered.seed_ok("greenhouse:stripe", company_name="Stripe", origin="starter")
+    stores.discovered.upsert_ok("lever:mine")
     got = {}
 
     async def fake_discovery(*, client, yc_oss, active_set, store, cfg, boards):
         got["active"] = set(active_set)
         got["reval"] = store.list_for_revalidation(stale_after_days=-1, limit=10)
+        got["boards_gated"] = hasattr(boards, "polls")
 
     async def fake_recover(*, cfg, discovered, boards, health, client):
         got["recover_names"] = [r.connector_name for r in discovered.list_healthy()]
@@ -82,6 +87,28 @@ async def test_discovery_tier_keeps_raw_stores_for_active_set_and_recovery(monke
     monkeypatch.setattr("src.handler.run_discovery", fake_discovery)
     monkeypatch.setattr("src.handler.recover_suppressed", fake_recover)
     await _run(tier="discovery")
+    assert ("greenhouse", "stripe") not in got["active"]
+    assert ("lever", "mine") in got["active"]
+    assert [r.connector_name for r in got["reval"]] == ["lever:mine"]
+    assert got["boards_gated"]
+    assert sorted(got["recover_names"]) == ["greenhouse:stripe", "lever:mine"]
+
+
+@pytest.mark.asyncio
+async def test_discovery_tier_active_set_includes_starter_rows_when_pack_on(monkeypatch, pack):
+    from src.handler import _run
+    seed_settings({"discovery": {"enabled": True, "starter_pack": True,
+                                 "board_discovery_enabled": False}})
+    build_stores().discovered.seed_ok("greenhouse:stripe", company_name="Stripe", origin="starter")
+    got = {}
+
+    async def fake_discovery(*, client, yc_oss, active_set, store, cfg, boards):
+        got["active"] = set(active_set)
+
+    async def fake_recover(**kw):
+        pass
+
+    monkeypatch.setattr("src.handler.run_discovery", fake_discovery)
+    monkeypatch.setattr("src.handler.recover_suppressed", fake_recover)
+    await _run(tier="discovery")
     assert ("greenhouse", "stripe") in got["active"]
-    assert got["reval"] == []
-    assert got["recover_names"] == ["greenhouse:stripe"]

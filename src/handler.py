@@ -242,7 +242,11 @@ async def _run(
         if not cfg.discovery.enabled:
             log.info("discovery_skipped", extra={"reason": "disabled in config"})
             return {"tier": "discovery", "skipped": True}
-        # Active set = config slugs ∪ healthy discovered slugs (so we don't
+        # Gated views: a starter row hidden by discovery.starter_pack is not
+        # polled, so it must not count as "already active" — discovery may
+        # find (and reclaim) the same company. Recovery below stays raw.
+        gated_discovered, gated_boards = gate_stores(cfg, discovered, stores.boards)
+        # Active set = config slugs ∪ polled discovered slugs (so we don't
         # re-validate slugs we already poll directly).
         active_set: set[tuple[str, str]] = set()
         for ats, slugs in [
@@ -258,7 +262,7 @@ async def _run(
         ]:
             for slug in slugs:
                 active_set.add((ats, slug))
-        for row in discovered.list_healthy():
+        for row in gated_discovered.list_healthy():
             active_set.add((row.ats_family, row.slug))
 
         yc_oss = make_yc_oss_fetcher(min_team_size=cfg.discovery.yc_oss_min_team_size)
@@ -274,8 +278,6 @@ async def _run(
             board_quarantine_after_failures=cfg.discovery.board_quarantine_after_failures,
         )
 
-        gated_discovered, _ = gate_stores(cfg, discovered, stores.boards)
-
         async with httpx.AsyncClient() as client:
             await run_discovery(
                 client=client,
@@ -283,7 +285,7 @@ async def _run(
                 active_set=active_set,
                 store=gated_discovered,   # revalidation skips gated-off starter rows
                 cfg=d_cfg,
-                boards=stores.boards,
+                boards=gated_boards,
             )
             if cfg.discovery.board_discovery_enabled:
                 try:
@@ -307,8 +309,8 @@ async def _run(
                         await run_vc_discovery(
                             client=_vclient,
                             firms=list(cfg.discovery.vc_firms),
-                            discovered=discovered,
-                            boards=stores.boards,
+                            discovered=gated_discovered,
+                            boards=gated_boards,
                             source_state=stores.source_state,
                             active_set=active_set,
                             refresh_days=cfg.discovery.vc_refresh_days,
@@ -388,7 +390,8 @@ async def _run(
     sinks = _build_sinks(cfg)
     relevance_scorer = _build_relevance_scorer(cfg, snap.documents.profile)
     gap_analyzer = _build_gap_analyzer(cfg, snap.documents.resume_text)
-    dry_run = dry_run or calibrate  # calibrate never writes or notifies
+    # calibrate never writes jobs or notifies (the idempotent pack seed above still runs)
+    dry_run = dry_run or calibrate
     result = await run_once(
         cfg=cfg, tier=tier, store=store, source_state=source_state,  # type: ignore[arg-type]
         connectors=connectors, sinks=sinks,

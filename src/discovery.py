@@ -16,6 +16,7 @@ import httpx
 from src.fingerprint import Seed, connector_name, fingerprint_company, verify_identity
 from src.models import ConnectorState
 from src.slugging import labeled_slug_candidates, seed_domain, slug_candidates
+from src.starter_pack import polled
 from src.state import DiscoveredSlug, no_match_exhausted
 from src.state_sqlite import SqliteDiscoveredSlugsStore
 from src.user_agent import headers as ua_headers
@@ -164,7 +165,7 @@ async def _validate_slug_candidate(*, client, row, store, budget: int) -> int:
     budget -= 1
     if ok:
         store.upsert_ok(f"{claimed}:{row.slug}", company_name=row.company_name,
-                        last_posting_count=count)
+                        last_posting_count=count, origin=row.origin)
         return budget
     others = [a for a in _SUPPORTED_ATS if a != claimed]
     if budget < len(others):
@@ -178,7 +179,7 @@ async def _validate_slug_candidate(*, client, row, store, budget: int) -> int:
         fam, count = max(candidates, key=lambda x: x[1])
         store.delete(row.connector_name)  # re-key: claimed family was wrong
         store.upsert_ok(f"{fam}:{row.slug}", company_name=row.company_name,
-                        last_posting_count=count)
+                        last_posting_count=count, origin=row.origin)
     else:
         store.resolve_candidate_no_match(row.connector_name)
         store.upsert_no_match(row.slug)
@@ -200,7 +201,7 @@ async def _validate_board_candidate(*, client, row, boards, quarantine_threshold
         if conn is not None:
             boards.upsert_ok(row.domain, name=row.name, family=row.family,
                              identity=identity, connector_name=conn.name,
-                             company=row.company)
+                             company=row.company, origin=row.origin)
             return True
     boards.upsert_candidate_failed(row.domain, quarantine_threshold=quarantine_threshold)
     return False
@@ -216,6 +217,7 @@ async def _run_candidate_chain(
     boards,
     active_set: set[tuple[str, str]],
     budget: int,
+    origin: str | None = None,
 ) -> tuple[int, str]:
     """Run the full conversion chain for one name-based candidate: each slug
     variant across every supported family (_PROBES_PER_CANDIDATE probes per
@@ -224,7 +226,11 @@ async def _run_candidate_chain(
     outcome — upsert_ok / boards.upsert_ok / upsert_no_match-with-methods —
     or nothing on budget cut-off (the chain is idempotent; the candidate
     re-runs from the top next cycle). Returns (remaining_budget, outcome),
-    outcome ∈ {"ok", "board_ok", "no_match", "budget", "active", "skipped"}."""
+    outcome ∈ {"ok", "board_ok", "no_match", "budget", "active", "skipped"}.
+
+    A match is discovery's own confirmation: it is written with ``origin``
+    (None for yc-oss/manual, the staged row's for a VC candidate), which
+    reclaims a gated-off starter row under the same key."""
     labeled = labeled_slug_candidates(name, website, alt_slug)
     if not labeled:
         return budget, "skipped"
@@ -238,9 +244,11 @@ async def _run_candidate_chain(
     # either: an ok row for the seed domain means a prior chain run or the
     # enterprise sweep already resolved this company; quarantined means the
     # board repeatedly failed verification — re-fingerprinting would thrash.
+    # A gated-off starter board is not polled, so it does not count.
     if boards is not None and domain:
         brow = boards.get(domain)
-        if brow is not None and brow.status in ("ok", "quarantined"):
+        if brow is not None and (brow.status == "quarantined"
+                                 or (brow.status == "ok" and polled(boards, brow))):
             return budget, "active"
 
     methods_tried: list[str] = []
@@ -252,7 +260,7 @@ async def _run_candidate_chain(
         if winner is not None:
             fam, count = winner
             store.upsert_ok(f"{fam}:{variant}", company_name=name,
-                            last_posting_count=count)
+                            last_posting_count=count, origin=origin)
             return budget, "ok"
         methods_tried.append(f"{kind}:{variant}")
 
@@ -266,13 +274,14 @@ async def _run_candidate_chain(
                 store.upsert_ok(
                     f"{result.family}:{result.identity['slug']}",
                     company_name=name, last_posting_count=result.posting_count,
+                    origin=origin,
                 )
                 return budget, "ok"
             if boards is not None:
                 boards.upsert_ok(
                     domain, name=name, family=result.family,
                     identity=result.identity, connector_name=connector_name(result),
-                    company=name,
+                    company=name, origin=origin,
                 )
                 return budget, "board_ok"
             # Structured match but no boards store (caller without a boards
@@ -356,6 +365,7 @@ async def run_discovery(
                 client=client, name=row.company_name or row.slug,
                 website=row.website, alt_slug=row.slug, store=store,
                 boards=boards, active_set=active_set, budget=budget,
+                origin=row.origin,
             )
             if outcome == "budget":
                 break  # nothing persisted; the row re-drains next run
@@ -548,10 +558,11 @@ async def run_board_discovery(
         result = await fingerprint_company(client, seed)
         swept += 1
         if result.status == "matched":
+            # The sweep's own match: reclaims a starter row for this domain.
             boards.upsert_ok(
                 seed.domain, name=seed.name, family=result.family,
                 identity=result.identity, connector_name=connector_name(result),
-                company=seed.name,
+                company=seed.name, origin=None,
             )
             matched += 1
         else:
@@ -574,6 +585,12 @@ async def run_board_discovery(
         "swept": swept, "matched": matched, "unsupported": unsupported,
         "not_found": not_found, "errors": errors,
     })
+
+
+def _known(store, row) -> bool:
+    """A row that dedups a VC capture: any row, except a gated-off starter
+    row — that company is not polled, so discovery may still find it."""
+    return row is not None and polled(store, row)
 
 
 def _vc_watermark_fresh(last_modified: str | None, refresh_days: int) -> bool:
@@ -647,13 +664,13 @@ async def run_vc_discovery(
                 domain = seed_domain(company.domain) if company.domain else None
                 if (
                     any((ats, primary) in active_set for ats in _SUPPORTED_ATS)
-                    or any(discovered.get(f"{ats}:{primary}") is not None
+                    or any(_known(discovered, discovered.get(f"{ats}:{primary}"))
                            for ats in _SUPPORTED_ATS)
                     or discovered.get(f"candidate:{primary}") is not None
                     or discovered.is_recent_no_match(
                         primary, fresh_within_days=no_match_fresh_days)
                     or (boards is not None and domain
-                        and boards.get(domain) is not None)
+                        and _known(boards, boards.get(domain)))
                 ):
                     deduped += 1
                     continue

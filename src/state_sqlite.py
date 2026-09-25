@@ -482,6 +482,16 @@ class SqliteSourceStateStore:
         )
 
 
+KEEP_ORIGIN: Any = object()
+"""upsert_ok's default origin: keep whatever the existing row carries."""
+
+
+def _resolve_origin(origin, existing) -> str | None:
+    if origin is KEEP_ORIGIN:
+        return existing.origin if existing else None
+    return origin
+
+
 class SqliteDiscoveredSlugsStore:
     """Tracks discovered ATS slugs and their validation status. Stores the
     full item dict as JSON and reuses state._row_from_item for identical row
@@ -510,7 +520,11 @@ class SqliteDiscoveredSlugsStore:
         return [r for r in self.list_all() if r.validation_status == "ok"]
 
     def upsert_ok(self, connector_name: str, *, company_name: str | None = None,
-                  last_posting_count: int = 0) -> None:
+                  last_posting_count: int = 0, origin: str | None | object = KEEP_ORIGIN) -> None:
+        """Mark a slug validated. ``origin`` defaults to preserving the existing
+        row's (revalidation must not strip a starter/hiringcafe tag); a fresh
+        confirmation by discovery passes the origin it represents, which
+        reclaims a gated-off starter row as discovery's own."""
         now = datetime.now(timezone.utc).isoformat()
         ats_family, slug = connector_name.split(":", 1)
         existing = self.get(connector_name)
@@ -520,7 +534,7 @@ class SqliteDiscoveredSlugsStore:
             "discovered_at": existing.discovered_at if existing else now,
             "last_validated_at": now, "validation_status": "ok",
             "consecutive_failures": 0, "last_posting_count": last_posting_count,
-            "origin": existing.origin if existing else None,
+            "origin": _resolve_origin(origin, existing),
             "sighted_at": existing.sighted_at if existing else None,
         })
 
@@ -689,14 +703,17 @@ class SqliteDiscoveredBoardsStore:
         return [b for b in self.list_all() if b.last_swept_at < iso]
 
     def upsert_ok(self, domain: str, *, name: str, family: str, identity: dict,
-                  connector_name: str, company: str | None = None) -> None:
+                  connector_name: str, company: str | None = None,
+                  origin: str | None | object = KEEP_ORIGIN) -> None:
+        """Mark a board matched. ``origin`` as for the slugs store: preserved
+        by default, set explicitly by a fresh discovery confirmation."""
         now = datetime.now(timezone.utc).isoformat()
         existing = self.get(domain)
         self._put({
             "domain": domain, "name": name, "status": "ok", "family": family,
             "identity": identity, "connector_name": connector_name, "company": company,
             "last_swept_at": now, "failure_streak": 0,
-            "origin": existing.origin if existing else None,
+            "origin": _resolve_origin(origin, existing),
             "sighted_at": existing.sighted_at if existing else None,
         })
 

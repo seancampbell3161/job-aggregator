@@ -212,8 +212,19 @@ class _Gated:
     def __getattr__(self, name):
         return getattr(self._inner, name)
 
+    def polls(self, row) -> bool:
+        """Whether this row is in the poll set's view (not gated off)."""
+        return self._visible(row.origin)
+
     def list_healthy(self):
         return [r for r in self._inner.list_healthy() if self._visible(r.origin)]
+
+
+def polled(store, row) -> bool:
+    """True unless ``store`` is a gated view hiding ``row``. A raw store
+    (no gate) treats every row as polled."""
+    polls = getattr(store, "polls", None)
+    return polls is None or polls(row)
 
 
 class GatedSlugs(_Gated):
