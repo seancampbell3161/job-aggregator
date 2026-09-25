@@ -210,8 +210,8 @@ def home_figures(request: Request) -> HomeFigures:
     boards = feeds = new = None
     try:
         entries = board_entries(cfg)
-        extra = discovery_only_count(state.stores, {e.key for e in entries})
-        boards = None if extra is None else len(entries) + extra
+        extra = discovery_only_count(state.stores, cfg, {e.key for e in entries})
+        boards = None if extra is None else len(entries) + extra.total
     except Exception as exc:  # noqa: BLE001
         log.warning("home_boards_unavailable", extra={"error": str(exc)})
     try:

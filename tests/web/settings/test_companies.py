@@ -66,12 +66,41 @@ def test_discovery_only_slugs_are_counted_not_listed(tmp_path, monkeypatch):
     # base.html always links /pipeline from the global nav, so that alone
     # would pass even with the discovery-only nudge deleted outright — pin
     # the count into the assertion so a broken or missing count fails this.
-    assert "1 more slug discovered but not yet added" in r.text
+    assert "1 more discovered but not yet added" in r.text
 
 
 def test_no_discovery_only_nudge_when_nothing_is_pending(tmp_path, monkeypatch):
     r = signed_in_client(_app(tmp_path, monkeypatch)).get("/settings/companies")
     assert "discovered but not yet added" not in r.text
+    assert "from the starter pack" not in r.text
+
+
+_WD = {"tenant": "acme", "region": "wd5", "site": "Ext"}
+
+
+def _starter_rows(app):
+    app.state.stores.discovered.seed_ok("greenhouse:stripe", company_name="Stripe",
+                                        origin="starter")
+    app.state.stores.boards.seed_ok("acme.com", name="Acme", family="workday", identity=_WD,
+                                    connector_name="workday:acme:Ext", company="Acme",
+                                    origin="starter")
+
+
+def test_hidden_starter_rows_are_not_counted(tmp_path, monkeypatch):
+    app = _app(tmp_path, monkeypatch, make_service({"discovery": {"starter_pack": False}}))
+    _starter_rows(app)
+    r = signed_in_client(app).get("/settings/companies")
+    assert "discovered but not yet added" not in r.text
+    assert "from the starter pack" not in r.text
+
+
+def test_starter_rows_are_attributed_to_the_pack_not_discovery(tmp_path, monkeypatch):
+    app = _app(tmp_path, monkeypatch, make_service({"discovery": {"starter_pack": True}}))
+    _starter_rows(app)
+    app.state.stores.discovered.upsert_ok("lever:found-co", last_posting_count=3)
+    r = signed_in_client(app).get("/settings/companies")
+    assert "2 more from the starter pack" in r.text
+    assert "1 more discovered but not yet added" in r.text
 
 
 def test_the_page_offers_a_manual_add_link_for_every_board_family(tmp_path, monkeypatch):
@@ -101,11 +130,14 @@ def test_manual_add_is_quiet_when_the_image_has_a_browser(tmp_path, monkeypatch)
 
 
 def test_discovery_only_count_is_none_on_store_error():
+    from src.config import AppConfig
     from src.web.settings.companies import discovery_only_count
 
     class Stores:
+        boards = None
+
         class discovered:
             @staticmethod
             def list_healthy():
                 raise RuntimeError("locked")
-    assert discovery_only_count(Stores, set()) is None
+    assert discovery_only_count(Stores, AppConfig(), set()) is None

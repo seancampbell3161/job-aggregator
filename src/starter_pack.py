@@ -199,8 +199,13 @@ def reconcile(pack: StarterPack, *, eu_enabled: bool, slugs_store, boards_store)
     return ReconcileResult(inserted, skipped)
 
 
+def is_starter(origin: str | None) -> bool:
+    """A row the starter pack seeded (and discovery has not since reclaimed)."""
+    return bool(origin) and origin.startswith(ORIGIN_US)
+
+
 def starter_visible(origin: str | None, *, pack_enabled: bool, eu_enabled: bool) -> bool:
-    if not origin or not origin.startswith(ORIGIN_US):
+    if not is_starter(origin):
         return True
     if not pack_enabled:
         return False

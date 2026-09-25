@@ -59,8 +59,11 @@
 
 {% include "_company_rows.html" %}
 
+{% if starter_only %}
+<p class="muted">{{ starter_only }} more from the starter pack — checked every run; switch it off under <a href="/settings/advanced/discovery">Discovery settings</a>.</p>
+{% endif %}
 {% if discovery_only %}
-<p class="muted">{{ discovery_only }} more slug{{ 's' if discovery_only != 1 else '' }} discovered but not yet added — see <a href="/pipeline">the discovery pipeline</a>.</p>
+<p class="muted">{{ discovery_only }} more discovered but not yet added — see <a href="/pipeline">the discovery pipeline</a>.</p>
 {% endif %}
 
 <script>

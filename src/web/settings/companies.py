@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from urllib.parse import quote
 
 import httpx
@@ -30,7 +31,7 @@ from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import item_model
 from src.settings.patch import apply_patch
 from src.settings.rows import add_row_patch
-from src.starter_pack import default_pack
+from src.starter_pack import default_pack, gate_stores, is_starter
 from src.state import DiscoveredSlug
 from src.web.auth import safe_next
 from src.web.settings.health import board_status
@@ -55,13 +56,34 @@ STARTER_BANNER_KEY = "starter_pack_banner_dismissed"
 _JSONLD_UNSUPPORTED_FAMILIES = frozenset({"icims", "successfactors", "talentbrew"})
 
 
-def discovery_only_count(stores, configured: set[str]) -> int | None:
-    """How many validated discovery slugs are not already configured boards;
-    None when the store can't be read."""
+@dataclass(frozen=True)
+class ExtraBoards:
+    """Polled boards beyond the configured ones, split by where they came from."""
+    discovered: int
+    starter: int
+
+    @property
+    def total(self) -> int:
+        return self.discovered + self.starter
+
+
+def discovery_only_count(stores, cfg, configured: set[str]) -> ExtraBoards | None:
+    """Healthy discovered slugs and boards that are actually polled (read
+    through the starter-pack gate, so switched-off starter rows are not
+    counted) and are not already configured boards, split into starter-pack
+    rows and discovery's own. None when a store can't be read."""
     try:
-        return sum(
-            1 for r in stores.discovered.list_healthy() if r.connector_name not in configured
-        )
+        slugs, boards = gate_stores(cfg, stores.discovered, stores.boards)
+        extra: dict[str, bool] = {}
+        for r in slugs.list_healthy():
+            extra[r.connector_name] = is_starter(r.origin)
+        if stores.boards is not None:
+            for b in boards.list_healthy():
+                if b.connector_name:
+                    extra.setdefault(b.connector_name, is_starter(b.origin))
+        starter = sum(1 for name, s in extra.items() if s and name not in configured)
+        found = sum(1 for name, s in extra.items() if not s and name not in configured)
+        return ExtraBoards(discovered=found, starter=starter)
     except Exception as exc:  # noqa: BLE001 — telemetry never breaks a settings page
         log.warning("discovery_only_count_unavailable", extra={"error": str(exc)})
         return None
@@ -213,6 +235,7 @@ def register_companies_routes(app: FastAPI) -> None:
         cfg = request.state.snapshot.cfg
         entries = board_entries(cfg)
         configured = {entry.key for entry in entries}
+        extra = discovery_only_count(stores, cfg, configured)
         # Every write on this page lands back here via a redirect carrying a
         # flag (?added=1 from companies_add, ?changed=1/?removed=1 from the
         # generic row routes editing/removing a board, ?blocked=1 from
@@ -231,7 +254,8 @@ def register_companies_routes(app: FastAPI) -> None:
             request, section_by_slug("companies"),
             groups=_grouped(entries),
             status=board_status(stores),
-            discovery_only=discovery_only_count(stores, configured) or 0,
+            discovery_only=extra.discovered if extra else 0,
+            starter_only=extra.starter if extra else 0,
             board_families=BOARD_FAMILIES,
             headless_ok=headless_available(),
             saved=saved,
