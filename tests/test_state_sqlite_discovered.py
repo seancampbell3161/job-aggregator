@@ -1,10 +1,14 @@
 # tests/test_state_sqlite_discovered.py
 from src.sqlite_db import connect
-from src.state_sqlite import SqliteDiscoveredSlugsStore
+from src.state_sqlite import SqliteDiscoveredSlugsStore, SqliteDiscoveredBoardsStore
 
 
 def _store():
     return SqliteDiscoveredSlugsStore(connect(":memory:"))
+
+
+def _boards():
+    return SqliteDiscoveredBoardsStore(connect(":memory:"))
 
 
 def test_upsert_ok_then_list_healthy():
@@ -105,3 +109,53 @@ def test_legacy_rows_parse_without_new_fields():
     s.upsert_ok("greenhouse:old")
     row = s.get("greenhouse:old")
     assert row.origin is None and row.sighted_at is None and row.claimed_family is None
+
+
+def test_upsert_ok_preserves_origin():
+    s = _store()
+    s.upsert_candidate("greenhouse:acme", origin="hiringcafe")
+    s.upsert_ok("greenhouse:acme", last_posting_count=3)
+    assert s.get("greenhouse:acme").origin == "hiringcafe"
+    assert s.get("greenhouse:acme").validation_status == "ok"
+
+
+def test_upsert_failed_preserves_origin():
+    s = _store()
+    assert s.seed_ok("lever:acme", company_name="Acme", origin="starter")
+    s.upsert_failed("lever:acme", quarantine_threshold=1)
+    row = s.get("lever:acme")
+    assert (row.origin, row.validation_status) == ("starter", "quarantined")
+
+
+def test_seed_ok_inserts_only_when_absent():
+    s = _store()
+    assert s.seed_ok("ashby:acme", company_name="Acme", origin="starter", last_posting_count=9) is True
+    row = s.get("ashby:acme")
+    assert (row.validation_status, row.origin, row.company_name, row.last_posting_count) == (
+        "ok", "starter", "Acme", 9)
+    assert row.last_validated_at
+    s.upsert_failed("ashby:acme", quarantine_threshold=1)
+    assert s.seed_ok("ashby:acme", company_name="Other", origin="starter") is False
+    assert s.get("ashby:acme").validation_status == "quarantined"
+    assert s.get("ashby:acme").company_name == "Acme"
+
+
+def test_board_upsert_ok_and_result_preserve_origin():
+    b = _boards()
+    assert b.seed_ok("3m.com", name="3M", family="workday",
+                     identity={"tenant": "3m", "region": "wd1", "site": "Search"},
+                     connector_name="workday:3m:Search", company="3M", origin="starter")
+    b.upsert_ok("3m.com", name="3M", family="workday",
+                identity={"tenant": "3m", "region": "wd1", "site": "Search"},
+                connector_name="workday:3m:Search", company="3M")
+    assert b.get("3m.com").origin == "starter"
+    b.upsert_result("3m.com", name="3M", status="error", quarantine_threshold=1)
+    assert b.get("3m.com").origin == "starter"
+
+
+def test_board_seed_ok_never_overwrites():
+    b = _boards()
+    b.upsert_result("acme.com", name="Acme", status="not_found")
+    assert b.seed_ok("acme.com", name="Acme", family="greenhouse", identity={"slug": "acme"},
+                     connector_name="greenhouse:acme", company="Acme", origin="starter") is False
+    assert b.get("acme.com").status == "not_found"

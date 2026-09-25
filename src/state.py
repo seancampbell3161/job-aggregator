@@ -129,7 +129,7 @@ class DiscoveredSlug:
     validation_status: str    # "ok" | "failed" | "quarantined" | "no_match" | "candidate"
     consecutive_failures: int
     last_posting_count: int
-    origin: str | None = None          # "hiringcafe" | "vc:{firm}" | None (legacy/yc-oss)
+    origin: str | None = None          # "hiringcafe" | "vc:{firm}" | "starter" | "starter:eu" | None (legacy/yc-oss)
     sighted_at: str | None = None      # ISO — first sighting (candidate staging)
     claimed_family: str | None = None  # candidate: the family the source asserted
     website: str | None = None               # no_match learning (conversion chain)
@@ -181,7 +181,7 @@ class DiscoveredBoard:
     company: str | None
     last_swept_at: str
     failure_streak: int
-    origin: str | None = None      # "hiringcafe" | None (seed-CSV sweep)
+    origin: str | None = None      # "hiringcafe" | "starter" | "starter:eu" | None (seed-CSV sweep)
     sighted_at: str | None = None  # ISO — first sighting (candidate staging)
 
 
