@@ -87,8 +87,12 @@ _EMPTY = StarterPack("", (), ())
 def _slug(e: dict) -> PackSlug | None:
     if e.get("ats") not in SLUG_FAMILIES or not e.get("slug") or e.get("region") not in _REGIONS:
         return None
+    try:
+        postings = int(e.get("postings") or 0)
+    except (ValueError, TypeError):
+        return None
     return PackSlug(ats=e["ats"], slug=str(e["slug"]), company=e.get("company"),
-                    region=e["region"], postings=int(e.get("postings") or 0))
+                    region=e["region"], postings=postings)
 
 
 def _board(e: dict) -> PackBoard | None:
@@ -96,9 +100,13 @@ def _board(e: dict) -> PackBoard | None:
             or not e.get("domain") or not e.get("connector_name")
             or e.get("region") not in _REGIONS):
         return None
+    try:
+        postings = int(e.get("postings") or 0)
+    except (ValueError, TypeError):
+        return None
     return PackBoard(family=e["family"], identity=e["identity"], company=e.get("company"),
                      domain=str(e["domain"]), connector_name=str(e["connector_name"]),
-                     region=e["region"], postings=int(e.get("postings") or 0))
+                     region=e["region"], postings=postings)
 
 
 def load_pack(path: Path = STARTER_PACK_PATH) -> StarterPack:
@@ -113,13 +121,27 @@ def load_pack(path: Path = STARTER_PACK_PATH) -> StarterPack:
         log.warning("starter_pack_unreadable", extra={"path": str(path), "error": "not an object"})
         return _EMPTY
     slugs, boards, bad = [], [], 0
-    for e in raw.get("slugs") or []:
+    slugs_list = raw.get("slugs")
+    if not isinstance(slugs_list, list):
+        if slugs_list is None:
+            slugs_list = []
+        else:
+            log.warning("starter_pack_unreadable", extra={"path": str(path), "error": "slugs is not a list"})
+            slugs_list = []
+    for e in slugs_list:
         parsed = _slug(e) if isinstance(e, dict) else None
         if parsed:
             slugs.append(parsed)
         else:
             bad += 1
-    for e in raw.get("boards") or []:
+    boards_list = raw.get("boards")
+    if not isinstance(boards_list, list):
+        if boards_list is None:
+            boards_list = []
+        else:
+            log.warning("starter_pack_unreadable", extra={"path": str(path), "error": "boards is not a list"})
+            boards_list = []
+    for e in boards_list:
         parsed = _board(e) if isinstance(e, dict) else None
         if parsed:
             boards.append(parsed)

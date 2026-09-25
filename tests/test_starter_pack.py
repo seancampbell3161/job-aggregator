@@ -129,3 +129,25 @@ def test_shipped_pack_file_loads_and_every_entry_builds():
     assert len(pack.slugs) == len(raw["slugs"]) and len(pack.boards) == len(raw["boards"])
     for b in pack.boards:
         assert connector_from_identity(b.family, b.identity, b.company) is not None
+
+
+def test_malformed_postings_skipped_rest_kept(tmp_path):
+    data = {**PACK, "slugs": PACK["slugs"] + [
+        {"ats": "greenhouse", "slug": "x", "company": "X", "region": "us", "postings": "lots"},
+    ]}
+    pack = load_pack(_write(tmp_path, data))
+    assert len(pack.slugs) == 2  # only the two good entries
+
+
+def test_non_list_slugs_treated_as_empty(tmp_path):
+    data = {**PACK, "slugs": 5}  # not a list
+    pack = load_pack(_write(tmp_path, data))
+    assert len(pack.slugs) == 0
+    assert len(pack.boards) == 1  # boards still loaded
+
+
+def test_non_list_boards_treated_as_empty(tmp_path):
+    data = {**PACK, "boards": {"not": "a list"}}
+    pack = load_pack(_write(tmp_path, data))
+    assert len(pack.boards) == 0
+    assert len(pack.slugs) == 2  # slugs still loaded
