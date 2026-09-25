@@ -77,7 +77,9 @@ After the password, **/setup** offers four ways in:
   **Review** (an LLM drafts `profile.md` and the hard filters from your
   résumé and answers, or — without an LLM — the form is pre-filled from the
   interview instead; you edit and approve them like any other setting),
-  **Companies** (add a board by pasting its careers URL), **Notifications**
+  **Companies** (*Where to look*: two pre-ticked boxes — the starter pack of
+  verified tech-company boards and ongoing discovery — plus add a specific
+  board by pasting its careers URL), **Notifications**
   (a generated ntfy topic with a QR code to scan, plus a real test send),
   and **Preview** (a bounded, read-only poll showing what would match right
   now — it delivers nothing and marks nothing as seen). Everything works
@@ -768,6 +770,22 @@ WAF that blocks even a real browser. After adding it, watch the `headless`
 cycle logs for that company's job count. The tier runs every
 `schedules.headless_minutes` (default 45).
 
+### Starter pack
+
+New installs begin with a **starter pack**: a few hundred verified
+tech-company boards (Greenhouse, Lever, Ashby, Workday and more) bundled in
+`scripts/seeds/starter_pack.json`. The setup wizard's *Where to look* step
+turns it on together with discovery (both boxes are pre-ticked); choosing
+*Start from defaults* on `/setup` turns both on too. Starter boards are stored
+like discovered boards, so ones that die are dropped automatically. Your
+filters run before any LLM scoring, so a bigger pack means more postings
+fetched but only filter survivors are scored.
+
+Upgrading from an earlier version changes nothing until you opt in: the
+Companies page offers the pack with one click. Turn it off any time with
+`discovery.starter_pack` (Settings → Advanced); nothing is deleted. EU boards
+in the pack are included only with `discovery.eu_seeds_enabled`.
+
 ### Automated board discovery (optional)
 
 Beyond validating startup slugs, the daily `discovery` tier **fingerprints a
@@ -777,8 +795,10 @@ iCIMS) joins the `ats` poll set automatically — no settings change, no review
 gate. Dead or false-positive boards get suppressed by poll-health, exactly like
 auto-discovered slugs.
 
-It's **on by default**; the budget rotates through the seed list over several
-days (60 fingerprints per run). Tune under `discovery:`
+It runs whenever discovery is on (new installs turn it on in the setup
+wizard; otherwise set `discovery.enabled: true`); the budget rotates through
+the seed list over several days (60 fingerprints per run). Tune under
+`discovery:`
 (defaults shown — you don't need to add these unless you want to change them):
 
 ```yaml
@@ -812,8 +832,9 @@ Taleo, iCIMS) get a live verify — and healthy ones join `ats` polling
 automatically. Once a mined board is polled directly, the aggregator stops
 re-emitting its postings, so you never get duplicate alerts for the same role.
 
-It's **on by default** but does nothing unless an aggregator source is enabled.
-Tune under `discovery:` (defaults shown):
+It runs whenever discovery is on (new installs turn it on in the setup
+wizard; otherwise set `discovery.enabled: true`) but does nothing unless an
+aggregator source is enabled. Tune under `discovery:` (defaults shown):
 
 ```yaml
 discovery:

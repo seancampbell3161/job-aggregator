@@ -23,6 +23,7 @@ for what the app is and how it works, see the [README](README.md).
 | Truly zero matches ever, even with many companies | `filters.max_age_days` (if you set it to `2` as recommended) — it's a "new in the last N days" firehose, so a freshly-added company only surfaces its *future* postings, not its backlog. | Temporarily set `max_age_days: null`, restart/redeploy, confirm matches appear, then restore it. |
 | Far fewer matches than expected | Filters too tight — `titles` regex misses real titles ("SDE II", "Member of Technical Staff"), `comp_floor_usd` rejects postings that state a low band, or `stack_any_of` has no overlap. | Loosen one filter at a time. Use a local dry-run (below) to see what each posting is rejected on. |
 | Want to see what *would* match, without notifying | — | `python -m src.handler --tier ats --dry-run` logs `would_notify` (score + rationale) for each posting; add `--calibrate` for a score histogram. |
+| Starter-pack boards aren't being checked | `discovery.starter_pack` is off (upgraded installs start with it off), or the board is an EU one and `discovery.eu_seeds_enabled` is off. Dead boards are suppressed by poll-health like any other. | Companies page → *Add them*, or set `discovery.starter_pack: true` (Settings → Advanced). Look for `starter_pack_reconciled` in the poller log. |
 
 ---
 
