@@ -14,6 +14,7 @@ import httpx
 
 from src.connectors.base import build_connectors
 from src.orchestrator import run_once
+from src.starter_pack import default_pack, gate_stores, reconcile
 
 log = logging.getLogger(__name__)
 
@@ -21,6 +22,15 @@ log = logging.getLogger(__name__)
 # configured board is polled. Partial results are shown either way.
 MAX_BOARDS = 5
 BUDGET_SECONDS = 60
+
+
+def order_for_preview(connectors: list, ranks: dict[str, int]) -> list:
+    """The user's own boards first (built order), then starter boards with the
+    most postings — five slots should show what the pack is worth, not
+    whichever tiny board sorts first."""
+    mine = [c for c in connectors if c.name not in ranks]
+    starter = sorted((c for c in connectors if c.name in ranks), key=lambda c: -ranks[c.name])
+    return mine + starter
 
 
 async def run_preview(app) -> dict:
@@ -46,10 +56,17 @@ async def _run(app) -> dict:
     snap = app.state.service.snapshot()
     stores = app.state.stores
     cfg = snap.cfg
-    connectors = list(build_connectors(
-        cfg, tier="ats", discovered=stores.discovered, boards=stores.boards,
-        suppressed=frozenset(),
-    ))[:MAX_BOARDS]
+
+    pack = default_pack()
+    if cfg.discovery.starter_pack:
+        # The poller may not have run a cycle since the wizard turned the
+        # pack on; seed now so the preview shows it.
+        reconcile(pack, eu_enabled=cfg.discovery.eu_seeds_enabled,
+                  slugs_store=stores.discovered, boards_store=stores.boards)
+    discovered, boards = gate_stores(cfg, stores.discovered, stores.boards)
+    connectors = order_for_preview(list(build_connectors(
+        cfg, tier="ats", discovered=discovered, boards=boards, suppressed=frozenset(),
+    )), pack.postings_by_connector())[:MAX_BOARDS]
 
     result = await run_once(
         cfg=cfg, tier="ats", store=stores.seen, source_state=stores.source_state,
