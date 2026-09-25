@@ -10,6 +10,7 @@ from typing import Callable
 from src.config import AppConfig, SLUG_SOURCE_FAMILIES
 # The single source of truth, shared with every LLM factory.
 from src.llm.providers import PROVIDER_KEYS as _PROVIDER_KEYS
+from src.starter_pack import starter_pack_active
 
 STRUCTURED_FAMILIES = (
     "workday", "oraclecloud", "eightfold", "jsonld_boards", "phenom", "taleo", "avature",
@@ -48,7 +49,7 @@ def check(
             "Add at least one title.",
             "filters",
         ))
-    if not _has_sources(cfg) and not cfg.discovery.enabled and not cfg.discovery.starter_pack:
+    if not _has_sources(cfg) and not cfg.discovery.enabled and not starter_pack_active(cfg):
         out.append(Warning(
             "nothing_polled",
             "No company boards are configured and discovery is off, "

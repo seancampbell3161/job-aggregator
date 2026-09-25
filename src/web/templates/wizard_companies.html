@@ -14,12 +14,16 @@
 <form method="post" action="/wizard/companies" id="companies-choice">
 <section class="card">
   <h2 class="card-title">Where to look</h2>
+  {# An empty (or missing/corrupt) pack is never offered: "0 verified boards"
+     is not a feature, and the save route leaves the flag alone then. #}
+  {% if pack_count %}
   <label class="check">
     <input type="checkbox" name="starter_pack" value="1" {% if pack_checked %}checked{% endif %}>
     Start with {{ pack_count }} verified tech-company boards (recommended)
   </label>
   <p class="muted">Greenhouse, Lever, Ashby, Workday and more — checked every run.
     Dead boards are dropped automatically.</p>
+  {% endif %}
   <label class="check">
     <input type="checkbox" name="discovery" value="1" {% if discovery_checked %}checked{% endif %}>
     Keep finding new companies automatically

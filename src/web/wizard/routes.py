@@ -730,11 +730,14 @@ def register_wizard_routes(app: FastAPI) -> None:
         `/wizard` link or a separate `/wizard/companies/skip`, so the button
         does the right thing either way (see wizard_companies.html)."""
         form = await request.form()
-        want = {
-            "discovery.starter_pack": form.get("starter_pack") == "1",
-            "discovery.enabled": form.get("discovery") == "1",
-        }
         cfg = request.state.snapshot.cfg
+        want = {"discovery.enabled": form.get("discovery") == "1"}
+        # The pack checkbox is only rendered for a non-empty pack; with nothing
+        # to offer, the flag is left exactly as it was (a stray field can
+        # neither turn it on nor switch off a /setup/start default that will
+        # activate once a real pack ships).
+        if default_pack().count(cfg.discovery.eu_seeds_enabled) > 0:
+            want["discovery.starter_pack"] = form.get("starter_pack") == "1"
         patch = {p: v for p, v in want.items() if v != value_at(cfg, p)}
         service = request.app.state.service
         if patch:

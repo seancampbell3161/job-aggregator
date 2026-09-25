@@ -48,9 +48,24 @@ def test_discovery_enabled_clears_nothing_polled():
     assert "nothing_polled" not in _check(doc)
 
 
-def test_starter_pack_clears_nothing_polled():
+def _pack(monkeypatch, n):
+    from src.starter_pack import PackSlug, StarterPack
+    pack = StarterPack("t", tuple(PackSlug("lever", f"c{i}", None, "us", 1) for i in range(n)), ())
+    monkeypatch.setattr("src.starter_pack.default_pack", lambda: pack)
+
+
+def test_starter_pack_clears_nothing_polled(monkeypatch):
+    _pack(monkeypatch, 3)
     doc = {"sources": _NO_AGGREGATORS, "discovery": {"starter_pack": True}}
     assert "nothing_polled" not in _check(doc)
+
+
+def test_empty_starter_pack_does_not_clear_nothing_polled(monkeypatch):
+    """An empty (or missing/corrupt) pack polls nothing, so the flag alone is
+    not a source."""
+    _pack(monkeypatch, 0)
+    doc = {"sources": _NO_AGGREGATORS, "discovery": {"starter_pack": True, "enabled": False}}
+    assert "nothing_polled" in _check(doc)
 
 
 def test_no_delivery_sink_is_reported():

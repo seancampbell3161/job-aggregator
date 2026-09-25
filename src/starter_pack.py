@@ -158,6 +158,14 @@ def default_pack() -> StarterPack:
     return load_pack()
 
 
+def starter_pack_active(cfg) -> bool:
+    """The pack is a real source: switched on AND has eligible entries. An
+    empty, missing or corrupt pack polls nothing, so the flag alone must never
+    count as "somewhere to look"."""
+    d = cfg.discovery
+    return bool(d.starter_pack) and default_pack().count(d.eu_seeds_enabled) > 0
+
+
 @dataclass(frozen=True)
 class ReconcileResult:
     inserted: int

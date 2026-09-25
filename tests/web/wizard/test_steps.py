@@ -186,9 +186,22 @@ def test_companies_step_is_incomplete_on_a_fresh_install():
     assert next_step(ctx, skipped={"llm", "resume", "review"}).slug == "companies"
 
 
-def test_companies_done_with_starter_pack_only():
+def _pack(monkeypatch, n):
+    from src.starter_pack import PackSlug, StarterPack
+    pack = StarterPack("t", tuple(PackSlug("lever", f"c{i}", None, "us", 1) for i in range(n)), ())
+    monkeypatch.setattr("src.starter_pack.default_pack", lambda: pack)
+
+
+def test_companies_done_with_starter_pack_only(monkeypatch):
+    _pack(monkeypatch, 3)
     cfg = AppConfig.model_validate({"discovery": {"starter_pack": True}})
     assert _companies_done(_ctx(cfg))
+
+
+def test_companies_not_done_by_an_empty_starter_pack(monkeypatch):
+    _pack(monkeypatch, 0)
+    cfg = AppConfig.model_validate({"discovery": {"starter_pack": True}})
+    assert not _companies_done(_ctx(cfg))
 
 
 # ---- summaries ----

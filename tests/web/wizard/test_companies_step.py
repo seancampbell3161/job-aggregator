@@ -8,6 +8,8 @@ form (not `query`), and settings_companies.html's own probe form targets
 match the real names."""
 import re
 
+import pytest
+
 import src.web.settings.companies as companies
 from src.fingerprint import FingerprintResult
 from src.web.app import create_app
@@ -67,6 +69,45 @@ def _checkbox(html, name):
     m = re.search(rf'<input[^>]*name="{name}"[^>]*>', html)
     assert m, f"no {name} checkbox"
     return m.group(0)
+
+
+def _pack(monkeypatch, n):
+    from src.starter_pack import PackSlug, StarterPack
+    pack = StarterPack("t", tuple(PackSlug("lever", f"c{i}", None, "us", 1) for i in range(n)), ())
+    monkeypatch.setattr("src.web.wizard.routes.default_pack", lambda: pack)
+    monkeypatch.setattr("src.starter_pack.default_pack", lambda: pack)
+
+
+@pytest.fixture(autouse=True)
+def _nonempty_pack(monkeypatch):
+    """The shipped pack may be empty until a real export lands; these tests
+    exercise the offer itself, so give them a pack to offer."""
+    _pack(monkeypatch, 5)
+
+
+def test_empty_pack_is_not_offered(tmp_path, monkeypatch):
+    _pack(monkeypatch, 0)
+    r = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/companies")
+    assert 'name="starter_pack"' not in r.text
+    assert "0 verified" not in r.text
+    assert "checked" in _checkbox(r.text, "discovery")
+
+
+def test_empty_pack_save_never_turns_the_flag_on_or_off(tmp_path, monkeypatch):
+    _pack(monkeypatch, 0)
+    service = make_service({**WEB_TEST_SETTINGS, "discovery": {"starter_pack": True}})
+    app = _app(tmp_path, monkeypatch, service)
+    client = signed_in_client(app)
+    client.post("/wizard/companies", data={"discovery": "1", "starter_pack": "1"})
+    cfg = app.state.service.snapshot().cfg
+    assert cfg.discovery.enabled
+    assert cfg.discovery.starter_pack  # untouched: activates once a real pack ships
+
+    service2 = make_service(WEB_TEST_SETTINGS)
+    app2 = _app(tmp_path / "b", monkeypatch, service2)
+    client2 = signed_in_client(app2)
+    client2.post("/wizard/companies", data={"discovery": "1", "starter_pack": "1"})
+    assert not app2.state.service.snapshot().cfg.discovery.starter_pack
 
 
 def test_both_boxes_pretick_on_first_visit(tmp_path, monkeypatch):
