@@ -180,7 +180,7 @@ async def test_run_preview_caps_the_connector_count(tmp_path, monkeypatch):
     monkeypatch.setattr("src.web.wizard.preview.run_once", fake_run_once)
     monkeypatch.setattr(
         "src.web.wizard.preview.build_connectors",
-        lambda *a, **k: [object() for _ in range(25)],
+        lambda *a, **k: [SimpleNamespace(name=f"conn_{i}") for i in range(25)],
     )
     from src.web.wizard.preview import MAX_BOARDS, run_preview
     await run_preview(app)
@@ -224,3 +224,44 @@ async def test_a_crash_records_an_error_rather_than_raising(tmp_path, monkeypatc
     monkeypatch.setattr("src.web.wizard.preview.run_once", boom)
     from src.web.wizard.preview import run_preview
     assert (await run_preview(app))["status"] == "error"
+
+
+# --- Starter pack integration tests ---
+
+from types import SimpleNamespace
+
+from src.web.wizard.preview import order_for_preview
+
+
+def test_order_puts_user_boards_first_then_biggest_starter_then_other_discovered():
+    conns = [SimpleNamespace(name=n) for n in (
+        "lever:found", "lever:small", "greenhouse:mine", "ashby:big", "ashby:also-mine")]
+    # ashby:also-mine is in the pack too, but configured boards always lead.
+    ranks = {"lever:small": 3, "ashby:big": 400, "ashby:also-mine": 1}
+    mine = {"greenhouse:mine", "ashby:also-mine"}
+    out = [c.name for c in order_for_preview(conns, ranks, mine)]
+    assert out == ["greenhouse:mine", "ashby:also-mine", "ashby:big", "lever:small", "lever:found"]
+
+
+@pytest.mark.asyncio
+async def test_preview_reconciles_pack_before_building(tmp_path, monkeypatch):
+    from src.starter_pack import PackSlug, StarterPack
+    import src.web.wizard.preview as preview
+    pack = StarterPack("t", (PackSlug("greenhouse", "stripe", "Stripe", "us", 50),), ())
+    monkeypatch.setattr(preview, "default_pack", lambda: pack)
+    app = _app(tmp_path, monkeypatch)
+
+    def turn_pack_on(doc):
+        doc.setdefault("discovery", {})["starter_pack"] = True
+        return "test: pack on"
+
+    app.state.service.update_settings(turn_pack_on, source="cli")
+    captured = {}
+
+    async def fake_run_once(**kw):
+        captured["names"] = [c.name for c in kw["connectors"]]
+        return SimpleNamespace(fetched_count=0, matched_count=0, would_notify=[])
+
+    monkeypatch.setattr(preview, "run_once", fake_run_once)
+    await preview._run(app)
+    assert captured["names"] == ["greenhouse:acme", "greenhouse:stripe"]

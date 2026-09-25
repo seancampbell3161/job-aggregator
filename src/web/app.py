@@ -229,12 +229,15 @@ def _register_setup_gate(app: FastAPI) -> None:
     def setup_start(request: Request):
         """Write a defaults-only settings version so the UI becomes reachable.
 
-        Nothing polls until titles and a source are added — Overview says so.
-        Idempotent: if a version already exists (two visitors racing the
-        button), this writes nothing."""
+        Starts with the starter pack and discovery on; nothing matches until
+        titles are added. Idempotent: if a version already exists (two
+        visitors racing the button), this writes nothing."""
         service = request.app.state.service
         if request.state.snapshot is None:
-            service.save_settings({}, source="ui", note="started from defaults")
+            # No wizard step will ask this user where to look, so start them
+            # broad: the bundled starter pack plus ongoing discovery.
+            service.save_settings({"discovery": {"enabled": True, "starter_pack": True}},
+                                  source="ui", note="started from defaults")
         return RedirectResponse("/settings/filters", status_code=303)
 
     @app.post("/setup/wizard")

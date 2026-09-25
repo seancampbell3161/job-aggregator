@@ -29,6 +29,7 @@ from src.coach import AnthropicCoach, CoachEngine, GeminiCoach, OllamaCoach
 from src.gaps import AnthropicGapAnalyzer, GapAnalyzer, GeminiGapAnalyzer, OllamaGapAnalyzer
 from src.relevance import GeminiRelevanceScorer, OllamaRelevanceScorer, RelevanceScorer
 from src.settings.service import ConfigService
+from src.starter_pack import default_pack, gate_stores, reconcile
 from src.stores import build_stores
 
 log = logging.getLogger(__name__)
@@ -241,7 +242,11 @@ async def _run(
         if not cfg.discovery.enabled:
             log.info("discovery_skipped", extra={"reason": "disabled in config"})
             return {"tier": "discovery", "skipped": True}
-        # Active set = config slugs ∪ healthy discovered slugs (so we don't
+        # Gated views: a starter row hidden by discovery.starter_pack is not
+        # polled, so it must not count as "already active" — discovery may
+        # find (and reclaim) the same company. Recovery below stays raw.
+        gated_discovered, gated_boards = gate_stores(cfg, discovered, stores.boards)
+        # Active set = config slugs ∪ polled discovered slugs (so we don't
         # re-validate slugs we already poll directly).
         active_set: set[tuple[str, str]] = set()
         for ats, slugs in [
@@ -257,7 +262,7 @@ async def _run(
         ]:
             for slug in slugs:
                 active_set.add((ats, slug))
-        for row in discovered.list_healthy():
+        for row in gated_discovered.list_healthy():
             active_set.add((row.ats_family, row.slug))
 
         yc_oss = make_yc_oss_fetcher(min_team_size=cfg.discovery.yc_oss_min_team_size)
@@ -278,9 +283,9 @@ async def _run(
                 client=client,
                 yc_oss=yc_oss,
                 active_set=active_set,
-                store=discovered,
+                store=gated_discovered,   # revalidation skips gated-off starter rows
                 cfg=d_cfg,
-                boards=stores.boards,
+                boards=gated_boards,
             )
             if cfg.discovery.board_discovery_enabled:
                 try:
@@ -304,8 +309,8 @@ async def _run(
                         await run_vc_discovery(
                             client=_vclient,
                             firms=list(cfg.discovery.vc_firms),
-                            discovered=discovered,
-                            boards=stores.boards,
+                            discovered=gated_discovered,
+                            boards=gated_boards,
                             source_state=stores.source_state,
                             active_set=active_set,
                             refresh_days=cfg.discovery.vc_refresh_days,
@@ -314,6 +319,7 @@ async def _run(
                         )
                 except Exception:  # noqa: BLE001 — a broken portfolio fetch must never skip recover_suppressed
                     log.exception("vc_discovery_failed")
+            # raw stores: a gated-off starter row must not be cleared as "orphaned"
             await recover_suppressed(cfg=cfg, discovered=discovered, boards=stores.boards, health=health, client=client)
         return {"tier": "discovery"}
 
@@ -373,11 +379,19 @@ async def _run(
         and discovered is not None
     ):
         sightings = []
-    connectors = build_connectors(cfg, tier=tier, discovered=discovered, boards=stores.boards, suppressed=suppressed, sightings=sightings)  # type: ignore[arg-type]
+    if tier == "ats" and cfg.discovery.starter_pack:
+        try:
+            reconcile(default_pack(), eu_enabled=cfg.discovery.eu_seeds_enabled,
+                      slugs_store=discovered, boards_store=stores.boards)
+        except Exception:  # noqa: BLE001 — a seeding failure must never cost the cycle
+            log.exception("starter_pack_reconcile_failed")
+    poll_discovered, poll_boards = gate_stores(cfg, discovered, stores.boards)
+    connectors = build_connectors(cfg, tier=tier, discovered=poll_discovered, boards=poll_boards, suppressed=suppressed, sightings=sightings)  # type: ignore[arg-type]
     sinks = _build_sinks(cfg)
     relevance_scorer = _build_relevance_scorer(cfg, snap.documents.profile)
     gap_analyzer = _build_gap_analyzer(cfg, snap.documents.resume_text)
-    dry_run = dry_run or calibrate  # calibrate never writes or notifies
+    # calibrate never writes jobs or notifies (the idempotent pack seed above still runs)
+    dry_run = dry_run or calibrate
     result = await run_once(
         cfg=cfg, tier=tier, store=store, source_state=source_state,  # type: ignore[arg-type]
         connectors=connectors, sinks=sinks,

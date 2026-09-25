@@ -247,6 +247,11 @@ class DiscoveryConfig(BaseModel):
     board_revalidate_after_days: int = Field(default=14, ge=1)
     board_quarantine_after_failures: int = Field(default=5, ge=1)
     eu_seeds_enabled: bool = False  # opt-in: append scripts/seeds/eu_companies.csv to the board sweep
+    # Bundled starter pack (scripts/seeds/starter_pack.json): seeded as
+    # discovered rows by src.starter_pack.reconcile. Code default stays False
+    # so upgrading installs are untouched; the wizard pre-ticks it and
+    # /setup/start writes it on for new installs.
+    starter_pack: bool = False
     hiringcafe_mining_enabled: bool = True
     candidate_capture_cap: int = Field(default=50, ge=1)
     revalidate_reserve: int = Field(default=100, ge=0)

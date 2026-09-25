@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from urllib.parse import quote
 
 import httpx
@@ -30,6 +31,7 @@ from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import item_model
 from src.settings.patch import apply_patch
 from src.settings.rows import add_row_patch
+from src.starter_pack import default_pack, gate_stores, is_starter
 from src.state import DiscoveredSlug
 from src.web.auth import safe_next
 from src.web.settings.health import board_status
@@ -40,6 +42,12 @@ log = logging.getLogger(__name__)
 
 PROBE_TIMEOUT = 20.0
 
+# wizard_ui store key: set once an operator dismisses the companies-page
+# starter-pack banner (Task 5's wizard has its own key, companies_choice, for
+# the wizard's own offer — this is the existing-install banner's own record,
+# not versioned settings, since dismissing an offer is UI state, not config).
+STARTER_BANNER_KEY = "starter_pack_banner_dismissed"
+
 # icims/successfactors/talentbrew are only ever addable hand-curated, into
 # sources.jsonld_boards (fingerprint.py's own docstring) — none of the three
 # is itself a BOARD_FAMILIES member, so an unsupported card naming one of
@@ -48,13 +56,34 @@ PROBE_TIMEOUT = 20.0
 _JSONLD_UNSUPPORTED_FAMILIES = frozenset({"icims", "successfactors", "talentbrew"})
 
 
-def discovery_only_count(stores, configured: set[str]) -> int | None:
-    """How many validated discovery slugs are not already configured boards;
-    None when the store can't be read."""
+@dataclass(frozen=True)
+class ExtraBoards:
+    """Polled boards beyond the configured ones, split by where they came from."""
+    discovered: int
+    starter: int
+
+    @property
+    def total(self) -> int:
+        return self.discovered + self.starter
+
+
+def discovery_only_count(stores, cfg, configured: set[str]) -> ExtraBoards | None:
+    """Healthy discovered slugs and boards that are actually polled (read
+    through the starter-pack gate, so switched-off starter rows are not
+    counted) and are not already configured boards, split into starter-pack
+    rows and discovery's own. None when a store can't be read."""
     try:
-        return sum(
-            1 for r in stores.discovered.list_healthy() if r.connector_name not in configured
-        )
+        slugs, boards = gate_stores(cfg, stores.discovered, stores.boards)
+        extra: dict[str, bool] = {}
+        for r in slugs.list_healthy():
+            extra[r.connector_name] = is_starter(r.origin)
+        if stores.boards is not None:
+            for b in boards.list_healthy():
+                if b.connector_name:
+                    extra.setdefault(b.connector_name, is_starter(b.origin))
+        starter = sum(1 for name, s in extra.items() if s and name not in configured)
+        found = sum(1 for name, s in extra.items() if not s and name not in configured)
+        return ExtraBoards(discovered=found, starter=starter)
     except Exception as exc:  # noqa: BLE001 — telemetry never breaks a settings page
         log.warning("discovery_only_count_unavailable", extra={"error": str(exc)})
         return None
@@ -182,6 +211,23 @@ def _block_name(entry: BoardEntry, row: DiscoveredSlug) -> str:
     return entry.values.get("company") or row.company_name or entry.label
 
 
+def starter_offer(request: Request, cfg) -> int | None:
+    """Pack size to offer on the companies-page banner, or None when there is
+    nothing to offer (already on, dismissed, or an empty/all-ineligible
+    pack). Fail-soft like discovery_only_count above: a locked wizard_ui
+    table must not break the page, only hide the banner."""
+    if cfg.discovery.starter_pack:
+        return None
+    try:
+        dismissed = request.app.state.stores.wizard.get(STARTER_BANNER_KEY) is not None
+    except Exception as exc:  # noqa: BLE001 — a banner never breaks the page
+        log.warning("starter_banner_state_unavailable", extra={"error": str(exc)})
+        return None
+    if dismissed:
+        return None
+    return default_pack().count(cfg.discovery.eu_seeds_enabled) or None
+
+
 def register_companies_routes(app: FastAPI) -> None:
     @app.get("/settings/companies", response_class=HTMLResponse)
     def companies_page(request: Request):
@@ -189,6 +235,7 @@ def register_companies_routes(app: FastAPI) -> None:
         cfg = request.state.snapshot.cfg
         entries = board_entries(cfg)
         configured = {entry.key for entry in entries}
+        extra = discovery_only_count(stores, cfg, configured)
         # Every write on this page lands back here via a redirect carrying a
         # flag (?added=1 from companies_add, ?changed=1/?removed=1 from the
         # generic row routes editing/removing a board, ?blocked=1 from
@@ -207,12 +254,51 @@ def register_companies_routes(app: FastAPI) -> None:
             request, section_by_slug("companies"),
             groups=_grouped(entries),
             status=board_status(stores),
-            discovery_only=discovery_only_count(stores, configured) or 0,
+            discovery_only=extra.discovered if extra else 0,
+            starter_only=extra.starter if extra else 0,
             board_families=BOARD_FAMILIES,
             headless_ok=headless_available(),
             saved=saved,
             blocked=blocked,
+            starter_offer=starter_offer(request, cfg),
         )
+
+    @app.post("/settings/companies/starter-pack")
+    def companies_starter_pack(request: Request):
+        """Turn discovery.starter_pack on — the same flag Task 5's wizard
+        offer writes, and the same one src.starter_pack.gate_stores reads to
+        decide whether the poller's next cycle reconciles the bundled pack
+        in. Idempotent: a mutate that finds it already on writes nothing, so
+        a doubled click (or a stale banner re-POSTed) is a no-op, not a
+        second settings version."""
+        def mutate(doc: dict) -> str | None:
+            disc = doc.setdefault("discovery", {})
+            if disc.get("starter_pack") is True:
+                return None
+            disc["starter_pack"] = True
+            return "companies: added the starter pack"
+
+        try:
+            request.app.state.service.update_settings(mutate, source="ui")
+        except StaleWrite:
+            # Unlike companies_add/companies_block, this mutate is a single
+            # idempotent flag flip with nothing for the operator to review —
+            # a second concurrent-write conflict (update_settings already
+            # retries once on its own) is more simply resolved by reloading
+            # the page than by surfacing a 409.
+            return RedirectResponse("/settings/companies", status_code=303)
+        except NotConfigured:
+            return RedirectResponse("/setup", status_code=303)
+        return RedirectResponse("/settings/companies?added=1", status_code=303)
+
+    @app.post("/settings/companies/starter-pack/dismiss")
+    def companies_starter_pack_dismiss(request: Request):
+        """Record the dismissal in the non-versioned wizard_ui KV (Sqlite
+        WizardStore), not in settings — declining an offer is this browser's
+        UI state, not configuration worth a version, a backup-zip entry, or a
+        docs/CONFIG.md row."""
+        request.app.state.stores.wizard.put(STARTER_BANNER_KEY, True)
+        return RedirectResponse("/settings/companies", status_code=303)
 
     @app.post("/settings/companies/probe", response_class=HTMLResponse)
     async def companies_probe(request: Request):

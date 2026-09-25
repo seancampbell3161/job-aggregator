@@ -17,12 +17,15 @@ from src.resume_intake.draft import draft_profile_and_filters
 from src.resume_intake.errors import DraftFailed
 from src.resume_intake.extract import ExtractionFailed, extract_text
 from src.resume_intake.interview import INTERVIEW_FIELDS, answers_to_patch, decode_answers
+from src.settings.boards import board_entries
 from src.settings.documents import validate_document
 from src.settings.errors import NotConfigured, SettingsInvalid, StaleWrite
 from src.settings.fields import field_map, value_at
 from src.settings.patch import apply_patch
 from src.settings.service import canonical_doc
+from src.starter_pack import default_pack
 from src.web.settings.backup import MAX_UPLOAD_BYTES, _read_bounded
+from src.web.settings.companies import STARTER_BANNER_KEY
 from src.web.settings.forms import decode, decode_secrets, errors_by_path
 from src.web.settings.probes import ProbeResult, probe_discord, probe_llm, probe_ntfy
 from src.web.settings.readiness import AGGREGATOR_FAMILIES, check
@@ -33,7 +36,7 @@ from src.web.wizard.ntfy_topic import suggest_topic, topic_qr_svg
 from src.web.wizard.presets import LLM_PRESETS, preset_for_provider
 from src.web.wizard.title_sets import TITLE_SETS
 from src.web.wizard.steps import (
-    WIZARD_STEPS, build_context, next_step, step_by_slug, step_states,
+    WIZARD_STEPS, build_context, companies_chosen, next_step, step_by_slug, step_states,
 )
 
 # Template per step slug. A step with no bespoke page would 500 on render, so
@@ -133,6 +136,14 @@ def wizard_ctx(request: Request, step, *, paths: tuple[str, ...] = (),
     return ctx
 
 
+# wizard_ui store key marking that the companies step has been submitted at
+# least once — set by wizard_companies_save below. Its PRESENCE, not its
+# value, is what companies_extra reads to decide whether to pre-tick the two
+# checkboxes: a config with neither flag set means either "never asked"
+# (pre-tick) or "asked and declined" (don't re-tick), and only this marker
+# tells the two apart.
+COMPANIES_CHOICE_KEY = "companies_choice"
+
 AGGREGATOR_LABELS = {
     "hn_who_is_hiring": "Hacker News Who's Hiring",
     "remotive": "Remotive",
@@ -150,9 +161,18 @@ def companies_extra(request: Request) -> dict:
     (steps.py's _companies_done reads STRUCTURED_FAMILIES too) but aren't
     enumerated here: their entries are structured boards, not slugs, so
     "family: slug" isn't a sensible display for them, and the "Full companies
-    page" link is where they're actually managed."""
+    page" link is where they're actually managed.
+
+    Also the starter-pack/discovery checkbox state: pre-ticked only while the
+    step is genuinely unanswered — never submitted (COMPANIES_CHOICE_KEY
+    absent, see that key's own docstring above) AND not already done by
+    other means. An install that finished this step before the pack existed
+    has no marker but does have a board or discovery on; it sees its saved
+    values, not a pre-tick it never chose."""
     cfg = request.state.snapshot.cfg
-    return {
+    chosen = (request.app.state.stores.wizard.get(COMPANIES_CHOICE_KEY) is not None
+              or companies_chosen(cfg))
+    extra = {
         "configured": [
             (family, slug)
             for family in SLUG_SOURCE_FAMILIES
@@ -165,7 +185,11 @@ def companies_extra(request: Request) -> dict:
             for family in AGGREGATOR_FAMILIES
             if getattr(getattr(cfg.sources, family, None), "enabled", False)
         ],
+        "pack_count": default_pack().count(cfg.discovery.eu_seeds_enabled),
+        "pack_checked": cfg.discovery.starter_pack if chosen else True,
+        "discovery_checked": cfg.discovery.enabled if chosen else True,
     }
+    return extra
 
 
 def resume_extra(request: Request) -> dict:
@@ -350,10 +374,12 @@ async def _ensure_draft(request: Request) -> tuple[dict | None, str | None]:
     return record, None
 
 
-# Steps whose own primary button posts straight at /wizard/<slug>/skip when
-# they are incomplete (see wizard_companies.html / wizard_preview.html): for
-# these the shared "Skip for now" form would be a second button pointing at
-# the identical URL, so the base template renders none.
+# Steps that render their own way forward, so the base template's shared
+# "Skip for now" form would be a redundant second button: the preview step's
+# primary button posts straight at /wizard/preview/skip when incomplete, and
+# the companies step's Continue submits its own form to POST /wizard/companies,
+# which records an explicit skip itself when nothing was chosen (see
+# wizard_companies.html / wizard_preview.html).
 OWN_SKIP_STEPS = frozenset({"companies", "preview"})
 
 
@@ -701,15 +727,57 @@ def register_wizard_routes(app: FastAPI) -> None:
             {"preview": request.app.state.stores.wizard.get("preview")},
         )
 
+    @app.post("/wizard/companies")
+    async def wizard_companies_save(request: Request):
+        """The Where-to-look step's one control: ticking the boxes turns the
+        starter pack and/or discovery on, and leaving both unticked with
+        nothing else configured is itself a valid choice (an explicit skip),
+        not an error — Continue always posts here rather than to a bare
+        `/wizard` link or a separate `/wizard/companies/skip`, so the button
+        does the right thing either way (see wizard_companies.html)."""
+        form = await request.form()
+        cfg = request.state.snapshot.cfg
+        want = {"discovery.enabled": form.get("discovery") == "1"}
+        # The pack checkbox is only rendered for a non-empty pack; with nothing
+        # to offer, the flag is left exactly as it was (a stray field can
+        # neither turn it on nor switch off a /setup/start default that will
+        # activate once a real pack ships).
+        if default_pack().count(cfg.discovery.eu_seeds_enabled) > 0:
+            want["discovery.starter_pack"] = form.get("starter_pack") == "1"
+        patch = {p: v for p, v in want.items() if v != value_at(cfg, p)}
+        service = request.app.state.service
+        if patch:
+            try:
+                service.update_settings(
+                    lambda doc: "wizard: Where to look" if apply_patch(doc, patch) else None,
+                    source="wizard",
+                )
+            except StaleWrite:
+                step = step_by_slug("companies")
+                return render_step(request, step, form_errors=[
+                    "Someone else saved while you were on this step. Reload and reapply."
+                ])
+            except NotConfigured:
+                return RedirectResponse("/setup", status_code=303)
+        wizard = request.app.state.stores.wizard
+        wizard.put(COMPANIES_CHOICE_KEY, True)
+        if want.get("discovery.starter_pack") is False:
+            # Declined here: the Companies page banner must not re-offer it.
+            wizard.put(STARTER_BANNER_KEY, True)
+        if not any(want.values()) and not board_entries(service.snapshot().cfg):
+            wizard.skip("companies")
+        return RedirectResponse("/wizard", status_code=303)
+
     # Declared before /wizard/{slug} — Starlette matches in registration
     # order, and the parameterised route would otherwise swallow /wizard/done
     # (slug="done"), the same ordering constraint documented at the top of
     # src/web/settings/routes.py. /wizard/review and its POST siblings above
     # are declared here for the same reason: /wizard/{slug} would otherwise
-    # swallow GET /wizard/review too. The two preview routes just above don't
-    # actually need this: {slug} is a single path segment (no "/"), so it can
-    # never match "preview/start" or "preview/status" regardless of order —
-    # they're grouped here for readability, not correctness.
+    # swallow GET /wizard/review too. POST /wizard/companies just above and
+    # the two preview routes before it don't actually need this: /wizard/{slug}
+    # below is GET-only, so a same-shaped POST is matched as a distinct route
+    # by method regardless of registration order — they're grouped here for
+    # readability, not correctness.
     @app.get("/wizard/{slug}", response_class=HTMLResponse)
     def wizard_step(request: Request, slug: str):
         step = step_by_slug(slug)

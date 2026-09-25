@@ -37,7 +37,13 @@ sense to whoever wrote them. Budget for that edit; it's most of the work.
    uv lock
    ```
 
-2. **Prepend the new section to the changelog** — do NOT regenerate the whole
+2. **Optionally refresh the starter pack.** Copy the production box's DB
+   (never run against the live file), then
+   `uv run python scripts/export_starter_pack.py --db /path/to/copy.db` and
+   review the `scripts/seeds/starter_pack.json` diff in the release PR.
+   Installs that have the pack on pick up new entries on their next check.
+
+3. **Prepend the new section to the changelog** — do NOT regenerate the whole
    file (that would clobber hand-written `### Upgrading` notes in past
    releases):
 
@@ -54,12 +60,12 @@ sense to whoever wrote them. Budget for that edit; it's most of the work.
    [X.Y.Z]: https://github.com/seancampbell3161/job-aggregator/compare/vP.R.E..vX.Y.Z
    ```
 
-3. **Add an `### Upgrading` subsection** under the new version heading IF the
+4. **Add an `### Upgrading` subsection** under the new version heading IF the
    release needs operator action (new/required env vars, migrations, redeploy
    steps, breaking changes). git-cliff can't infer these — write them by hand.
    This is the highest-value part of the notes for anyone running the app.
 
-4. **Commit on a branch.** `main` is protected: it takes no direct pushes, and
+5. **Commit on a branch.** `main` is protected: it takes no direct pushes, and
    merges need CI green. Release commits go through a PR like any other change.
 
    ```bash
@@ -68,7 +74,7 @@ sense to whoever wrote them. Budget for that edit; it's most of the work.
    git push -u origin release/vX.Y.Z
    ```
 
-5. **Open the PR and merge it once CI is green.** Title it exactly
+6. **Open the PR and merge it once CI is green.** Title it exactly
    `chore(release): vX.Y.Z` — a squash merge takes the PR title as the commit
    subject on `main`, so the title is what ends up in the history git-cliff
    reads next time.
@@ -79,7 +85,7 @@ sense to whoever wrote them. Budget for that edit; it's most of the work.
    gh pr merge --squash --delete-branch
    ```
 
-6. **Tag the merged commit — not the branch commit.** Squashing creates a *new*
+7. **Tag the merged commit — not the branch commit.** Squashing creates a *new*
    commit on `main`; the one you made on the branch is not in `main`'s history.
    Tagging before the merge would point the release at a commit nobody can
    reach. So sync first, then tag:
@@ -101,7 +107,7 @@ sense to whoever wrote them. Budget for that edit; it's most of the work.
    `vX.Y.Z` resolves to the tag object itself, never to the commit it points
    at — so without it the two SHAs always differ, even on a correct tag.
 
-7. **Watch the image publish.** Pushing the tag triggers
+8. **Watch the image publish.** Pushing the tag triggers
    `.github/workflows/publish.yaml`, which builds slim and `-headless` for
    amd64 and arm64, smoke-tests each, and assembles the manifest lists.
 
@@ -118,7 +124,7 @@ sense to whoever wrote them. Budget for that edit; it's most of the work.
    > **private**, even for a public repository. Set its visibility to public in
    > the package settings or every `docker pull` in the docs fails with a 404.
 
-8. **Publish a GitHub Release** from the tag so it shows on the repo's Releases
+9. **Publish a GitHub Release** from the tag so it shows on the repo's Releases
    page, using the `gh` CLI (`brew install gh && gh auth login` once).
 
    Publish the **`CHANGELOG.md` section you just edited**, not a fresh

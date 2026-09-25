@@ -171,6 +171,7 @@ candidate mining", and "VC portfolio auto-discovery".
 | `discovery.board_revalidate_after_days` | `14` | Healthy discovered boards re-checked this often. |
 | `discovery.board_quarantine_after_failures` | `5` | Consecutive failures before a discovered board is quarantined. |
 | `discovery.eu_seeds_enabled` | `false` | Opt-in: append `scripts/seeds/eu_companies.csv` (149 curated EU companies) to the board sweep — see [examples/eu-config.md](examples/eu-config.md). |
+| `discovery.starter_pack` | `false` | Poll the bundled starter pack — a few hundred verified tech-company boards (`scripts/seeds/starter_pack.json`), seeded as discovered boards so dead ones are dropped automatically. New installs turn it on in the setup wizard; existing installs from the banner on the Companies page. EU entries are included only with `discovery.eu_seeds_enabled`. Turning it off hides the rows; nothing is deleted. |
 | `discovery.hiringcafe_mining_enabled` | `true` | Convert aggregator sightings (Adzuna; hiring.cafe if its connector ever works again) of unknown boards into discovery candidates (needs `sources.adzuna.enabled`). |
 | `discovery.candidate_capture_cap` | `50` | Max sightings staged per slow cycle. |
 | `discovery.revalidate_reserve` | `100` | Slice of `max_validations_per_run` reserved for revalidation, so a busy discovery run can't starve rechecks. Keep `max_validations_per_run` comfortably above it. |

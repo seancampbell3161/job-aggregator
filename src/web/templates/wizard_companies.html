@@ -2,14 +2,40 @@
 {% import "_ui.html" as ui %}
 {% block step %}
 {% if always_on %}
-<p class="muted">Already polling without any company added:
-  {% for name in always_on %}<strong>{{ name }}</strong>{% if not loop.last %}, {% endif %}{% endfor %}.
-  Adding company boards below narrows the search to employers you care about.</p>
+<p class="muted">Also checked on every run:
+  {% for name in always_on %}<strong>{{ name }}</strong>{% if not loop.last %}, {% endif %}{% endfor %}.</p>
 {% endif %}
+
+{# Continue is always this form's own submit button (in the action bar
+   below) -- never a bare `href="/wizard"` link and never a separate
+   `/wizard/companies/skip` post. POST /wizard/companies folds save-or-skip
+   into one route, so leaving both boxes unticked with nothing else
+   configured is handled there rather than needing a second control here. #}
+<form method="post" action="/wizard/companies" id="companies-choice">
 <section class="card">
-  <h2 class="card-title">Add a company by careers URL</h2>
-  <p>Paste a careers page and it is identified automatically. Nothing is saved
-    until you confirm.</p>
+  <h2 class="card-title">Where to look</h2>
+  {# An empty (or missing/corrupt) pack is never offered: "0 verified boards"
+     is not a feature, and the save route leaves the flag alone then. #}
+  {% if pack_count %}
+  <label class="check">
+    <input type="checkbox" name="starter_pack" value="1" {% if pack_checked %}checked{% endif %}>
+    Start with {{ pack_count }} verified tech-company boards (recommended)
+  </label>
+  <p class="muted">Greenhouse, Lever, Ashby, Workday and more — checked every run.
+    Dead boards are dropped automatically.</p>
+  {% endif %}
+  <label class="check">
+    <input type="checkbox" name="discovery" value="1" {% if discovery_checked %}checked{% endif %}>
+    Keep finding new companies automatically
+  </label>
+  <p class="muted">Checks a few hundred careers pages a day and adds the ones that are hiring.</p>
+</section>
+</form>
+
+<section class="card">
+  <h2 class="card-title">Add a specific company</h2>
+  <p>Paste a careers page and it is identified automatically. Adding a company
+    here makes sure it is always checked. Nothing is saved until you confirm.</p>
   <form class="toolbar" hx-post="/settings/companies/probe" hx-target="#probe-result" hx-swap="innerHTML">
     <input type="text" name="target" placeholder="Paste a careers page URL or domain">
     {# Carried through the probe result into "Add this board" below, so
@@ -32,17 +58,6 @@
 <p><a href="/settings/companies">Full companies page</a> — structured boards
   (Workday, Oracle Cloud and the rest), removal, and health.</p>
 {% call ui.action_bar(back_href=prev_href) %}
-  {% if step_done %}
-  <a class="btn primary" href="/wizard">Continue</a>
-  {% else %}
-  {# A board was neither added here nor already configured, so this step is
-     still incomplete: /wizard would just route straight back to this same
-     page (next_step() re-picks the first incomplete, unskipped step). Post an
-     explicit skip instead of linking to /wizard, so Continue actually
-     advances rather than silently re-serving itself. #}
-  <form method="post" action="/wizard/companies/skip">
-    <button type="submit" class="btn primary">Continue</button>
-  </form>
-  {% endif %}
+  <button type="submit" form="companies-choice" class="btn primary">Continue</button>
 {% endcall %}
 {% endblock %}

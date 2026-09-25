@@ -201,8 +201,9 @@ def test_the_whole_wizard_completes_with_an_llm(tmp_path, monkeypatch):
 
     assert _where(client) == "/wizard/companies"
     # Nothing in the wizard writes a board; the page's own escape hatches are
-    # the full companies page and Skip.
-    client.post("/wizard/companies/skip")
+    # the full companies page and unticking both boxes below (Continue posts
+    # /wizard/companies either way — Task 5 folds save-or-skip into one route).
+    client.post("/wizard/companies", data={})
 
     assert _where(client) == "/wizard/notifications"
     _walk_notifications(client)
@@ -243,7 +244,7 @@ def test_the_whole_wizard_completes_with_no_llm_at_all(tmp_path, monkeypatch):
     _walk_review(client)
 
     assert _where(client) == "/wizard/companies"
-    client.post("/wizard/companies/skip")
+    client.post("/wizard/companies", data={})
     assert _where(client) == "/wizard/notifications"
     _walk_notifications(client)
     assert _where(client) == "/wizard/preview"

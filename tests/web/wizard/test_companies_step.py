@@ -8,6 +8,8 @@ form (not `query`), and settings_companies.html's own probe form targets
 match the real names."""
 import re
 
+import pytest
+
 import src.web.settings.companies as companies
 from src.fingerprint import FingerprintResult
 from src.web.app import create_app
@@ -49,35 +51,141 @@ def test_step_completes_once_a_board_exists(tmp_path, monkeypatch):
     assert client.get("/wizard", follow_redirects=False).headers["location"] == "/wizard/notifications"
 
 
-# --- Important 1 (whole-branch review): Continue must not loop. Before any
-# board is configured and discovery is off, this step is still incomplete,
-# so a plain `href="/wizard"` link would just route right back here
-# (next_step() re-picks the first incomplete, unskipped step) — a user who
-# adds nothing and clicks Continue would silently land back on the same
-# page. Continue must instead post a skip. ---
+# --- Task 5: the starter pack and discovery checkboxes. Continue is now
+# always the submit button of the companies-choice form (never a bare
+# `href="/wizard"` link, never a raw `/wizard/companies/skip` post) --
+# POST /wizard/companies folds save-or-skip into one route, so a user who
+# leaves both boxes unticked and clicks Continue still advances instead of
+# looping back to this same page. The two old tests that pinned the
+# link-vs-skip-form split are replaced by the checkbox/route tests below,
+# which is also why test_continue_button_actually_advances_past_an_empty_
+# companies_step (formerly here) is gone too: it posted straight at
+# /wizard/companies/skip to prove Continue "really" advanced things, which
+# is now exactly what test_submitting_unticked_with_no_boards_skips_and_
+# advances below proves against the real route, plus the flags it leaves
+# off and the no-re-tick-on-return behaviour. ---
 
-def test_continue_posts_a_skip_when_no_board_is_configured(tmp_path, monkeypatch):
+def _checkbox(html, name):
+    m = re.search(rf'<input[^>]*name="{name}"[^>]*>', html)
+    assert m, f"no {name} checkbox"
+    return m.group(0)
+
+
+def _pack(monkeypatch, n):
+    from src.starter_pack import PackSlug, StarterPack
+    pack = StarterPack("t", tuple(PackSlug("lever", f"c{i}", None, "us", 1) for i in range(n)), ())
+    monkeypatch.setattr("src.web.wizard.routes.default_pack", lambda: pack)
+    monkeypatch.setattr("src.starter_pack.default_pack", lambda: pack)
+
+
+@pytest.fixture(autouse=True)
+def _nonempty_pack(monkeypatch):
+    """The shipped pack may be empty until a real export lands; these tests
+    exercise the offer itself, so give them a pack to offer."""
+    _pack(monkeypatch, 5)
+
+
+def test_empty_pack_is_not_offered(tmp_path, monkeypatch):
+    _pack(monkeypatch, 0)
     r = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/companies")
-    assert "Continue</button>" in r.text
-    assert 'href="/wizard">Continue' not in r.text
+    assert 'name="starter_pack"' not in r.text
+    assert "0 verified" not in r.text
+    assert "checked" in _checkbox(r.text, "discovery")
 
 
-def test_continue_links_straight_to_wizard_once_a_board_exists(tmp_path, monkeypatch):
+def test_empty_pack_save_never_turns_the_flag_on_or_off(tmp_path, monkeypatch):
+    _pack(monkeypatch, 0)
+    service = make_service({**WEB_TEST_SETTINGS, "discovery": {"starter_pack": True}})
+    app = _app(tmp_path, monkeypatch, service)
+    client = signed_in_client(app)
+    client.post("/wizard/companies", data={"discovery": "1", "starter_pack": "1"})
+    cfg = app.state.service.snapshot().cfg
+    assert cfg.discovery.enabled
+    assert cfg.discovery.starter_pack  # untouched: activates once a real pack ships
+
+    service2 = make_service(WEB_TEST_SETTINGS)
+    app2 = _app(tmp_path / "b", monkeypatch, service2)
+    client2 = signed_in_client(app2)
+    client2.post("/wizard/companies", data={"discovery": "1", "starter_pack": "1"})
+    assert not app2.state.service.snapshot().cfg.discovery.starter_pack
+
+
+def test_step_already_done_before_upgrade_shows_saved_values(tmp_path, monkeypatch):
+    """An install that finished this step before the pack existed (a board
+    configured, no companies_choice marker) sees its real settings, not a
+    fresh pre-tick it never chose."""
     service = make_service({**WEB_TEST_SETTINGS, "sources": {"greenhouse": ["stripe"]}})
     r = signed_in_client(_app(tmp_path, monkeypatch, service)).get("/wizard/companies")
-    assert 'href="/wizard">Continue' in r.text
-    assert "Continue</button>" not in r.text
+    assert "checked" not in _checkbox(r.text, "starter_pack")
+    assert "checked" not in _checkbox(r.text, "discovery")
 
 
-def test_continue_button_actually_advances_past_an_empty_companies_step(tmp_path, monkeypatch):
-    """Not just that it LOOKS like a skip form -- posting to it, as a
-    browser submitting that form would, must actually move the wizard on."""
+def test_unticking_the_pack_also_dismisses_the_companies_banner(tmp_path, monkeypatch):
+    from src.web.settings.companies import STARTER_BANNER_KEY
+    app = _app(tmp_path, monkeypatch)
+    signed_in_client(app).post("/wizard/companies", data={"discovery": "1"})
+    assert app.state.stores.wizard.get(STARTER_BANNER_KEY) is not None
+
+
+def test_ticking_the_pack_leaves_the_banner_key_alone(tmp_path, monkeypatch):
+    from src.web.settings.companies import STARTER_BANNER_KEY
+    app = _app(tmp_path, monkeypatch)
+    signed_in_client(app).post("/wizard/companies", data={"starter_pack": "1"})
+    assert app.state.stores.wizard.get(STARTER_BANNER_KEY) is None
+
+
+def test_both_boxes_pretick_on_first_visit(tmp_path, monkeypatch):
+    r = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/companies")
+    assert "checked" in _checkbox(r.text, "starter_pack")
+    assert "checked" in _checkbox(r.text, "discovery")
+    assert 'action="/wizard/companies"' in r.text
+
+
+def test_pack_count_is_shown(tmp_path, monkeypatch):
+    from src.starter_pack import PackSlug, StarterPack
+    pack = StarterPack("t", tuple(PackSlug("lever", f"c{i}", None, "us", 1) for i in range(7)), ())
+    monkeypatch.setattr("src.web.wizard.routes.default_pack", lambda: pack)
+    r = signed_in_client(_app(tmp_path, monkeypatch)).get("/wizard/companies")
+    assert "7 verified" in r.text
+
+
+def test_submitting_ticked_turns_both_on_and_advances(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
     client = signed_in_client(app)
     for slug in ("llm", "resume", "review"):
         client.post(f"/wizard/{slug}/skip")
-    client.post("/wizard/companies/skip")
+    r = client.post("/wizard/companies", data={"starter_pack": "1", "discovery": "1"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    cfg = app.state.service.snapshot().cfg
+    assert cfg.discovery.starter_pack and cfg.discovery.enabled
     assert client.get("/wizard", follow_redirects=False).headers["location"] == "/wizard/notifications"
+
+
+def test_submitting_unticked_with_no_boards_skips_and_advances(tmp_path, monkeypatch):
+    app = _app(tmp_path, monkeypatch)
+    client = signed_in_client(app)
+    for slug in ("llm", "resume", "review"):
+        client.post(f"/wizard/{slug}/skip")
+    client.post("/wizard/companies", data={})
+    cfg = app.state.service.snapshot().cfg
+    assert not cfg.discovery.starter_pack and not cfg.discovery.enabled
+    assert "companies" in app.state.stores.wizard.skipped()
+    assert client.get("/wizard", follow_redirects=False).headers["location"] == "/wizard/notifications"
+    # the user's choice now shows — no re-ticking on return
+    page = client.get("/wizard/companies").text
+    assert "checked" not in _checkbox(page, "starter_pack")
+
+
+def test_resubmitting_unchanged_writes_no_new_version(tmp_path, monkeypatch):
+    app = _app(tmp_path, monkeypatch)
+    client = signed_in_client(app)
+    client.post("/wizard/companies", data={"starter_pack": "1", "discovery": "1"})
+    before = app.state.service.snapshot().version_id
+    r = client.post("/wizard/companies", data={"starter_pack": "1", "discovery": "1"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert app.state.service.snapshot().version_id == before
 
 
 # --- Mutation-catching: a wrong hx-post target or wrong form field name is

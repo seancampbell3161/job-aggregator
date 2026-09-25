@@ -344,3 +344,34 @@ def test_needs_attention_matches_settings_overview(tmp_path, monkeypatch):
     home = re.search(r'<ul class="readiness">.*?</ul>', c.get("/home").text, re.S).group(0)
     over = re.search(r'<ul class="readiness">.*?</ul>', c.get("/settings/overview").text, re.S).group(0)
     assert home == over and "no posting can ever match" in home
+
+
+# ---- boards figure respects the starter-pack gate ----
+
+_WD = {"tenant": "acme", "region": "wd5", "site": "Ext"}
+
+
+def _seed_mixed_rows(app):
+    d, b = app.state.stores.discovered, app.state.stores.boards
+    d.upsert_ok("lever:found-co", last_posting_count=3)            # discovery's own
+    d.seed_ok("greenhouse:stripe", company_name="Stripe", origin="starter")
+    b.seed_ok("acme.com", name="Acme", family="workday", identity=_WD,
+              connector_name="workday:acme:Ext", company="Acme", origin="starter")
+
+
+def test_boards_figure_excludes_hidden_starter_rows(tmp_path, monkeypatch):
+    app = make_app(tmp_path, monkeypatch,
+                   settings={"relevance": {"score_high": 7, "score_low": 4},
+                             "discovery": {"starter_pack": False}})
+    _seed_mixed_rows(app)
+    html = client_for(app).get("/home").text
+    assert re.search(r"<dt>Boards watched</dt><dd>1\b", html)
+
+
+def test_boards_figure_counts_starter_rows_when_pack_on(tmp_path, monkeypatch):
+    app = make_app(tmp_path, monkeypatch,
+                   settings={"relevance": {"score_high": 7, "score_low": 4},
+                             "discovery": {"starter_pack": True}})
+    _seed_mixed_rows(app)
+    html = client_for(app).get("/home").text
+    assert re.search(r"<dt>Boards watched</dt><dd>3\b", html)

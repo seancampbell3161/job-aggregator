@@ -902,3 +902,8 @@ def test_document_path_flags_are_gone():
     assert "resume_path" not in GapAnalysisConfig.model_fields
     assert {"content_path", "evidence_path"}.isdisjoint(TailoringConfig.model_fields)
     assert "kit" not in AppConfig.model_fields
+
+
+def test_starter_pack_defaults_off():
+    from src.config import DiscoveryConfig
+    assert DiscoveryConfig().starter_pack is False

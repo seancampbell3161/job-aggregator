@@ -12,6 +12,7 @@ from typing import Callable, Iterable
 
 from src.config import AppConfig, SLUG_SOURCE_FAMILIES
 from src.settings.documents import Documents
+from src.starter_pack import starter_pack_active
 from src.web.settings.readiness import check, STRUCTURED_FAMILIES
 
 
@@ -70,19 +71,26 @@ def _review_done(ctx: StepContext) -> bool:
 
 
 def _companies_done(ctx: StepContext) -> bool:
-    """At least one company board the user chose, or discovery turned on.
+    return companies_chosen(ctx.cfg)
+
+
+def companies_chosen(cfg: AppConfig) -> bool:
+    """At least one company board the user chose, a non-empty starter pack, or
+    discovery turned on.
 
     Deliberately NOT readiness's `nothing_polled`: three aggregator feeds
     (hn_who_is_hiring, remotive, remoteok) ship enabled, so that code never
     fires on a fresh install and this step would be skipped before the user
     was ever asked. Overview's question ("is anything polled at all?") and
     this one ("have you chosen where to look?") are different questions, and
-    a default-on background feed is not a choice the user made."""
-    sources = ctx.cfg.sources
+    a default-on background feed is not a choice the user made. Likewise an
+    empty pack is no choice at all: the flag counts only while the pack has
+    entries to poll."""
+    sources = cfg.sources
     for family in (*SLUG_SOURCE_FAMILIES, *STRUCTURED_FAMILIES):
         if getattr(sources, family, None):
             return True
-    return ctx.cfg.discovery.enabled
+    return cfg.discovery.enabled or starter_pack_active(cfg)
 
 
 WIZARD_STEPS: tuple[WizardStep, ...] = (

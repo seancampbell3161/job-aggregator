@@ -33,17 +33,29 @@ def _bar(html: str) -> str:
     return m.group(0)
 
 
-@pytest.mark.parametrize("slug", ["companies", "preview"])
-def test_a_step_that_skips_via_its_own_button_gets_no_second_skip(
-        tmp_path, monkeypatch, slug):
-    """Incomplete, these two steps post Continue/Finish straight at their own
-    skip endpoint — /wizard would route right back otherwise. The shared
-    "Skip this step" form then posts to the identical URL, so the page
-    offered two differently-labelled buttons doing exactly the same thing,
-    stacked one above the other."""
-    r = _client(tmp_path, monkeypatch).get(f"/wizard/{slug}")
+def test_the_companies_step_has_no_separate_skip_control(tmp_path, monkeypatch):
+    """Continue always posts to /wizard/companies, which folds save-or-skip
+    into one route (Task 5) rather than posting straight at
+    /wizard/companies/skip the way preview's own Finish still does below —
+    so unlike preview, there is no control here literally targeting a
+    "/skip" endpoint. The base template's generic hidden "Skip for now" form
+    (own_skip=True) must still not render either, or the page would offer a
+    second, redundant control doing the same job as Continue."""
+    r = _client(tmp_path, monkeypatch).get("/wizard/companies")
     assert r.status_code == 200
-    assert _skip_controls(r.text, slug) == 1
+    assert 'action="/wizard/companies/skip"' not in r.text
+    assert 'id="wizard-skip"' not in r.text
+
+
+def test_preview_skips_via_its_own_button_with_no_second_skip(tmp_path, monkeypatch):
+    """Incomplete, preview posts Finish straight at its own skip endpoint —
+    /wizard would route right back otherwise. The shared "Skip this step"
+    form then posts to the identical URL, so the page offered two
+    differently-labelled buttons doing exactly the same thing, stacked one
+    above the other."""
+    r = _client(tmp_path, monkeypatch).get("/wizard/preview")
+    assert r.status_code == 200
+    assert _skip_controls(r.text, "preview") == 1
 
 
 @pytest.mark.parametrize("slug", ["llm", "resume", "notifications"])
@@ -60,14 +72,17 @@ def test_a_saving_step_keeps_its_skip_alongside_the_primary_action(
     assert ">Save and continue<" in bar
 
 
-def test_the_companies_step_says_what_is_already_being_polled(tmp_path, monkeypatch):
+def test_the_companies_step_says_what_is_always_being_polled(tmp_path, monkeypatch):
     """Three aggregator feeds ship enabled, so "no companies" is not "nothing
     polled" — but the step said only "The job boards to poll", which reads as
-    though continuing past it leaves you with none. Name what is already on."""
+    though continuing past it leaves you with none. Name what is always on.
+    (Task 5 reworded the paragraph from "Already polling..." to "Also
+    checked on every run..." to make room for the starter-pack/discovery
+    checkboxes; the aggregator names it lists are unchanged.)"""
     r = _client(tmp_path, monkeypatch).get("/wizard/companies")
     assert r.status_code == 200
     body = r.text.lower()
-    assert "already" in body
+    assert "checked on every run" in body
     for feed in ("hacker news", "remotive", "remoteok"):
         assert feed in body, f"{feed} is polling by default but is not mentioned"
 
