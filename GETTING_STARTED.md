@@ -773,7 +773,14 @@ cycle logs for that company's job count. The tier runs every
 
 ### Smart board polling
 
-Each board is checked according to its activity. Boards that posted a new job recently are checked on every cycle (every 10 minutes by default for ATS boards). Quiet boards that haven't posted in a while are checked less often — the interval doubles each quiet check, down to about once an hour — so the poller doesn't waste time on stale boards. Any new posting snaps a board back to the frequent cycle. After you change any setting, every board is due on the next cycle.
+Each board's polling frequency adjusts based on what its last check found.
+If a check found a new posting, the board is checked every cycle (every 10
+minutes by default for ATS boards). If a check found nothing new, the wait
+doubles — up to about an hour between checks — so the poller doesn't waste
+time on quiet boards. Any new posting resets it back to every cycle. After
+you change any setting, every board is checked on the next cycle. When a
+job site throttles requests, the poller spaces them out; any board it
+couldn't fetch before the cycle deadline is checked next cycle.
 
 ### Starter pack
 
