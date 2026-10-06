@@ -25,6 +25,7 @@ from src.notify.ntfy import NtfySink
 from src.notify.ops import send_ops_alert
 from src.ops_alerts import OpsAlertEvaluator, OpsThresholds
 from src.orchestrator import run_once
+from src.pacing import VendorPacer
 from src.coach import AnthropicCoach, CoachEngine, GeminiCoach, OllamaCoach
 from src.gaps import AnthropicGapAnalyzer, GapAnalyzer, GeminiGapAnalyzer, OllamaGapAnalyzer
 from src.relevance import GeminiRelevanceScorer, OllamaRelevanceScorer, RelevanceScorer
@@ -34,6 +35,8 @@ from src.stores import build_stores
 
 log = logging.getLogger(__name__)
 
+# One pacer per tier, shared across cycles so throttle feedback persists.
+_PACERS: dict[str, VendorPacer] = {}
 _VALID_TIERS = {"ats", "slow", "discovery", "digest", "headless"}
 
 
@@ -392,6 +395,14 @@ async def _run(
     gap_analyzer = _build_gap_analyzer(cfg, snap.documents.resume_text)
     # calibrate never writes jobs or notifies (the idempotent pack seed above still runs)
     dry_run = dry_run or calibrate
+    pacer: VendorPacer | None = None
+    fetch_deadline_s: float | None = None
+    if tier in ("ats", "slow"):
+        interval_s = (cfg.schedules.ats_minutes if tier == "ats" else cfg.schedules.slow_minutes) * 60
+        fetch_deadline_s = 0.8 * interval_s
+        # A preview (dry run / calibrate) gets a fresh pacer so it never
+        # perturbs the daemon's pacing.
+        pacer = VendorPacer() if dry_run else _PACERS.setdefault(tier, VendorPacer())
     result = await run_once(
         cfg=cfg, tier=tier, store=store, source_state=source_state,  # type: ignore[arg-type]
         connectors=connectors, sinks=sinks,
@@ -407,6 +418,8 @@ async def _run(
         generation=snap.generation if tier in ("ats", "slow") else None,
         browser_factory=browser_factory,
         max_concurrency=(3 if tier == "headless" else 40),
+        pacer=pacer,
+        fetch_deadline_s=fetch_deadline_s,
     )
     if sightings and not dry_run:
         try:

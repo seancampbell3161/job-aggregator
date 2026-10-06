@@ -34,3 +34,21 @@ async def test_ats_and_slow_get_evaluation_memory(monkeypatch, tier):
 async def test_headless_tier_is_exempt_from_evaluation_memory(monkeypatch):
     got = await _captured_kwargs(monkeypatch, "headless")
     assert got["evaluated_store"] is None and got["generation"] is None
+
+
+@pytest.mark.asyncio
+async def test_handler_reuses_one_pacer_per_tier(monkeypatch):
+    from src import handler
+    monkeypatch.setattr(handler, "_PACERS", {})
+    a1 = await _captured_kwargs(monkeypatch, "ats")
+    a2 = await _captured_kwargs(monkeypatch, "ats")
+    s1 = await _captured_kwargs(monkeypatch, "slow")
+    assert a1["pacer"] is a2["pacer"] and a1["pacer"] is not None
+    assert s1["pacer"] is not a1["pacer"]
+    assert a1["fetch_deadline_s"] > 0 and s1["fetch_deadline_s"] > 0
+
+
+@pytest.mark.asyncio
+async def test_headless_tier_is_not_paced(monkeypatch):
+    got = await _captured_kwargs(monkeypatch, "headless")
+    assert got["pacer"] is None and got["fetch_deadline_s"] is None

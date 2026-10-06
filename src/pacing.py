@@ -39,6 +39,10 @@ class VendorPacer:
         self._gap: dict[str, float] = {}
         self._next: dict[str, float] = {}
 
+    def now(self) -> float:
+        """The pacer's clock, so callers can build a deadline in its units."""
+        return self._clock()
+
     def gap(self, vendor: str) -> float:
         return self._gap.get(vendor, 0.0)
 

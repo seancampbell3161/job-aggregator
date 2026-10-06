@@ -417,3 +417,125 @@ async def test_dry_run_writes_no_memory():
     await run_once(connectors=conns, sinks=[], evaluated_store=ev, generation=1,
                    dry_run=True, **_mem_cycle_kwargs(conn))
     assert _evaluated_ids(conn) == []
+
+
+# --- per-vendor pacing, concurrency cap and fetch deadline ---
+
+def _status_error(code):
+    req = httpx.Request("GET", "https://boards.example/x")
+    return httpx.HTTPStatusError(str(code), request=req, response=httpx.Response(code, request=req))
+
+
+class _ErrConnector:
+    tier = "ats"
+    def __init__(self, name, code):
+        self.name, self._code = name, code
+    async def fetch(self, client, state):
+        raise _status_error(self._code)
+
+
+class _FakeTime:
+    def __init__(self):
+        self.t = 0.0
+        self.slept: list[float] = []
+    def now(self):
+        return self.t
+    async def sleep(self, s):
+        self.slept.append(s)
+        self.t += s
+
+
+def _pace_cycle(connectors, **kw):
+    conn = connect(":memory:")
+    return run_once(
+        cfg=_cfg(), tier="ats", store=SqliteSeenJobsStore(conn),
+        source_state=SqliteSourceStateStore(conn), connectors=connectors,
+        sinks=[], client_factory=lambda: httpx.AsyncClient(), **kw)
+
+
+@pytest.mark.asyncio
+async def test_throttle_slows_vendor_and_success_recovers():
+    from src.pacing import VendorPacer
+    ft = _FakeTime()
+    pacer = VendorPacer(clock=ft.now, sleep=ft.sleep)
+    conns = [_ErrConnector("greenhouse:a", 429), _StubConnector("ashby:b", [])]
+    await _pace_cycle(conns, pacer=pacer)
+    assert pacer.gap("greenhouse") > 0
+    assert pacer.gap("ashby") == 0
+    # successes decay the gap back down
+    before = pacer.gap("greenhouse")
+    await _pace_cycle([_StubConnector("greenhouse:a", [])], pacer=pacer)
+    assert pacer.gap("greenhouse") < before
+
+
+@pytest.mark.asyncio
+async def test_oracle_400_counts_as_throttle():
+    from src.pacing import VendorPacer
+    ft = _FakeTime()
+    pacer = VendorPacer(clock=ft.now, sleep=ft.sleep)
+    await _pace_cycle([_ErrConnector("oraclecloud:x", 400), _ErrConnector("greenhouse:y", 400)],
+                      pacer=pacer)
+    assert pacer.gap("oraclecloud") > 0
+    assert pacer.gap("greenhouse") == 0
+
+
+@pytest.mark.asyncio
+async def test_throttle_feedback_applies_within_the_cycle():
+    from src.pacing import VendorPacer
+    ft = _FakeTime()
+    pacer = VendorPacer(clock=ft.now, sleep=ft.sleep)
+    # More boards than the vendor cap, all 429: the first wave reserves slots
+    # at gap 0, later boards are queued behind the vendor semaphore and so
+    # see the throttled gap and wait.
+    conns = [_ErrConnector(f"greenhouse:b{i}", 429) for i in range(20)]
+    await _pace_cycle(conns, pacer=pacer)
+    assert any(s > 0 for s in ft.slept)
+
+
+@pytest.mark.asyncio
+async def test_per_vendor_concurrency_is_capped():
+    from src.pacing import PER_VENDOR_CONCURRENCY
+    state = {"cur": 0, "peak": 0}
+
+    class _Slow:
+        tier = "ats"
+        def __init__(self, name):
+            self.name = name
+        async def fetch(self, client, st):
+            state["cur"] += 1
+            state["peak"] = max(state["peak"], state["cur"])
+            await asyncio.sleep(0.01)
+            state["cur"] -= 1
+            return FetchResult(postings=[], new_state=None, not_modified=False)
+
+    await _pace_cycle([_Slow(f"greenhouse:s{i}") for i in range(20)], max_concurrency=40)
+    assert state["peak"] == PER_VENDOR_CONCURRENCY
+
+
+@pytest.mark.asyncio
+async def test_deadline_paces_out_boards_without_failure():
+    import time as _time
+    from src.pacing import MAX_GAP, VendorPacer
+    from src.state_sqlite import SqliteConnectorHealthStore
+    conn = connect(":memory:")
+    health = SqliteConnectorHealthStore(conn)
+    slept: list[float] = []
+
+    async def fake_sleep(s):
+        slept.append(s)  # does not advance time
+
+    pacer = VendorPacer(clock=_time.monotonic, sleep=fake_sleep)
+    for _ in range(10):
+        pacer.on_throttle("greenhouse")
+    assert pacer.gap("greenhouse") == MAX_GAP
+    conns = [_StubConnector(f"greenhouse:p{i}", []) for i in range(4)]
+    result = await run_once(
+        cfg=_cfg(), tier="ats", store=SqliteSeenJobsStore(conn),
+        source_state=SqliteSourceStateStore(conn), connectors=conns, sinks=[],
+        client_factory=lambda: httpx.AsyncClient(), health=health,
+        pacer=pacer, fetch_deadline_s=1)
+    assert len(result.paced_out) == 3
+    assert result.failed_sources == []
+    assert result.fetch_failures == []
+    assert health.tracked_names() == set()
+    assert not any(n in result.polled for n in result.paced_out)

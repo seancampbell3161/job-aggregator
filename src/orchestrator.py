@@ -19,6 +19,7 @@ from src.notify.format import format_payload
 from src.tailor.endpoint.auth import build_tailor_url
 from src.gaps import GapAnalyzer, Gaps
 from src.relevance import RelevanceScorer, Score
+from src.pacing import PER_VENDOR_CONCURRENCY, is_throttle, vendor_of
 from src.poll_health import classify_outcome, retry_after_seconds, update_poll_health
 from src.state_sqlite import (
     SqliteConnectorHealthStore,
@@ -396,20 +397,42 @@ async def run_once(
                 board_matches.append((i, board_matched))
             result.polled[name] = fresh
 
+        # Per-vendor caps live per cycle: asyncio primitives bind to the
+        # cycle's event loop.
+        vendor_sems: dict[str, asyncio.Semaphore] = {}
+        deadline = (
+            pacer.now() + fetch_deadline_s
+            if pacer is not None and fetch_deadline_s is not None else None
+        )
+
         async def _guarded(i: int, c: Connector) -> None:
-            # Seam for per-vendor pacing: a board paced out of this cycle
-            # skips the fetch and lands in result.paced_out.
-            async with sem:
-                name, res = await _fetch_one(c, client, prior[c.name], browser=browser)
-            # Screen the board in the same step its fetch returns: nothing can
-            # run in between, so its postings never wait in a queue behind
-            # other boards. Peak memory is the boards in flight (at most
-            # max_concurrency), the one being screened and the matches, however
-            # many boards there are.
-            # (Collecting results with as_completed doesn't give that bound:
-            # boards that answer faster than they're screened pile up in its
-            # done-queue.)
-            _absorb(i, name, res)
+            vendor = vendor_of(c.name)
+            vsem = vendor_sems.setdefault(vendor, asyncio.Semaphore(PER_VENDOR_CONCURRENCY))
+            # Vendor slot first, then the pacer: only the few boards holding a
+            # vendor slot reserve pacer slots, so a throttle seen by one of
+            # them slows the vendor's remaining boards within this cycle.
+            async with vsem:
+                if pacer is not None and not await pacer.wait(vendor, deadline=deadline):
+                    # Not attempted this cycle: no outcome, no failure, no
+                    # poll-health entry; it is picked up next cycle.
+                    result.paced_out.append(c.name)
+                    return
+                async with sem:
+                    name, res = await _fetch_one(c, client, prior[c.name], browser=browser)
+                if pacer is not None:
+                    if is_throttle(vendor, res):
+                        pacer.on_throttle(vendor)
+                    elif isinstance(res, FetchResult):
+                        pacer.on_success(vendor)
+                # Screen the board in the same step its fetch returns: nothing
+                # can run in between, so its postings never wait in a queue
+                # behind other boards. Peak memory is the boards in flight (at
+                # most max_concurrency), the one being screened and the
+                # matches, however many boards there are.
+                # (Collecting results with as_completed doesn't give that
+                # bound: boards that answer faster than they're screened pile
+                # up in its done-queue.)
+                _absorb(i, name, res)
 
         tasks = [asyncio.ensure_future(_guarded(i, c)) for i, c in enumerate(connectors)]
         try:
@@ -440,7 +463,11 @@ async def run_once(
                 "normalize_failures_in_cycle",
                 extra={"count": len(result.normalize_failures)},
             )
-        log.info("diff_done", extra={"new": result.new_count, "total": result.fetched_count})
+        log.info(
+            "diff_done",
+            extra={"new": result.new_count, "total": result.fetched_count,
+                   "paced_out": len(result.paced_out)},
+        )
 
         # Back to connector order (what gathering every fetch used to give), so
         # scoring-cap ties, the calibration sample and notification order don't
