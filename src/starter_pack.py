@@ -152,6 +152,19 @@ def load_pack(path: Path = STARTER_PACK_PATH) -> StarterPack:
     return StarterPack(str(raw.get("version") or ""), tuple(slugs), tuple(boards))
 
 
+def write_pack(pack: dict, path: Path) -> None:
+    """Write a pack dict canonically, so every refresh is a reviewable diff
+    whichever tool produced it (the builder or the instance export): slugs by
+    (ats, slug), boards by (family, connector_name), sorted keys, one-space
+    indent, trailing newline."""
+    out = {
+        "version": pack["version"],
+        "slugs": sorted(pack["slugs"], key=lambda s: (s["ats"], s["slug"])),
+        "boards": sorted(pack["boards"], key=lambda b: (b["family"], b["connector_name"])),
+    }
+    Path(path).write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
+
+
 @functools.cache
 def default_pack() -> StarterPack:
     """The bundled pack, read once per process (it is baked into the image)."""

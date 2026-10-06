@@ -1,4 +1,9 @@
-"""Export a long-running instance's verified boards as the bundled starter pack.
+"""Export a long-running instance's verified boards as a starter pack.
+
+The bundled pack is normally built from public data by
+scripts/build_starter_pack.py (RELEASING.md step 2). This export is for
+someone running their own instance who wants a pack of the boards it has
+verified.
 
     python scripts/export_starter_pack.py --db data/job_aggregator.db \
         [--discovered-only] [--out scripts/seeds/starter_pack.json] [--version YYYY-MM-DD]
@@ -28,7 +33,7 @@ from src.fingerprint import EU_SEEDS, load_seeds  # noqa: E402
 from src.settings.service import ConfigService  # noqa: E402
 from src.settings.store import SqliteSettingsStore  # noqa: E402
 from src.slugging import seed_domain  # noqa: E402
-from src.starter_pack import BOARD_FAMILIES, ORIGIN_US, SLUG_FAMILIES, STARTER_PACK_PATH  # noqa: E402
+from src.starter_pack import BOARD_FAMILIES, ORIGIN_US, SLUG_FAMILIES, STARTER_PACK_PATH, write_pack  # noqa: E402
 from src.state_sqlite import (  # noqa: E402
     SqliteConnectorHealthStore, SqliteDiscoveredBoardsStore, SqliteDiscoveredSlugsStore,
 )
@@ -157,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: the pack from {args.db} is empty; refusing to overwrite {args.out} "
               "(pass --allow-empty to write it anyway)", file=sys.stderr)
         return 1
-    Path(args.out).write_text(json.dumps(pack, indent=1, sort_keys=True) + "\n")
+    write_pack(pack, Path(args.out))
     print(f"wrote {len(pack['slugs'])} slugs + {len(pack['boards'])} boards to {args.out}")
     return 0
 

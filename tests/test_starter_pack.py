@@ -176,3 +176,33 @@ def test_non_list_boards_treated_as_empty(tmp_path):
     pack = load_pack(_write(tmp_path, data))
     assert len(pack.boards) == 0
     assert len(pack.slugs) == 2  # slugs still loaded
+
+
+def test_write_pack_is_canonical_and_loadable(tmp_path):
+    from src.starter_pack import load_pack, write_pack
+    pack = {
+        "version": "2026-10-06",
+        "slugs": [
+            {"ats": "lever", "slug": "b", "company": "B", "region": "us", "postings": 2},
+            {"ats": "ashby", "slug": "a", "company": "A", "region": "us", "postings": 1},
+        ],
+        "boards": [
+            {"family": "workday", "identity": {"tenant": "z", "region": "wd1", "site": "S"},
+             "company": "Z", "domain": "pack:workday:z:S", "connector_name": "workday:z:S",
+             "region": "us", "postings": 9},
+            {"family": "oraclecloud", "identity": {"tenant": "o", "region": "us2", "site": "C"},
+             "company": "O", "domain": "pack:oraclecloud:o:C", "connector_name": "oraclecloud:o:C",
+             "region": "eu", "postings": 3},
+        ],
+    }
+    out = tmp_path / "pack.json"
+    write_pack(pack, out)
+    text = out.read_text()
+    assert text.endswith("\n")
+    data = json.loads(text)
+    assert [s["ats"] for s in data["slugs"]] == ["ashby", "lever"]
+    assert [b["family"] for b in data["boards"]] == ["oraclecloud", "workday"]
+    loaded = load_pack(out)
+    assert len(loaded.slugs) == 2 and len(loaded.boards) == 2
+    write_pack(pack, out)
+    assert out.read_text() == text               # deterministic
