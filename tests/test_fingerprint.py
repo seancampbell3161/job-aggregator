@@ -87,6 +87,13 @@ def test_parse_rejects_non_ats_and_bare_hosts():
     assert parse_ats_url("not-a-url") is None
 
 
+def test_parse_ats_url_smartrecruiters_posting_host():
+    assert parse_ats_url("https://jobs.smartrecruiters.com/Visa/744000012345-swe") == (
+        "smartrecruiters", {"slug": "Visa"})
+    assert parse_ats_url("https://careers.smartrecruiters.com/Visa") == (
+        "smartrecruiters", {"slug": "Visa"})
+
+
 def test_detect_unsupported_families():
     assert detect_unsupported("https://careers-charter.icims.com/jobs/search?ss=1") == "icims"
     assert detect_unsupported("https://bostonscientific.eightfold.ai/careers") == "eightfold"
