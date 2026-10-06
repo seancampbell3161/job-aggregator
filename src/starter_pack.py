@@ -193,27 +193,22 @@ def reconcile(pack: StarterPack, *, eu_enabled: bool, slugs_store, boards_store)
     """Insert every eligible pack entry that has no row yet. Idempotent.
 
     Runs every ATS cycle, so the existing keys are read once per store and
-    only missing keys are written; seed_ok stays insert-if-absent as the
-    guard against a row appearing in between."""
+    only missing keys are written, in one transaction per store; INSERT OR IGNORE
+    stays the guard against a row appearing in between."""
     slugs, boards = pack.eligible(eu_enabled)
     have_slugs = {r.connector_name for r in slugs_store.list_all()}
     have_boards = {b.domain for b in boards_store.list_all()}
-    inserted = skipped = 0
-    for s in slugs:
-        if s.connector_name not in have_slugs and slugs_store.seed_ok(
-                s.connector_name, company_name=s.company,
-                origin=_origin(s.region), last_posting_count=s.postings):
-            inserted += 1
-        else:
-            skipped += 1
-    for b in boards:
-        if b.domain not in have_boards and boards_store.seed_ok(
-                b.domain, name=b.company or b.domain, family=b.family,
-                identity=b.identity, connector_name=b.connector_name,
-                company=b.company, origin=_origin(b.region)):
-            inserted += 1
-        else:
-            skipped += 1
+    new_slugs = [s for s in slugs if s.connector_name not in have_slugs]
+    new_boards = [b for b in boards if b.domain not in have_boards]
+    inserted = slugs_store.seed_many([
+        {"connector_name": s.connector_name, "company_name": s.company,
+         "origin": _origin(s.region), "last_posting_count": s.postings} for s in new_slugs
+    ]) + boards_store.seed_many([
+        {"domain": b.domain, "name": b.company or b.domain, "family": b.family,
+         "identity": b.identity, "connector_name": b.connector_name,
+         "company": b.company, "origin": _origin(b.region)} for b in new_boards
+    ])
+    skipped = len(slugs) + len(boards) - inserted
     log.info("starter_pack_reconciled", extra={
         "version": pack.version, "inserted": inserted, "skipped": skipped,
     })
