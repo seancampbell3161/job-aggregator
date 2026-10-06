@@ -10,6 +10,7 @@ from src.state_sqlite import (
     SqliteBuilderSettingsStore,
     SqliteCoachRunsStore,
     SqliteConnectorHealthStore,
+    SqliteConnectorScheduleStore,
     SqliteDiscoveredBoardsStore,
     SqliteDiscoveredSlugsStore,
     SqliteEvaluatedPostingsStore,
@@ -58,6 +59,7 @@ def sqlite_stores(conn: sqlite3.Connection) -> Stores:
         builder=SqliteBuilderSettingsStore(conn),
         wizard=SqliteWizardStore(conn),
         evaluated=SqliteEvaluatedPostingsStore(conn),
+        schedule=SqliteConnectorScheduleStore(conn),
         settings=SqliteSettingsStore(conn),
         auth=SqliteAuthStore(conn),
     )

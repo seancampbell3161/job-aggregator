@@ -15,6 +15,7 @@ if TYPE_CHECKING:
         SqliteBuilderSettingsStore,
         SqliteCoachRunsStore,
         SqliteConnectorHealthStore,
+        SqliteConnectorScheduleStore,
         SqliteDiscoveredBoardsStore,
         SqliteDiscoveredSlugsStore,
         SqliteEvaluatedPostingsStore,
@@ -41,6 +42,7 @@ class Stores:
     builder: SqliteBuilderSettingsStore
     wizard: SqliteWizardStore
     evaluated: SqliteEvaluatedPostingsStore
+    schedule: SqliteConnectorScheduleStore
     settings: SqliteSettingsStore
     auth: SqliteAuthStore
 
@@ -58,6 +60,7 @@ def build_stores(cfg: Any = None) -> Stores:
     from src.state_sqlite import (
         SqliteBuilderSettingsStore,
         SqliteConnectorHealthStore,
+        SqliteConnectorScheduleStore,
         SqliteCoachRunsStore,
         SqliteDiscoveredBoardsStore,
         SqliteDiscoveredSlugsStore,
@@ -83,6 +86,7 @@ def build_stores(cfg: Any = None) -> Stores:
         builder=SqliteBuilderSettingsStore(conn),
         wizard=SqliteWizardStore(conn),
         evaluated=SqliteEvaluatedPostingsStore(conn),
+        schedule=SqliteConnectorScheduleStore(conn),
         # Its own connection: SqliteSettingsStore.read()/_write() BEGIN their
         # own transactions, which would collide ("cannot start a transaction
         # within a transaction") with any other store's BEGIN IMMEDIATE on a

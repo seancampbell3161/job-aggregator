@@ -8,6 +8,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
+from src.cadence import DUE_SLACK_MS, next_interval
 from src.models import ConnectorState, NormalizedPosting
 from src.sanitize import sanitize_description
 from src.state import (
@@ -1212,6 +1213,74 @@ class SqliteEvaluatedPostingsStore:
             "DELETE FROM evaluated_postings WHERE evaluated_at < ? OR generation != ?",
             (cutoff, current_generation))
         return cur.rowcount
+
+
+class SqliteConnectorScheduleStore:
+    """Per-board adaptive schedule: when each board is next due, and how long
+    its current backoff interval is. A board with no row is always due."""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def not_due(self, now_ms: int) -> set[str]:
+        return {r["connector_name"] for r in self._conn.execute(
+            "SELECT connector_name FROM connector_schedule WHERE next_due_ms > ?",
+            (now_ms,))}
+
+    def get(self, name: str) -> tuple[int, int, int | None] | None:
+        row = self._conn.execute(
+            "SELECT interval_s, next_due_ms, last_new_ms FROM connector_schedule"
+            " WHERE connector_name = ?", (name,)).fetchone()
+        return None if row is None else (
+            row["interval_s"], row["next_due_ms"], row["last_new_ms"])
+
+    def record_polls(self, polled: dict[str, int], *, base_interval_s: int,
+                     now_ms: int, force_due: Iterable[str] = ()) -> None:
+        force = set(force_due)
+        names = list(dict.fromkeys([*polled, *force]))
+        if not names:
+            return
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            prev: dict[str, tuple[int, int | None]] = {}
+            for i in range(0, len(names), 500):
+                chunk = names[i:i + 500]
+                ph = ",".join("?" * len(chunk))
+                for r in self._conn.execute(
+                        "SELECT connector_name, interval_s, last_new_ms"
+                        f" FROM connector_schedule WHERE connector_name IN ({ph})",
+                        chunk):
+                    prev[r["connector_name"]] = (r["interval_s"], r["last_new_ms"])
+            rows = []
+            for n in names:
+                prev_interval, prev_new = prev.get(n, (None, None))
+                if n in polled:
+                    fresh = polled[n]
+                    interval = next_interval(prev_interval, fresh=fresh,
+                                             forced=n in force, base_s=base_interval_s)
+                    due = now_ms + interval * 1000 - DUE_SLACK_MS
+                    last_new = now_ms if fresh > 0 else prev_new
+                else:  # forced but not polled this cycle: due right away
+                    interval, due, last_new = base_interval_s, now_ms, prev_new
+                rows.append((n, interval, due, last_new))
+            self._conn.executemany(
+                "INSERT OR REPLACE INTO connector_schedule"
+                " (connector_name, interval_s, next_due_ms, last_new_ms)"
+                " VALUES (?, ?, ?, ?)", rows)
+            self._conn.execute("COMMIT")
+        except BaseException:
+            self._conn.execute("ROLLBACK")
+            raise
+
+    def generation(self, tier: str) -> int | None:
+        row = self._conn.execute(
+            "SELECT generation FROM schedule_generation WHERE tier = ?", (tier,)).fetchone()
+        return None if row is None else row["generation"]
+
+    def set_generation(self, tier: str, generation: int) -> None:
+        self._conn.execute(
+            "INSERT OR REPLACE INTO schedule_generation (tier, generation) VALUES (?, ?)",
+            (tier, generation))
 
 
 class SqliteCoachRunsStore:
