@@ -26,6 +26,23 @@ from src.tailor.endpoint.jd import PostingJD
 log = logging.getLogger(__name__)
 
 
+def _insert_absent(conn: sqlite3.Connection, table: str, key_col: str,
+                   params: list[tuple[str, str]]) -> int:
+    """INSERT OR IGNORE (key, data) rows in one transaction; returns rows inserted."""
+    if not params:
+        return 0
+    before = conn.total_changes
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.executemany(
+            f"INSERT OR IGNORE INTO {table} ({key_col}, data) VALUES (?, ?)", params)
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+    return conn.total_changes - before
+
+
 def _now_ts() -> int:
     return int(datetime.now(timezone.utc).timestamp())
 
@@ -562,20 +579,29 @@ class SqliteDiscoveredSlugsStore:
     def seed_ok(self, connector_name: str, *, company_name: str | None, origin: str,
                 last_posting_count: int = 0) -> bool:
         """Insert a pre-verified row (the starter pack). Never touches an
-        existing row of any status — a quarantined or no_match verdict the
+        existing row of any status: a quarantined or no_match verdict the
         poller learned always wins over the bundled pack. True iff inserted."""
-        if self.get(connector_name) is not None:
-            return False
+        return self.seed_many([{"connector_name": connector_name, "company_name": company_name,
+                                "origin": origin, "last_posting_count": last_posting_count}]) == 1
+
+    def seed_many(self, rows: list[dict]) -> int:
+        """seed_ok for many rows in ONE transaction (INSERT OR IGNORE keeps the
+        insert-if-absent contract). Row by row, a 5k-entry pack took ~4 s on
+        local disk. Returns the number inserted."""
         now = datetime.now(timezone.utc).isoformat()
-        ats_family, slug = connector_name.split(":", 1)
-        self._put({
-            "connector_name": connector_name, "ats_family": ats_family, "slug": slug,
-            "company_name": company_name, "discovered_at": now,
-            "last_validated_at": now, "validation_status": "ok",
-            "consecutive_failures": 0, "last_posting_count": last_posting_count,
-            "origin": origin,
-        })
-        return True
+        params = []
+        for r in rows:
+            ats_family, slug = r["connector_name"].split(":", 1)
+            item = {
+                "connector_name": r["connector_name"], "ats_family": ats_family, "slug": slug,
+                "company_name": r.get("company_name"), "discovered_at": now,
+                "last_validated_at": now, "validation_status": "ok",
+                "consecutive_failures": 0, "last_posting_count": r.get("last_posting_count", 0),
+                "origin": r["origin"],
+            }
+            params.append((item["connector_name"],
+                           json.dumps({k: v for k, v in item.items() if v is not None})))
+        return _insert_absent(self._conn, "discovered_slugs", "connector_name", params)
 
     def upsert_no_match(
         self,
@@ -746,15 +772,24 @@ class SqliteDiscoveredBoardsStore:
                 connector_name: str, company: str | None, origin: str) -> bool:
         """Insert a pre-verified board (the starter pack) iff no row exists
         under the domain. True iff inserted."""
-        if self.get(domain) is not None:
-            return False
+        return self.seed_many([{"domain": domain, "name": name, "family": family,
+                                "identity": identity, "connector_name": connector_name,
+                                "company": company, "origin": origin}]) == 1
+
+    def seed_many(self, rows: list[dict]) -> int:
+        """seed_ok for many boards in ONE transaction. Returns the number inserted."""
         now = datetime.now(timezone.utc).isoformat()
-        self._put({
-            "domain": domain, "name": name, "status": "ok", "family": family,
-            "identity": identity, "connector_name": connector_name, "company": company,
-            "last_swept_at": now, "failure_streak": 0, "origin": origin,
-        })
-        return True
+        params = []
+        for r in rows:
+            item = {
+                "domain": r["domain"], "name": r["name"], "status": "ok", "family": r["family"],
+                "identity": r["identity"], "connector_name": r["connector_name"],
+                "company": r.get("company"), "last_swept_at": now, "failure_streak": 0,
+                "origin": r["origin"],
+            }
+            params.append((item["domain"],
+                           json.dumps({k: v for k, v in item.items() if v is not None})))
+        return _insert_absent(self._conn, "discovered_boards", "domain", params)
 
     def upsert_candidate(self, domain: str, *, name: str, family: str, identity: dict,
                          connector_name: str | None, company: str | None = None,

@@ -22,7 +22,7 @@ def test_advanced_groups_are_exactly_the_keys_with_leftovers():
     This pins the split instead: it breaks the moment a section's claims change
     which keys still have leftovers."""
     assert [g.key for g in advanced_groups()] == [
-        "sources", "discovery", "gap_analysis", "tailoring", "board",
+        "sources", "discovery", "relevance", "gap_analysis", "tailoring", "board",
         "audit", "coach", "ops_notify", "http", "gmail",
     ]
 

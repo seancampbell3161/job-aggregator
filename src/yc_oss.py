@@ -30,6 +30,7 @@ class YcCompany:
     status: str         # "Active" / "Public" / "Inactive" / "Acquired" / ...
     team_size: int      # 0 if missing in payload
     website: str | None
+    regions: tuple[str, ...] = ()   # e.g. ("United States of America", "Remote")
 
 
 def parse_companies(payload: Any) -> list[YcCompany]:
@@ -51,6 +52,7 @@ def parse_companies(payload: Any) -> list[YcCompany]:
                     status=str(c.get("status") or "").strip(),
                     team_size=int(ts),
                     website=(c.get("website") if isinstance(c.get("website"), str) else None),
+                    regions=tuple(r for r in (c.get("regions") or ()) if isinstance(r, str)),
                 )
             )
         except Exception:  # noqa: BLE001 — defensive: one bad entry must not crash the batch

@@ -279,6 +279,11 @@ class RelevanceConfig(BaseModel):
     score_high: int = Field(default=7, ge=0, le=10)
     score_low: int = Field(default=3, ge=0, le=10)
     timeout_seconds: int = Field(default=10, ge=1)
+    # Ceiling on LLM scoring calls per cycle. Matches beyond it are left
+    # untouched (not seen, not rejected, not claimed), so they come back next
+    # cycle, newest first. A fresh install with a big starter pack drains its
+    # first backlog over several cycles instead of blocking one for hours.
+    max_scored_per_cycle: int = Field(default=100, ge=1)
     # Base URL for every Ollama-backed feature. "https://ollama.com" is hosted
     # Ollama Cloud (needs secrets.ollama_api_key); anything else is a local
     # server that needs no key. JOB_AGG_OLLAMA_HOST, when non-empty, overrides it.

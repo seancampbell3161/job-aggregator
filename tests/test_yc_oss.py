@@ -83,6 +83,18 @@ def test_derive_slug_for_returns_empty_when_both_name_and_slug_missing():
     assert derive_slug_for(c) == ""
 
 
+def test_parse_companies_keeps_regions():
+    [c] = parse_companies([{"name": "Acme", "slug": "acme", "status": "Active",
+                            "team_size": 12, "website": "https://acme.com",
+                            "regions": ["United States of America", "Remote", 7]}])
+    assert c.regions == ("United States of America", "Remote")   # non-strings dropped
+
+
+def test_parse_companies_regions_default_empty():
+    [c] = parse_companies([{"name": "Acme", "slug": "acme", "status": "Active", "team_size": 12}])
+    assert c.regions == ()
+
+
 @pytest.mark.asyncio
 async def test_client_fetch_returns_filtered_companies():
     """End-to-end: client hits yc-oss, parses, filters."""

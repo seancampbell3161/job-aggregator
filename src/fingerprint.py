@@ -70,6 +70,7 @@ _SLUG_HOSTS = {
     "jobs.ashbyhq.com": "ashby",
     "apply.workable.com": "workable",
     "careers.smartrecruiters.com": "smartrecruiters",
+    "jobs.smartrecruiters.com": "smartrecruiters",  # public posting pages; careers. is the branded board
     "ats.rippling.com": "rippling",
 }
 

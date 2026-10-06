@@ -171,7 +171,7 @@ candidate mining", and "VC portfolio auto-discovery".
 | `discovery.board_revalidate_after_days` | `14` | Healthy discovered boards re-checked this often. |
 | `discovery.board_quarantine_after_failures` | `5` | Consecutive failures before a discovered board is quarantined. |
 | `discovery.eu_seeds_enabled` | `false` | Opt-in: append `scripts/seeds/eu_companies.csv` (149 curated EU companies) to the board sweep — see [examples/eu-config.md](examples/eu-config.md). |
-| `discovery.starter_pack` | `false` | Poll the bundled starter pack — a few hundred verified tech-company boards (`scripts/seeds/starter_pack.json`), seeded as discovered boards so dead ones are dropped automatically. New installs turn it on in the setup wizard; existing installs from the banner on the Companies page. EU entries are included only with `discovery.eu_seeds_enabled`. Turning it off hides the rows; nothing is deleted. |
+| `discovery.starter_pack` | `false` | Poll the bundled starter pack — thousands of verified company boards (`scripts/seeds/starter_pack.json`, rebuilt from Common Crawl's public index each release), seeded as discovered boards so dead ones are dropped automatically. New installs turn it on in the setup wizard; existing installs from the banner on the Companies page. EU entries are included only with `discovery.eu_seeds_enabled`. Turning it off hides the rows; nothing is deleted. |
 | `discovery.hiringcafe_mining_enabled` | `true` | Convert aggregator sightings (Adzuna; hiring.cafe if its connector ever works again) of unknown boards into discovery candidates (needs `sources.adzuna.enabled`). |
 | `discovery.candidate_capture_cap` | `50` | Max sightings staged per slow cycle. |
 | `discovery.revalidate_reserve` | `100` | Slice of `max_validations_per_run` reserved for revalidation, so a busy discovery run can't starve rechecks. Keep `max_validations_per_run` comfortably above it. |
@@ -194,6 +194,7 @@ threshold calibration: GETTING_STARTED §2c and
 | `relevance.score_high` | `7` | Scores ≥ this get the instant phone push; below it (but above `score_low`) postings go to Discord/inbox only. |
 | `relevance.score_low` | `3` | Scores ≤ this are suppressed (still recorded — visible in `/audit`). Shipped: 4. Re-calibrate after any provider/model change. |
 | `relevance.timeout_seconds` | `10` | Per-posting scoring timeout (shipped: 20 for a large local model). |
+| `relevance.max_scored_per_cycle` | `100` | Most matched postings the LLM scores per check. Extra matches are left untouched and scored in later checks, newest first, so a large first check (a new install with the starter pack) drains over several cycles instead of blocking one. Has no effect when scoring is off. |
 
 ## gap_analysis
 

@@ -54,6 +54,17 @@ class DiscoveryConfig:
     board_quarantine_after_failures: int = 5
 
 
+class ProbeThrottled(Exception):
+    """An ATS answered 429. The probe proves nothing either way, so callers
+    must neither record a miss nor count a failure; the work is retried on a
+    later run."""
+
+    def __init__(self, ats_family: str, slug: str) -> None:
+        super().__init__(f"{ats_family}:{slug} throttled (429)")
+        self.ats_family = ats_family
+        self.slug = slug
+
+
 async def _probe_one_ats(
     *,
     client: httpx.AsyncClient,
@@ -83,6 +94,8 @@ async def _probe_one_ats(
             resp = await client.post(url, json={}, headers=ua_headers(), timeout=20.0)
         else:
             resp = await client.get(url, headers=ua_headers(), timeout=20.0)
+        if resp.status_code == 429:
+            raise ProbeThrottled(ats_family, slug)
         if kind == "xml":
             # Redirects (3xx) mean "not a tenant" for these hosts — only a
             # direct 200 with ≥1 element counts.
@@ -106,6 +119,8 @@ async def _probe_one_ats(
             if isinstance(v, list):
                 count = len(v)
         return (count > 0), count
+    except ProbeThrottled:
+        raise
     except Exception:  # noqa: BLE001 — defensive; a single ATS error must not crash the cycle
         log.exception("probe_ats_failed", extra={"ats": ats_family, "slug": slug})
         return False, 0
@@ -117,16 +132,27 @@ async def _probe_all_ats(
 ) -> tuple[str, int] | None:
     """Probe a slug across all supported ATS families (_SUPPORTED_ATS)
     concurrently. Returns (winning_ats_family, posting_count) for the
-    highest-count match, or None if no ATS returned ok."""
+    highest-count match, or None if no ATS returned ok. Raises ProbeThrottled
+    when nothing matched and at least one family was throttled (a miss can't
+    be concluded)."""
     results = await asyncio.gather(
-        *(_probe_one_ats(client=client, ats_family=ats, slug=slug) for ats in _SUPPORTED_ATS)
+        *(_probe_one_ats(client=client, ats_family=ats, slug=slug) for ats in _SUPPORTED_ATS),
+        return_exceptions=True,
     )
-    candidates = [
-        (ats, count) for ats, (ok, count) in zip(_SUPPORTED_ATS, results) if ok
-    ]
-    if not candidates:
-        return None
-    return max(candidates, key=lambda x: x[1])
+    candidates: list[tuple[str, int]] = []
+    throttled = False
+    for ats, res in zip(_SUPPORTED_ATS, results):
+        if isinstance(res, ProbeThrottled):
+            throttled = True
+        elif isinstance(res, BaseException):
+            raise res
+        elif res[0]:
+            candidates.append((ats, res[1]))
+    if candidates:
+        return max(candidates, key=lambda x: x[1])
+    if throttled:
+        raise ProbeThrottled("*", slug)
+    return None
 
 
 async def _revalidate_one(
@@ -138,9 +164,13 @@ async def _revalidate_one(
 ) -> None:
     """Re-probe a single previously-ok row's ats:slug. Update on success,
     increment failures (and possibly quarantine) on failure."""
-    ok, count = await _probe_one_ats(
-        client=client, ats_family=row.ats_family, slug=row.slug
-    )
+    try:
+        ok, count = await _probe_one_ats(
+            client=client, ats_family=row.ats_family, slug=row.slug
+        )
+    except ProbeThrottled:
+        log.info("discovery_probe_throttled", extra={"connector": row.connector_name})
+        return
     if ok:
         store.upsert_ok(
             row.connector_name,
@@ -161,7 +191,10 @@ async def _validate_slug_candidate(*, client, row, store, budget: int) -> int:
     budget; if the budget can't cover the fallback, the row is left staged
     for the next run (the chain is idempotent)."""
     claimed = row.claimed_family or row.ats_family
-    ok, count = await _probe_one_ats(client=client, ats_family=claimed, slug=row.slug)
+    try:
+        ok, count = await _probe_one_ats(client=client, ats_family=claimed, slug=row.slug)
+    except ProbeThrottled:
+        return budget - 1  # no conclusion: row stays staged for the next run
     budget -= 1
     if ok:
         store.upsert_ok(f"{claimed}:{row.slug}", company_name=row.company_name,
@@ -171,15 +204,22 @@ async def _validate_slug_candidate(*, client, row, store, budget: int) -> int:
     if budget < len(others):
         return budget  # out of budget mid-candidate: retry next run
     results = await asyncio.gather(
-        *(_probe_one_ats(client=client, ats_family=a, slug=row.slug) for a in others)
+        *(_probe_one_ats(client=client, ats_family=a, slug=row.slug) for a in others),
+        return_exceptions=True,
     )
     budget -= len(others)
-    candidates = [(a, c) for a, (ok2, c) in zip(others, results) if ok2]
+    for res in results:
+        if isinstance(res, BaseException) and not isinstance(res, ProbeThrottled):
+            raise res
+    candidates = [(a, res[1]) for a, res in zip(others, results)
+                  if not isinstance(res, BaseException) and res[0]]
     if candidates:
         fam, count = max(candidates, key=lambda x: x[1])
         store.delete(row.connector_name)  # re-key: claimed family was wrong
         store.upsert_ok(f"{fam}:{row.slug}", company_name=row.company_name,
                         last_posting_count=count, origin=row.origin)
+    elif any(isinstance(res, ProbeThrottled) for res in results):
+        pass  # no conclusion: row stays staged for the next run
     else:
         store.resolve_candidate_no_match(row.connector_name)
         store.upsert_no_match(row.slug)
@@ -193,6 +233,8 @@ async def _validate_board_candidate(*, client, row, boards, quarantine_threshold
     identity = dict(row.identity or {})
     try:
         count = await verify_identity(client, row.family, identity)
+    except ProbeThrottled:
+        return False  # no conclusion: no failure streak, candidate stays staged
     except Exception:  # noqa: BLE001 — transient verify errors streak, not crash
         count = 0
     if count > 0:
@@ -226,7 +268,9 @@ async def _run_candidate_chain(
     outcome — upsert_ok / boards.upsert_ok / upsert_no_match-with-methods —
     or nothing on budget cut-off (the chain is idempotent; the candidate
     re-runs from the top next cycle). Returns (remaining_budget, outcome),
-    outcome ∈ {"ok", "board_ok", "no_match", "budget", "active", "skipped"}.
+    outcome ∈ {"ok", "board_ok", "no_match", "budget", "active", "skipped",
+    "throttled"}; "throttled" = a probe got 429 (nothing persisted; retried
+    next cycle).
 
     A match is discovery's own confirmation: it is written with ``origin``
     (None for yc-oss/manual, the staged row's for a VC candidate), which
@@ -255,7 +299,10 @@ async def _run_candidate_chain(
     for kind, variant in labeled:
         if budget < _PROBES_PER_CANDIDATE:
             return budget, "budget"
-        winner = await _probe_all_ats(client, variant)
+        try:
+            winner = await _probe_all_ats(client, variant)
+        except ProbeThrottled:
+            return budget - _PROBES_PER_CANDIDATE, "throttled"
         budget -= _PROBES_PER_CANDIDATE
         if winner is not None:
             fam, count = winner
@@ -350,7 +397,8 @@ async def run_discovery(
 
     # ---------- Phase 2b: sighted slug candidates (strongest signal) ----------
     drained = {"slug_ok": 0, "slug_no_match": 0, "board_ok": 0, "board_failed": 0,
-               "name_ok": 0, "name_board_ok": 0, "name_no_match": 0, "name_moot": 0}
+               "name_ok": 0, "name_board_ok": 0, "name_no_match": 0, "name_moot": 0,
+               "name_throttled": 0}
     for row in sorted(store.list_candidates(), key=lambda r: r.sighted_at or r.discovered_at):
         if budget < 1:
             break
@@ -369,6 +417,9 @@ async def run_discovery(
             )
             if outcome == "budget":
                 break  # nothing persisted; the row re-drains next run
+            if outcome == "throttled":
+                drained["name_throttled"] += 1
+                continue  # staged row kept; retried next run
             store.delete(row.connector_name)
             if outcome == "ok":
                 drained["name_ok"] += 1
@@ -411,6 +462,7 @@ async def run_discovery(
     skipped_active = 0
     skipped_no_match = 0
     skipped_exhausted = 0
+    skipped_throttled = 0
 
     for primary, (display_name, website, alt_slug) in candidates.items():
         if budget < _PROBES_PER_CANDIDATE:
@@ -438,6 +490,9 @@ async def run_discovery(
             break  # mid-chain cut-off: nothing persisted, re-runs next cycle
         if outcome == "skipped":
             continue
+        if outcome == "throttled":
+            skipped_throttled += 1
+            continue
         candidates_done += 1
         if outcome == "ok":
             ok_count += 1
@@ -456,6 +511,7 @@ async def run_discovery(
             "skipped_active": skipped_active,
             "skipped_no_match": skipped_no_match,
             "skipped_exhausted": skipped_exhausted,
+            "skipped_throttled": skipped_throttled,
             "budget_remaining": budget,
         },
     )
@@ -515,6 +571,8 @@ async def run_discovery(
         )
         if outcome == "budget":
             break
+        if outcome == "throttled":
+            continue  # timer untouched: retried next cycle
         if outcome in ("active", "skipped"):
             # zero probes spent and nothing persisted — refresh the timer so
             # the row leaves the drain queue for another expiry cycle

@@ -1,0 +1,317 @@
+import json
+
+import pytest
+
+import scripts.build_starter_pack as B
+from scripts.pack_builder.cache import BuildCache, CheckResult
+from src.starter_pack import load_pack, write_pack
+
+URLS = ["https://jobs.ashbyhq.com/acme", "https://boards.greenhouse.io/beta",
+        "https://acme.wd1.myworkdayjobs.com/External"]
+CRAWL = "CC-MAIN-2026-39"
+
+
+class FakeVerifier:
+    calls = 0
+    script: dict = {}
+
+    def __init__(self, client, **kw):
+        pass
+
+    async def check(self, cand):
+        FakeVerifier.calls += 1
+        key = f"{cand.family}:{cand.identity.get('slug') or cand.identity.get('tenant')}"
+        return FakeVerifier.script.get(key, CheckResult("dead"))
+
+
+def _live(connector_name, us=3):
+    slug = connector_name.split(":", 1)[1]
+    return CheckResult("live", 5, us, 0, slug.title(), connector_name, {"slug": slug})
+
+
+@pytest.fixture
+def env(monkeypatch, tmp_path):
+    FakeVerifier.calls = 0
+    FakeVerifier.script = {            # workday:acme is absent → dead
+        "ashby:acme": _live("ashby:acme"),
+        "greenhouse:beta": _live("greenhouse:beta"),
+    }
+    crawl_calls = []
+
+    async def fake_list(client, n, **kw):
+        return [CRAWL]
+
+    async def fake_crawl(client, crawl_id, prefixes=None, **kw):
+        crawl_calls.append(crawl_id)
+        return list(URLS), 0
+
+    async def fake_supplement(client, **kw):
+        return []
+
+    monkeypatch.setattr(B, "list_crawls", fake_list)
+    monkeypatch.setattr(B, "crawl_urls", fake_crawl)
+    monkeypatch.setattr(B, "supplement_companies", fake_supplement)
+    monkeypatch.setattr(B, "Verifier", FakeVerifier)
+    out = tmp_path / "pack.json"
+    args = ["--cache-dir", str(tmp_path / "cache"), "--out", str(out),
+            "--version", "2026-10-06", "--report", str(tmp_path / "report.json")]
+    return out, args, crawl_calls, tmp_path
+
+
+def test_happy_path_writes_a_loadable_pack_and_report(env):
+    out, args, _, tmp = env
+    assert B.main(args) == 0
+    pack = load_pack(out)
+    assert {s.connector_name for s in pack.slugs} == {"ashby:acme", "greenhouse:beta"}
+    report = json.loads((tmp / "report.json").read_text())
+    assert report["selected"]["us"]["boards"] == 2
+    assert report["status"]["ashby"]["live"] == 1
+    assert report["status"]["workday"]["dead"] == 1
+
+
+def test_report_counts_failure_reasons_per_family(env):
+    out, args, _, tmp = env
+    FakeVerifier.script["workday:acme"] = CheckResult("deferred", reason="HTTP 400")
+    assert B.main(args + ["--allow-partial"]) == 0
+    report = json.loads((tmp / "report.json").read_text())
+    assert report["reasons"] == {"workday": {"HTTP 400": 1}}
+
+
+def test_rerun_skips_fresh_cached_checks(env):
+    out, args, _, _ = env
+    B.main(args)
+    first = FakeVerifier.calls
+    B.main(args)
+    assert FakeVerifier.calls == first        # 3 fresh results reused, nothing re-verified
+
+
+def test_crawl_candidates_are_cached(env):
+    _, args, crawl_calls, _ = env
+    B.main(args)
+    B.main(args)
+    assert crawl_calls == [CRAWL]
+
+
+def test_crawl_with_failed_blocks_is_not_cached(env, monkeypatch):
+    _, args, crawl_calls, _ = env
+
+    async def flaky(client, crawl_id, prefixes=None, **kw):
+        crawl_calls.append(crawl_id)
+        return list(URLS), 2
+
+    monkeypatch.setattr(B, "crawl_urls", flaky)
+    B.main(args)
+    B.main(args)
+    assert crawl_calls == [CRAWL, CRAWL]
+
+
+def test_partial_build_is_refused_and_pack_untouched(env):
+    out, args, _, _ = env
+    out.write_text("ORIGINAL")
+    FakeVerifier.script["ashby:acme"] = CheckResult("deferred")     # 1 of 3 = 33% > 5%
+    assert B.main(args) == 1
+    assert out.read_text() == "ORIGINAL"
+
+
+def test_allow_partial_writes_anyway(env):
+    out, args, _, _ = env
+    FakeVerifier.script["ashby:acme"] = CheckResult("deferred")
+    assert B.main(args + ["--allow-partial"]) == 0
+    assert {s.connector_name for s in load_pack(out).slugs} == {"greenhouse:beta"}
+
+
+def test_empty_pack_is_refused(env):
+    out, args, _, _ = env
+    FakeVerifier.script = {}
+    assert B.main(args) == 1 and not out.exists()
+
+
+def test_report_includes_previous_pack_counts(env, capsys):
+    out, args, _, tmp = env
+    write_pack({"version": "old", "boards": [], "slugs": [
+        {"ats": "lever", "slug": f"s{i}", "company": None, "region": "us", "postings": 1}
+        for i in range(10)]}, out)
+    B.main(args)
+    report = json.loads((tmp / "report.json").read_text())
+    assert report["previous"] == {"slugs": 10, "boards": 0}
+    assert "previous pack: 10 slugs + 0 boards" in capsys.readouterr().out
+
+
+def test_unreachable_crawl_list_exits_2(env, monkeypatch):
+    _, args, _, _ = env
+
+    async def down(client, n, **kw):
+        raise B.CrawlFetchError("collinfo: HTTP 504")
+
+    monkeypatch.setattr(B, "list_crawls", down)
+    assert B.main(args) == 2
+
+
+def test_supplement_failure_exits_2_and_writes_nothing(env, monkeypatch):
+    import httpx
+    out, args, _, _ = env
+
+    async def down(client, **kw):
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(B, "supplement_companies", down)
+    assert B.main(args) == 2
+    assert not out.exists()
+
+
+def test_corrupt_crawl_cache_is_a_cache_miss(env):
+    _, args, crawl_calls, tmp = env
+    assert B.main(args) == 0
+    [cached] = (tmp / "cache" / "crawls").glob(f"{CRAWL}.*.json")
+    cached.write_text("not json")
+    assert B.main(args) == 0
+    assert crawl_calls == [CRAWL, CRAWL]
+
+
+def test_no_lever_skips_the_supplement(env, monkeypatch):
+    _, args, _, _ = env
+
+    async def boom(client, **kw):
+        raise AssertionError("supplement must not be called")
+
+    monkeypatch.setattr(B, "supplement_companies", boom)
+    assert B.main(args + ["--no-lever"]) == 0
+
+
+def test_lever_supplement_candidates_reach_the_verifier(env, monkeypatch):
+    out, args, _, _ = env
+
+    async def fake_supplement(client, **kw):
+        return [("Acme Lever", None)]
+
+    monkeypatch.setattr(B, "supplement_companies", fake_supplement)
+    FakeVerifier.script["lever:acme-lever"] = _live("lever:acme-lever")
+    assert B.main(args) == 0
+    assert "lever:acme-lever" in {s.connector_name for s in load_pack(out).slugs}
+
+
+def test_changing_the_surt_prefixes_misses_the_crawl_cache(env, monkeypatch):
+    _, args, crawl_calls, _ = env
+    B.main(args)
+    monkeypatch.setattr(B, "SURT_PREFIXES", B.SURT_PREFIXES + ("com,newats,",))
+    B.main(args)
+    assert crawl_calls == [CRAWL, CRAWL]   # a new family must not reuse the old list
+
+
+def test_crawl_is_read_with_the_prefixes_its_cache_is_keyed_on(env, monkeypatch):
+    _, args, _, _ = env
+    seen = []
+
+    async def fake_crawl(client, crawl_id, prefixes=None, **kw):
+        seen.append(prefixes)
+        return list(URLS), 0
+
+    monkeypatch.setattr(B, "crawl_urls", fake_crawl)
+    monkeypatch.setattr(B, "SURT_PREFIXES", ("io,greenhouse,boards)/",))
+    B.main(args)
+    assert seen == [("io,greenhouse,boards)/",)]
+
+
+def test_invalid_remote_crawl_ids_are_skipped_with_a_warning(env, monkeypatch, capsys):
+    _, args, crawl_calls, tmp = env
+
+    async def fake_list(client, n, **kw):
+        return ["../../etc/passwd", CRAWL, "CC-MAIN-2026-39/x"]
+
+    monkeypatch.setattr(B, "list_crawls", fake_list)
+    assert B.main(args) == 0
+    assert crawl_calls == [CRAWL]
+    err = capsys.readouterr().err
+    assert "../../etc/passwd" in err and "CC-MAIN-2026-39/x" in err
+    assert [p.name.split(".")[0] for p in (tmp / "cache" / "crawls").iterdir()] == [CRAWL]
+
+
+def test_no_valid_remote_crawl_id_exits_2(env, monkeypatch, capsys):
+    out, args, crawl_calls, _ = env
+
+    async def fake_list(client, n, **kw):
+        return ["bogus"]
+
+    monkeypatch.setattr(B, "list_crawls", fake_list)
+    assert B.main(args) == 2
+    assert crawl_calls == [] and not out.exists()
+    assert "no valid Common Crawl id" in capsys.readouterr().err
+
+
+def test_explicit_invalid_crawl_id_is_a_usage_error(env):
+    _, args, crawl_calls, _ = env
+    with pytest.raises(SystemExit) as exc:
+        B.main(args + ["--crawl", "../escape"])
+    assert exc.value.code == 2 and crawl_calls == []
+
+
+def test_explicit_valid_crawl_id_is_used(env):
+    _, args, crawl_calls, _ = env
+    assert B.main(args + ["--crawl", "CC-MAIN-2025-51"]) == 0
+    assert crawl_calls == ["CC-MAIN-2025-51"]
+
+
+def test_failed_blocks_warn_on_stderr_without_report(env, monkeypatch, capsys):
+    _, args, _, _ = env
+    args = [a for i, a in enumerate(args)
+            if a != "--report" and (i == 0 or args[i - 1] != "--report")]
+
+    async def flaky(client, crawl_id, prefixes=None, **kw):
+        return list(URLS), 3
+
+    monkeypatch.setattr(B, "crawl_urls", flaky)
+    B.main(args)
+    err = capsys.readouterr().err
+    assert CRAWL in err and "3" in err and "block" in err
+
+
+@pytest.fixture
+def select_env(env, monkeypatch):
+    """A pre-populated cache and no network: crawl, supplement, listing and
+    verification all raise if touched."""
+    out, args, _, tmp = env
+
+    async def boom(*a, **kw):
+        raise AssertionError("select-only must not touch the network")
+
+    class BoomVerifier:
+        def __init__(self, *a, **kw):
+            raise AssertionError("select-only must not build a verifier")
+
+    for name in ("list_crawls", "crawl_urls", "supplement_companies"):
+        monkeypatch.setattr(B, name, boom)
+    monkeypatch.setattr(B, "Verifier", BoomVerifier)
+    monkeypatch.setattr(B.httpx, "AsyncClient", boom)
+    cache = BuildCache(tmp / "cache" / "checks.db")
+    cache.put("ashby:acme", "ashby", _live("ashby:acme"))
+    cache.put("greenhouse:beta", "greenhouse", _live("greenhouse:beta"))
+    cache.put("workday:acme", "workday", CheckResult("dead"))
+    cache.put("workable:slow", "workable", CheckResult("deferred", reason="HTTP 429"))
+    cache.close()
+    return out, args + ["--select-only"], tmp
+
+
+def test_select_only_writes_a_pack_from_cached_live_rows(select_env):
+    out, args, tmp = select_env
+    assert B.main(args + ["--allow-partial"]) == 0
+    assert {s.connector_name for s in load_pack(out).slugs} == {"ashby:acme", "greenhouse:beta"}
+
+
+def test_select_only_refuses_a_partial_cache_without_allow_partial(select_env):
+    out, args, _ = select_env
+    out.write_text("ORIGINAL")
+    assert B.main(args) == 1                 # 1 of 4 deferred = 25% > 5%
+    assert out.read_text() == "ORIGINAL"
+
+
+def test_select_only_report_reflects_cached_statuses(select_env):
+    out, args, tmp = select_env
+    assert B.main(args + ["--allow-partial"]) == 0
+    report = json.loads((tmp / "report.json").read_text())
+    assert report["status"]["ashby"] == {"live": 1}
+    assert report["status"]["workday"] == {"dead": 1}
+    assert report["status"]["workable"] == {"deferred": 1}
+    assert report["reasons"]["workable"] == {"HTTP 429": 1}
+    assert report["deferred_ratio"] == 0.25
+    assert report["crawls"] == "select-only"
+    assert report["candidates"] == {"cached": 4}

@@ -104,6 +104,24 @@ async def _fetch_one(
         return conn.name, exc
 
 
+def _cap_for_scoring(matched: list, cap: int) -> tuple[list, list]:
+    """Split matched (posting, decision) pairs into (scored this cycle,
+    deferred). The scored slice is newest first; undated postings go last.
+    Deferred pairs are dropped from this cycle: the seen-jobs store records
+    nothing for them, and run_once drops their boards' cache hints, so they
+    re-match next cycle."""
+    if len(matched) <= cap:
+        return matched, []
+    ordered = sorted(
+        matched,
+        key=lambda pair: pair[0].posted_at.timestamp() if pair[0].posted_at else float("-inf"),
+        reverse=True,
+    )
+    log.info("scoring_capped",
+             extra={"matched": len(matched), "scored": cap, "deferred": len(matched) - cap})
+    return ordered[:cap], ordered[cap:]
+
+
 async def _enrich_matched(
     matched: list[tuple], by_name: dict, client: httpx.AsyncClient, browser=None
 ) -> list[tuple]:
@@ -189,6 +207,7 @@ async def run_once(
 
         all_postings: list[RawPosting] = []
         new_states: dict[str, ConnectorState] = {}
+        fetched_by: dict[str, str] = {}  # posting source -> connector name
         outcomes: list[tuple[str, str]] = []
         retry_after: dict[str, int | None] = {}
         for name, res in fetched:
@@ -209,6 +228,10 @@ async def run_once(
                 )
                 continue
             all_postings.extend(res.postings)
+            # A posting's source is not always its connector's name (hiringcafe
+            # emits "hiringcafe:{family}:{slug}"); remember who fetched it.
+            for raw in res.postings:
+                fetched_by[raw.source] = name
             if res.new_state is not None:
                 new_states[name] = res.new_state
         result.fetched_count = len(all_postings)
@@ -323,6 +346,21 @@ async def run_once(
                 "rejected": len(filter_source) - result.matched_count,
             },
         )
+
+        # Enrichment and scoring both scale with this list, so cap first.
+        if relevance_scorer is not None and not calibrate:
+            matched, deferred = _cap_for_scoring(matched, cfg.relevance.max_scored_per_cycle)
+            # Same hazard as the dry-run note above: the ETag / Last-Modified
+            # saved earlier this cycle would make the next fetch of a board
+            # with deferred matches a 304 with zero postings, so those matches
+            # would only come back when the board changed (and could age out
+            # of filters.max_age_days first). Drop just those cache hints so
+            # the next fetch is unconditional. The payload is connector-owned
+            # bookkeeping (e.g. adzuna's metered call budget) and is kept.
+            if deferred and not dry_run:
+                for name in sorted({fetched_by.get(n.source, n.source) for n, _ in deferred}):
+                    st = new_states.get(name, prior.get(name, ConnectorState()))
+                    source_state.put(name, ConnectorState(payload=st.payload))
 
         # Enrich filter-survivors with full detail (e.g. Workday's real JD)
         # before scoring, for connectors that support it. Bounded to survivors.

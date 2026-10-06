@@ -78,7 +78,7 @@ After the password, **/setup** offers four ways in:
   résumé and answers, or — without an LLM — the form is pre-filled from the
   interview instead; you edit and approve them like any other setting),
   **Companies** (*Where to look*: two pre-ticked boxes — the starter pack of
-  verified tech-company boards and ongoing discovery — plus add a specific
+  verified company boards and ongoing discovery — plus add a specific
   board by pasting its careers URL), **Notifications**
   (a generated ntfy topic with a QR code to scan, plus a real test send),
   and **Preview** (a bounded, read-only poll showing what would match right
@@ -773,14 +773,17 @@ cycle logs for that company's job count. The tier runs every
 
 ### Starter pack
 
-New installs begin with a **starter pack**: a few hundred verified
-tech-company boards (Greenhouse, Lever, Ashby, Workday and more) bundled in
-`scripts/seeds/starter_pack.json`. The setup wizard's *Where to look* step
-turns it on together with discovery (both boxes are pre-ticked); choosing
-*Start from defaults* on `/setup` turns both on too. Starter boards are stored
-like discovered boards, so ones that die are dropped automatically. Your
-filters run before any LLM scoring, so a bigger pack means more postings
-fetched but only filter survivors are scored.
+New installs begin with a **starter pack**: thousands of verified company
+boards (Greenhouse, Ashby, Workday, Lever, Oracle Cloud and more) bundled in
+`scripts/seeds/starter_pack.json`. Each release rebuilds it from Common
+Crawl's public index of job-board pages, keeping only boards that are live
+and post US jobs (plus a separate EU set). The setup wizard's *Where to look*
+step turns it on together with discovery (both boxes are pre-ticked);
+choosing *Start from defaults* on `/setup` turns both on too. Starter boards
+are stored like discovered boards, so ones that die are dropped
+automatically. Your filters run before any LLM scoring, and scoring is capped
+per check (`relevance.max_scored_per_cycle`), so a big first check fills in
+over a few cycles instead of all at once.
 
 Upgrading from an earlier version changes nothing until you opt in: the
 Companies page offers the pack with one click. Turn it off any time with

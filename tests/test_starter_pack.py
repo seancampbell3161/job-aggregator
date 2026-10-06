@@ -107,8 +107,8 @@ def test_reconcile_reads_keys_once_and_seeds_only_missing(tmp_path):
     s_spy, b_spy = _Spy(slugs), _Spy(boards)
     result = reconcile(pack, eu_enabled=True, slugs_store=s_spy, boards_store=b_spy)
     assert (result.inserted, result.skipped) == (1, 2)   # only the EU slug is new
-    assert s_spy.calls == {"list_all": 1, "seed_ok": 1}
-    assert b_spy.calls == {"list_all": 1}
+    assert s_spy.calls == {"list_all": 1, "seed_many": 1}
+    assert b_spy.calls == {"list_all": 1, "seed_many": 1}
 
 
 def test_starter_visible_rules():
@@ -176,3 +176,76 @@ def test_non_list_boards_treated_as_empty(tmp_path):
     pack = load_pack(_write(tmp_path, data))
     assert len(pack.boards) == 0
     assert len(pack.slugs) == 2  # slugs still loaded
+
+
+def test_write_pack_is_canonical_and_loadable(tmp_path):
+    from src.starter_pack import load_pack, write_pack
+    pack = {
+        "version": "2026-10-06",
+        "slugs": [
+            {"ats": "lever", "slug": "b", "company": "B", "region": "us", "postings": 2},
+            {"ats": "ashby", "slug": "a", "company": "A", "region": "us", "postings": 1},
+        ],
+        "boards": [
+            {"family": "workday", "identity": {"tenant": "z", "region": "wd1", "site": "S"},
+             "company": "Z", "domain": "pack:workday:z:S", "connector_name": "workday:z:S",
+             "region": "us", "postings": 9},
+            {"family": "oraclecloud", "identity": {"tenant": "o", "region": "us2", "site": "C"},
+             "company": "O", "domain": "pack:oraclecloud:o:C", "connector_name": "oraclecloud:o:C",
+             "region": "eu", "postings": 3},
+        ],
+    }
+    out = tmp_path / "pack.json"
+    write_pack(pack, out)
+    text = out.read_text()
+    assert text.endswith("\n")
+    data = json.loads(text)
+    assert [s["ats"] for s in data["slugs"]] == ["ashby", "lever"]
+    assert [b["family"] for b in data["boards"]] == ["oraclecloud", "workday"]
+    loaded = load_pack(out)
+    assert len(loaded.slugs) == 2 and len(loaded.boards) == 2
+    write_pack(pack, out)
+    assert out.read_text() == text               # deterministic
+
+
+def _conn_stores():
+    conn = connect(":memory:")
+    return conn, SqliteDiscoveredSlugsStore(conn), SqliteDiscoveredBoardsStore(conn)
+
+
+def test_reconcile_commits_once_per_store():
+    from src.starter_pack import PackBoard, PackSlug
+    conn, slugs, boards = _conn_stores()
+    pack = StarterPack("v",
+        tuple(PackSlug("greenhouse", f"co{i}", f"Co{i}", "us", 1) for i in range(50)),
+        tuple(PackBoard("workday", {"tenant": f"t{i}", "region": "wd1", "site": "s"}, f"T{i}",
+                        f"pack:workday:t{i}:s", f"workday:t{i}:s", "us", 5) for i in range(20)))
+    statements = []
+    conn.set_trace_callback(statements.append)
+    result = reconcile(pack, eu_enabled=False, slugs_store=slugs, boards_store=boards)
+    conn.set_trace_callback(None)
+    assert result.inserted == 70 and result.skipped == 0
+    assert sum(s.strip().upper() == "COMMIT" for s in statements) == 2
+
+
+def test_seed_many_never_touches_an_existing_row():
+    conn, slugs, _ = _conn_stores()
+    slugs.upsert_failed("greenhouse:dead", quarantine_threshold=1)    # quarantined
+    n = slugs.seed_many([
+        {"connector_name": "greenhouse:dead", "company_name": "D", "origin": "starter",
+         "last_posting_count": 9},
+        {"connector_name": "greenhouse:new", "company_name": "N", "origin": "starter",
+         "last_posting_count": 4},
+    ])
+    assert n == 1
+    assert slugs.get("greenhouse:dead").validation_status == "quarantined"
+    new = slugs.get("greenhouse:new")
+    assert new.validation_status == "ok" and new.origin == "starter" and new.last_posting_count == 4
+
+
+def test_seed_ok_still_reports_insert_if_absent():
+    _, _, boards = _conn_stores()
+    kw = dict(name="3M", family="workday", identity={"tenant": "3m", "region": "wd1", "site": "S"},
+              connector_name="workday:3m:S", company="3M", origin="starter")
+    assert boards.seed_ok("pack:workday:3m:S", **kw) is True
+    assert boards.seed_ok("pack:workday:3m:S", **kw) is False
