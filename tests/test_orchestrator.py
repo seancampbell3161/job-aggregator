@@ -1337,3 +1337,109 @@ def test_max_scored_per_cycle_defaults_to_100_and_rejects_zero():
     assert RelevanceConfig().max_scored_per_cycle == 100
     with pytest.raises(ValidationError):
         RelevanceConfig(max_scored_per_cycle=0)
+
+
+class _EtagConnector:
+    """Honours ETags like the real ATS connectors: answers its own ETag with
+    a 304 (no postings) and anything else with the full board plus a new ETag."""
+    tier = "ats"
+
+    def __init__(self, name, postings, payload=None):
+        self.name = name
+        self._postings = postings
+        self._payload = payload
+        self.received: list[ConnectorState] = []
+
+    async def fetch(self, client, state):
+        self.received.append(state)
+        if state.etag == "v1":
+            return FetchResult(postings=[], new_state=None, not_modified=True)
+        return FetchResult(
+            postings=self._postings,
+            new_state=ConnectorState(etag="v1", last_modified="Mon", payload=self._payload),
+            not_modified=False,
+        )
+
+
+def _scorer():
+    scorer = AsyncMock()
+    scorer.score = AsyncMock(return_value=Score(value=8, rationale="ok", is_fallback=False))
+    return scorer
+
+
+@pytest.mark.asyncio
+async def test_scoring_cap_deferred_matches_survive_an_etag_board(store):
+    seen, src_state = store
+    conn = _EtagConnector(
+        "greenhouse:stripe", [_matching("old", 1), _matching("mid", 10), _matching("new", 20)]
+    )
+    sink = _RecordingSink()
+    scorer = _scorer()
+
+    for _ in range(3):
+        await run_once(
+            cfg=_capped_cfg(1), tier="ats", store=seen, source_state=src_state,
+            connectors=[conn], sinks=[sink], client_factory=lambda: httpx.AsyncClient(),
+            relevance_scorer=scorer,
+        )
+    assert [p.apply_url for p in sink.received] == [
+        "https://x/new", "https://x/mid", "https://x/old",
+    ]
+    # Once nothing is deferred the ETag is kept again, so the board goes
+    # back to cheap conditional fetches.
+    assert src_state.get("greenhouse:stripe").etag == "v1"
+    await run_once(
+        cfg=_capped_cfg(1), tier="ats", store=seen, source_state=src_state,
+        connectors=[conn], sinks=[sink], client_factory=lambda: httpx.AsyncClient(),
+        relevance_scorer=scorer,
+    )
+    assert conn.received[-1].etag == "v1"
+
+
+@pytest.mark.asyncio
+async def test_scoring_cap_drops_only_the_cache_hints_of_deferring_boards(store):
+    seen, src_state = store
+    deferring = _EtagConnector(
+        "greenhouse:stripe", [_matching("old", 1), _matching("new", 20)],
+        payload={"budget_calls": 3},
+    )
+    other = _EtagConnector("lever:acme", [])
+
+    await run_once(
+        cfg=_capped_cfg(1), tier="ats", store=seen, source_state=src_state,
+        connectors=[deferring, other], sinks=[_RecordingSink()],
+        client_factory=lambda: httpx.AsyncClient(), relevance_scorer=_scorer(),
+    )
+    # The deferring board loses its ETag / Last-Modified (next fetch is
+    # unconditional) but keeps its connector-owned payload, such as a budget.
+    assert src_state.get("greenhouse:stripe") == ConnectorState(payload={"budget_calls": 3})
+    # A board with nothing deferred keeps its cache hints.
+    assert src_state.get("lever:acme") == ConnectorState(etag="v1", last_modified="Mon")
+
+
+@pytest.mark.asyncio
+async def test_scoring_cap_finds_the_board_when_posting_source_differs_from_its_name(store):
+    """hiringcafe's postings carry source "hiringcafe:{family}:{slug}", not the
+    connector's name; the rollback must still reach the connector's state."""
+    seen, src_state = store
+    postings = [replace(_matching(e, d), source="hiringcafe:greenhouse:stripe")
+                for e, d in (("old", 1), ("new", 20))]
+    conn = _EtagConnector("hiringcafe", postings)
+    await run_once(
+        cfg=_capped_cfg(1), tier="ats", store=seen, source_state=src_state,
+        connectors=[conn], sinks=[_RecordingSink()],
+        client_factory=lambda: httpx.AsyncClient(), relevance_scorer=_scorer(),
+    )
+    assert src_state.get("hiringcafe").etag is None
+
+
+@pytest.mark.asyncio
+async def test_scoring_cap_dry_run_writes_no_state(store):
+    seen, src_state = store
+    conn = _EtagConnector("greenhouse:stripe", [_matching("old", 1), _matching("new", 20)])
+    await run_once(
+        cfg=_capped_cfg(1), tier="ats", store=seen, source_state=src_state,
+        connectors=[conn], sinks=[], client_factory=lambda: httpx.AsyncClient(),
+        relevance_scorer=_scorer(), dry_run=True,
+    )
+    assert src_state.get("greenhouse:stripe") == ConnectorState()
