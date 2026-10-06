@@ -136,3 +136,45 @@ def test_unreachable_crawl_list_exits_2(env, monkeypatch):
 
     monkeypatch.setattr(B, "list_crawls", down)
     assert B.main(args) == 2
+
+
+def test_supplement_failure_exits_2_and_writes_nothing(env, monkeypatch):
+    import httpx
+    out, args, _, _ = env
+
+    async def down(client, **kw):
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(B, "supplement_companies", down)
+    assert B.main(args) == 2
+    assert not out.exists()
+
+
+def test_corrupt_crawl_cache_is_a_cache_miss(env):
+    _, args, crawl_calls, tmp = env
+    assert B.main(args) == 0
+    (tmp / "cache" / "crawls" / "CC-1.json").write_text("not json")
+    assert B.main(args) == 0
+    assert crawl_calls == ["CC-1", "CC-1"]
+
+
+def test_no_lever_skips_the_supplement(env, monkeypatch):
+    _, args, _, _ = env
+
+    async def boom(client, **kw):
+        raise AssertionError("supplement must not be called")
+
+    monkeypatch.setattr(B, "supplement_companies", boom)
+    assert B.main(args + ["--no-lever"]) == 0
+
+
+def test_lever_supplement_candidates_reach_the_verifier(env, monkeypatch):
+    out, args, _, _ = env
+
+    async def fake_supplement(client, **kw):
+        return [("Acme Lever", None)]
+
+    monkeypatch.setattr(B, "supplement_companies", fake_supplement)
+    FakeVerifier.script["lever:acme-lever"] = _live("lever:acme-lever")
+    assert B.main(args) == 0
+    assert "lever:acme-lever" in {s.connector_name for s in load_pack(out).slugs}

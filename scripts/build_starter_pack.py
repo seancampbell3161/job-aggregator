@@ -36,6 +36,10 @@ from scripts.pack_builder.verify import Verifier  # noqa: E402
 from src.starter_pack import STARTER_PACK_PATH, load_pack, write_pack  # noqa: E402
 from src.user_agent import headers as ua_headers  # noqa: E402
 
+class SupplementError(Exception):
+    """The company-name feed (YC) was unreachable or unreadable."""
+
+
 PARTIAL_THRESHOLD = 0.05
 _BATCH = 500
 
@@ -50,8 +54,13 @@ async def gather_candidates(client, crawl_ids: list[str], cache_dir: Path, *,
     crawl_dir.mkdir(parents=True, exist_ok=True)
     for crawl in crawl_ids:
         cached = crawl_dir / f"{crawl}.json"
+        pairs = None
         if cached.exists():
-            pairs = json.loads(cached.read_text())
+            try:
+                pairs = json.loads(cached.read_text())
+            except ValueError:  # corrupt cache file: treat as a miss and re-read
+                pairs = None
+        if pairs is not None:
             stats[crawl] = {"cached": True, "candidates": len(pairs), "failed_blocks": 0}
         else:
             urls, failed = await crawl_urls(client, crawl)
@@ -63,7 +72,11 @@ async def gather_candidates(client, crawl_ids: list[str], cache_dir: Path, *,
                             "failed_blocks": failed}
         found += [Candidate(f, i, SOURCE_CC) for f, i in pairs]
     if lever:
-        found += lever_guesses(await supplement_companies(client))
+        try:
+            companies = await supplement_companies(client)
+        except (httpx.HTTPError, ValueError) as exc:
+            raise SupplementError(str(exc) or type(exc).__name__) from exc
+        found += lever_guesses(companies)
     return dedup(found), stats
 
 
@@ -87,6 +100,10 @@ async def build(args, client) -> int:
                                                      lever=not args.no_lever)
     except CrawlFetchError as exc:
         print(f"error: Common Crawl unreachable: {exc}", file=sys.stderr)
+        return 2
+    except SupplementError as exc:
+        print(f"error: company-name supplement unavailable ({exc}); "
+              "re-run later or pass --no-lever", file=sys.stderr)
         return 2
     cache = BuildCache(args.cache_dir / "checks.db")
     try:
