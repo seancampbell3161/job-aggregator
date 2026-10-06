@@ -25,15 +25,19 @@ from src.notify.ntfy import NtfySink
 from src.notify.ops import send_ops_alert
 from src.ops_alerts import OpsAlertEvaluator, OpsThresholds
 from src.orchestrator import run_once
+from src.pacing import VendorPacer
 from src.coach import AnthropicCoach, CoachEngine, GeminiCoach, OllamaCoach
 from src.gaps import AnthropicGapAnalyzer, GapAnalyzer, GeminiGapAnalyzer, OllamaGapAnalyzer
 from src.relevance import GeminiRelevanceScorer, OllamaRelevanceScorer, RelevanceScorer
 from src.settings.service import ConfigService
 from src.starter_pack import default_pack, gate_stores, reconcile
 from src.stores import build_stores
+from src.version import APP_VERSION
 
 log = logging.getLogger(__name__)
 
+# One pacer per tier, shared across cycles so throttle feedback persists.
+_PACERS: dict[str, VendorPacer] = {}
 _VALID_TIERS = {"ats", "slow", "discovery", "digest", "headless"}
 
 
@@ -371,6 +375,21 @@ async def _run(
     except Exception:  # noqa: BLE001 — degrade to polling everything if the table is unreadable
         log.warning("suppressed_names_unavailable")
         suppressed = frozenset()
+    # Adaptive cadence (ats/slow only; dry runs and calibrate neither read nor
+    # write the schedule). Boards not yet due are skipped like suppressed ones.
+    use_cadence = tier in ("ats", "slow") and not dry_run and not calibrate
+    now_ms = int(time.time() * 1000)
+    not_due: set[str] = set()
+    gen_changed = use_cadence  # until the stored generation is seen to match
+    if use_cadence:
+        try:
+            # A settings edit (new generation) makes every board due this cycle.
+            if stores.schedule.generation(tier) == snap.generation:
+                gen_changed = False
+                not_due = stores.schedule.not_due(now_ms)
+        except Exception:  # noqa: BLE001 — degrade to polling everything
+            log.warning("schedule_unavailable", extra={"tier": tier})
+        suppressed = set(suppressed) | not_due
     sightings = None
     if (
         tier == "slow"
@@ -392,6 +411,14 @@ async def _run(
     gap_analyzer = _build_gap_analyzer(cfg, snap.documents.resume_text)
     # calibrate never writes jobs or notifies (the idempotent pack seed above still runs)
     dry_run = dry_run or calibrate
+    pacer: VendorPacer | None = None
+    fetch_deadline_s: float | None = None
+    if tier in ("ats", "slow"):
+        interval_s = (cfg.schedules.ats_minutes if tier == "ats" else cfg.schedules.slow_minutes) * 60
+        fetch_deadline_s = 0.8 * interval_s
+        # A preview (dry run / calibrate) gets a fresh pacer so it never
+        # perturbs the daemon's pacing.
+        pacer = VendorPacer() if dry_run else _PACERS.setdefault(tier, VendorPacer())
     result = await run_once(
         cfg=cfg, tier=tier, store=store, source_state=source_state,  # type: ignore[arg-type]
         connectors=connectors, sinks=sinks,
@@ -402,9 +429,36 @@ async def _run(
         health=health,
         calibrate=calibrate,
         rejected_store=stores.rejected if cfg.audit.enabled else None,
+        # Evaluation memory: ats/slow only; the headless tier is exempt.
+        evaluated_store=stores.evaluated if tier in ("ats", "slow") else None,
+        generation=snap.generation if tier in ("ats", "slow") else None,
+        app_version=APP_VERSION if tier in ("ats", "slow") else None,
         browser_factory=browser_factory,
         max_concurrency=(3 if tier == "headless" else 40),
+        pacer=pacer,
+        fetch_deadline_s=fetch_deadline_s,
     )
+    if use_cadence:
+        # Only successfully fetched boards are in result.polled: failed fetches
+        # keep their schedule rows and paced-out boards stay due.
+        try:
+            force_due = set(result.deferred_sources)
+            if gen_changed:
+                # The settings changed this cycle: a board that was attempted
+                # but not polled (failed / paced out) must not stay on its old,
+                # possibly hour-long schedule once the new generation is recorded.
+                force_due |= {c.name for c in connectors if c.name not in result.polled}
+            stores.schedule.record_polls(
+                result.polled, base_interval_s=interval_s, now_ms=now_ms,
+                force_due=force_due,
+            )
+            stores.schedule.set_generation(tier, snap.generation)
+            log.info("cadence_done", extra={
+                "tier": tier, "polled": len(result.polled),
+                "not_due": len(not_due), "paced_out": len(result.paced_out),
+            })
+        except Exception:  # noqa: BLE001 — a schedule write must never fail the cycle
+            log.warning("schedule_write_failed", extra={"tier": tier})
     if sightings and not dry_run:
         try:
             from src.sightings import drain_sightings

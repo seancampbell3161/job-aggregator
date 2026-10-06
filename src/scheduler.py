@@ -26,6 +26,7 @@ from src.handler import _run
 from src.logging_setup import configure_logging
 from src.settings.service import ConfigService, ConfigSnapshot
 from src.stores import build_stores
+from src.version import APP_VERSION
 
 log = logging.getLogger(__name__)
 
@@ -105,6 +106,9 @@ def _prune(service: ConfigService) -> None:
         stores = build_stores()
         removed = stores.seen.prune_expired()
         log.info("scheduled_prune_complete", extra={"removed": removed})
+        removed = stores.evaluated.prune(current_generation=snap.generation,
+                                         current_app_version=APP_VERSION)
+        log.info("scheduled_evaluated_prune_complete", extra={"removed": removed})
         if cfg.audit.enabled:
             removed = stores.rejected.prune_older_than(cfg.audit.retention_days)
             log.info("scheduled_rejected_prune_complete", extra={"removed": removed})

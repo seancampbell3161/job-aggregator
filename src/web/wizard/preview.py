@@ -14,6 +14,7 @@ import httpx
 
 from src.connectors.base import build_connectors
 from src.orchestrator import run_once
+from src.pacing import VendorPacer
 from src.settings.boards import board_entries
 from src.starter_pack import default_pack, gate_stores, reconcile
 
@@ -83,6 +84,7 @@ async def _run(app) -> dict:
         gap_analyzer=None,           # not worth an LLM call per posting here
         health=None,
         rejected_store=None,
+        pacer=VendorPacer(),         # fresh: a preview never touches the poller's pacing
     )
     return {
         "status": "ok",

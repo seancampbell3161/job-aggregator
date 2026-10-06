@@ -98,3 +98,38 @@ def test_prune_older_than_spares_verdicted_rows():
     assert s.prune_older_than(30) == 1
     ids = [r["job_id"] for r in s.list_rejected(since_iso="")]
     assert ids == ["a:1"]
+
+
+def test_record_many_is_capture_once_with_the_same_rows_as_record():
+    s = _store()
+    s.record(_posting("a:1"), rejected_by="role")
+    inserted = s.record_many([
+        (_posting("a:1"), "location"),      # already recorded: first rejection wins
+        (_posting("a:2", title="Barista"), "role"),
+        (_posting("a:3", title="Chef"), "comp"),
+    ])
+    assert inserted == 2
+    rows = {r["job_id"]: r for r in s.list_rejected(since_iso="")}
+    assert set(rows) == {"a:1", "a:2", "a:3"}
+    assert rows["a:1"]["rejected_by"] == "role"
+    assert rows["a:3"]["rejected_by"] == "comp"
+    single = _store()
+    single.record(_posting("a:2", title="Barista"), rejected_by="role")
+    via_record = single.list_rejected(since_iso="")[0]
+    assert {k: v for k, v in rows["a:2"].items() if k != "first_seen"} == \
+        {k: v for k, v in via_record.items() if k != "first_seen"}
+
+
+def test_record_many_empty_is_noop():
+    assert _store().record_many([]) == 0
+
+
+def test_record_many_writes_all_or_nothing():
+    s = _store()
+    s._conn.execute(
+        "CREATE TRIGGER boom BEFORE INSERT ON rejected_postings "
+        "WHEN NEW.job_id = 'a:3' BEGIN SELECT RAISE(ABORT, 'boom'); END")
+    with pytest.raises(Exception, match="boom"):
+        s.record_many([(_posting("a:2"), "role"), (_posting("a:3"), "role")])
+    assert s.list_rejected(since_iso="") == []
+    assert not s._conn.in_transaction

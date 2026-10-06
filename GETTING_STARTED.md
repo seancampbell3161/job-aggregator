@@ -771,6 +771,17 @@ WAF that blocks even a real browser. After adding it, watch the `headless`
 cycle logs for that company's job count. The tier runs every
 `schedules.headless_minutes` (default 45).
 
+### Smart board polling
+
+Each board's polling frequency adjusts based on what its last check found.
+If a check found a new posting, the board is checked every cycle (every 10
+minutes by default for ATS boards). If a check found nothing new, the wait
+doubles — up to about an hour between checks — so the poller doesn't waste
+time on quiet boards. Any new posting resets it back to every cycle. After
+you change any setting, every board is checked on the next cycle. When a
+job site throttles requests, the poller spaces them out; any board it
+couldn't fetch before the cycle deadline is checked next cycle.
+
 ### Starter pack
 
 New installs begin with a **starter pack**: thousands of verified company

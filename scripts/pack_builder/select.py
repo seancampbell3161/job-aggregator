@@ -5,8 +5,9 @@ Per region: walk boards by regional share (desc), then smaller boards first
 budget. A board that would bust the budget is skipped, not a stop, so smaller
 boards keep filling what remains. Regional share is the fraction of postings
 serving that region; polling spent on non-regional postings is waste for that
-region's users. Smaller boards first fits the most companies under today's
-polling capacity; step 3 of the max-coverage effort raises the limits."""
+region's users. Smaller boards first fits the most companies per unit of polling. The limits sit above
+every live board the build found, so nothing is dropped today; they remain a
+ceiling if a later build finds more."""
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -22,8 +23,8 @@ class Limits:
     max_postings: int
 
 
-US_LIMITS = Limits(max_boards=4_000, max_postings=100_000)
-EU_LIMITS = Limits(max_boards=1_000, max_postings=20_000)
+US_LIMITS = Limits(max_boards=12_000, max_postings=400_000)
+EU_LIMITS = Limits(max_boards=2_000, max_postings=60_000)
 
 
 @dataclass(frozen=True)

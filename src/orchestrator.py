@@ -19,6 +19,7 @@ from src.notify.format import format_payload
 from src.tailor.endpoint.auth import build_tailor_url
 from src.gaps import GapAnalyzer, Gaps
 from src.relevance import RelevanceScorer, Score
+from src.pacing import PER_VENDOR_CONCURRENCY, is_throttle, vendor_of
 from src.poll_health import classify_outcome, retry_after_seconds, update_poll_health
 from src.state_sqlite import (
     SqliteConnectorHealthStore,
@@ -57,6 +58,135 @@ class RunResult:
     # What a dry run WOULD have sent. Empty on a real run, which notifies
     # instead. The wizard's preview renders these.
     would_notify: list[NotificationPayload] = field(default_factory=list)
+    # Per successfully-fetched connector: how many of its postings are new to
+    # this install. Feeds the adaptive cadence (quiet boards are polled less).
+    polled: dict[str, int] = field(default_factory=dict)
+    # Connectors still waiting on their vendor's pacer at the fetch deadline:
+    # skipped this cycle, neither a failure nor a poll-health outcome.
+    paced_out: list[str] = field(default_factory=list)
+    # Connectors whose matches the scoring cap deferred to a later cycle.
+    deferred_sources: list[str] = field(default_factory=list)
+
+
+@dataclass
+class _Tally:
+    """Cycle-wide counters that only feed the filter_done log."""
+    rejected: int = 0
+
+
+def _screen_board(
+    raws: list[RawPosting],
+    *,
+    cfg: AppConfig,
+    store: SqliteSeenJobsStore,
+    seen_in_run: set[str],
+    result: RunResult,
+    tally: _Tally,
+    bypass: bool,
+    dry_run: bool,
+    calibrate: bool,
+    rejected_store=None,
+    evaluated_store=None,
+    generation: int | None = None,
+    app_version: str | None = None,
+) -> tuple[list[tuple], int]:
+    """Diff, normalize and filter one board's postings the moment its fetch
+    completes. Returns the board's (posting, decision) matches and how many of
+    its postings are new to this install. Rejections go to the audit trail
+    here, in one transaction per board, and nothing else is kept, so a cycle's
+    memory is bounded by its matches rather than by everything it fetched.
+
+    bypass (calibrate / the wizard preview) screens every posting, seen or
+    not, and neither skips nor writes the evaluation memory.
+
+    Evaluation memory (evaluated_store + generation + app_version): an unseen
+    posting already rejected under the current settings generation AND app
+    version is not normalized again, so a settings change or an upgrade that
+    changes normalize/filter logic re-judges it once. Rejected ids are recorded
+    after filtering (never matches, never in a dry run or calibrate). `fresh`
+    counts unseen postings with no memory row under ANY stamp, so neither a
+    settings change nor an upgrade makes every board look active; it is
+    computed the same way on the bypass path."""
+    ids = [f"{r.source}:{r.external_id}" for r in raws]
+    unseen = set(store.diff_new(ids))
+    memory = evaluated_store is not None
+    known = evaluated_store.known(unseen) if memory and unseen else {}
+    fresh = len(unseen - known.keys())
+    stamp = (generation, app_version)
+    already_rejected = (
+        {j for j, s in known.items() if s == stamp} if memory and not bypass else set()
+    )
+    matched: list[tuple] = []  # (NormalizedPosting, Decision)
+    rejected: list[tuple] = []  # (NormalizedPosting, rejected_by)
+    for raw, job_id in zip(raws, ids):
+        if not bypass and job_id not in unseen:
+            continue
+        # Dedupe within the cycle by job_id (normalize derives the same id
+        # from the same source:external_id): the same job can arrive from two
+        # connectors (a mirror, or hiringcafe re-listing an ATS board).
+        if job_id in seen_in_run:
+            continue
+        seen_in_run.add(job_id)
+        # new_count keeps its pre-memory meaning: distinct postings this cycle
+        # not in seen_jobs, counted before the memory skip below so a posting
+        # it skips still counts (it is counted without being normalized).
+        if job_id in unseen:
+            result.new_count += 1
+        if job_id in already_rejected:
+            continue
+        # Per-posting isolation. One malformed payload used to raise out of
+        # run_once and kill the entire tier cycle: an Oracle requisition with
+        # a null Title crashed every ats cycle for 12h (2026-08-02), and
+        # because the cycle died before record_cycle(), the outage was
+        # invisible to /pipeline and to the zero-yield alerts. Skipping the
+        # single bad posting keeps the other ~30k flowing.
+        try:
+            n = normalize(
+                raw,
+                stack_keywords=cfg.filters.stack_any_of,
+                allowed_cities=cfg.filters.location.allowed_cities,
+            )
+        except Exception as exc:  # noqa: BLE001 — one bad posting is not a cycle failure
+            result.normalize_failures.append(
+                {"source": raw.source, "error_type": type(exc).__name__}
+            )
+            log.warning(
+                "normalize_failed",
+                extra={"source": raw.source, "external_id": raw.external_id,
+                       "error_type": type(exc).__name__},
+            )
+            continue
+        decision = evaluate(n, cfg.filters)
+        if decision.allow:
+            matched.append((n, decision))
+        else:
+            rejected.append((n, decision.rejected_by or "unknown"))
+    tally.rejected += len(rejected)
+    if rejected and rejected_store is not None and not dry_run and not calibrate:
+        # Audit trail: record the first rejection of each posting with the
+        # gate that dropped it. Best-effort — an audit-store failure must
+        # never break the cycle.
+        try:
+            rejected_store.record_many(rejected)
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "rejected_record_failed",
+                extra={"source": rejected[0][0].source, "count": len(rejected),
+                       "error": str(exc)},
+            )
+    if rejected and memory and not bypass and not dry_run and not calibrate:
+        # Evaluation memory: best-effort too. Losing it only costs a
+        # re-normalization next cycle.
+        try:
+            evaluated_store.record_many([n.job_id for n, _ in rejected],
+                                        generation=generation, app_version=app_version)
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "evaluated_record_failed",
+                extra={"source": rejected[0][0].source, "count": len(rejected),
+                       "error": str(exc)},
+            )
+    return matched, fresh
 
 
 async def _fetch_one(
@@ -182,7 +312,30 @@ async def run_once(
     max_concurrency: int = 40,
     rejected_store=None,
     ignore_seen: bool = False,
+    evaluated_store=None,
+    generation: int | None = None,
+    app_version: str | None = None,
+    pacer=None,
+    fetch_deadline_s: float | None = None,
 ) -> RunResult:
+    """Run one poll cycle over `connectors`, screening each board as it arrives.
+
+    evaluated_store enables the evaluation memory, keyed on (generation,
+    app_version), both required with it: unseen postings already rejected
+    under this settings generation and app version are not normalized again,
+    and this cycle's rejections are recorded (not in dry_run / calibrate;
+    calibrate and ignore_seen bypass the skip). Matches are never recorded.
+    Pass no evaluated_store to evaluate everything (the headless tier does).
+
+    result.new_count counts the distinct postings fetched this cycle (deduped
+    by job_id) that are not in seen_jobs, the meaning /pipeline and the
+    zero-yield ops alert rely on. It is counted from the raw ids, so a posting
+    the evaluation memory skips still counts although it is never normalized
+    (a posting whose normalization fails counts too). result.polled[name]
+    counts a board's unseen postings never evaluated in any generation; it
+    drives the adaptive cadence."""
+    if evaluated_store is not None and (generation is None or app_version is None):
+        raise ValueError("evaluation memory needs both generation and app_version")
     result = RunResult()
     t_start = time.monotonic()
     log.info(
@@ -199,18 +352,19 @@ async def run_once(
         # This decouples concurrency from the number of connectors.
         sem = asyncio.Semaphore(max_concurrency)
 
-        async def _guarded(c: Connector) -> tuple[str, FetchResult | Exception]:
-            async with sem:
-                return await _fetch_one(c, client, prior[c.name], browser=browser)
-
-        fetched = await asyncio.gather(*(_guarded(c) for c in connectors))
-
-        all_postings: list[RawPosting] = []
         new_states: dict[str, ConnectorState] = {}
         fetched_by: dict[str, str] = {}  # posting source -> connector name
         outcomes: list[tuple[str, str]] = []
         retry_after: dict[str, int | None] = {}
-        for name, res in fetched:
+        seen_in_run: set[str] = set()
+        tally = _Tally()
+        # (connector index, that board's matches). Boards finish in any order;
+        # matches are put back in connector order below.
+        board_matches: list[tuple[int, list[tuple]]] = []
+
+        def _absorb(i: int, name: str, res: FetchResult | Exception) -> None:
+            """Book one board's fetch outcome and screen its postings. Plain
+            synchronous code, so no other board interleaves with it."""
             outcome = classify_outcome(res)
             outcomes.append((name, outcome))
             if outcome == "rate_limited":
@@ -220,21 +374,126 @@ async def run_once(
                 # cycle ok=0 / the heartbeat red. The per-fetch WARNING in
                 # _fetch_one and the connector_health backoff row keep it visible.
                 retry_after[name] = retry_after_seconds(res)
-                continue
+                return
             if isinstance(res, Exception):
                 result.failed_sources.append(name)
                 result.fetch_failures.append(
                     {"source": name, "error_type": type(res).__name__}
                 )
-                continue
-            all_postings.extend(res.postings)
+                return
+            result.fetched_count += len(res.postings)
             # A posting's source is not always its connector's name (hiringcafe
             # emits "hiringcafe:{family}:{slug}"); remember who fetched it.
             for raw in res.postings:
                 fetched_by[raw.source] = name
+            # calibrate and the wizard preview (ignore_seen) both bypass the
+            # new-since-last-seen diff: calibrate needs a usable score
+            # distribution from one run, and the preview must still show
+            # matches on an instance the poller has already polled (otherwise
+            # a preview run after the first real cycle shows nothing — exactly
+            # when the user most wants reassurance).
+            #
+            # Per-board isolation: a screening failure (e.g. "database is
+            # locked" while the hourly integrity check holds a read) is this
+            # board's failure, not the cycle's. Raising here would cancel the
+            # gather and lose every other board's matches, poll health, cadence
+            # and telemetry. The board is left out of `polled`, so its schedule
+            # is untouched and it stays due.
+            try:
+                board_matched, fresh = _screen_board(
+                    res.postings, cfg=cfg, store=store, seen_in_run=seen_in_run,
+                    result=result, tally=tally, bypass=(calibrate or ignore_seen),
+                    dry_run=dry_run, calibrate=calibrate,
+                    rejected_store=rejected_store, evaluated_store=evaluated_store,
+                    generation=generation, app_version=app_version,
+                )
+            except Exception as exc:  # noqa: BLE001 — one board is not the cycle
+                log.warning(
+                    "board_screen_failed",
+                    extra={"source": name, "error_type": type(exc).__name__,
+                           "error": str(exc)[:200]},
+                )
+                result.failed_sources.append(name)
+                result.fetch_failures.append(
+                    {"source": name, "error_type": type(exc).__name__}
+                )
+                # No ETag saved: the next fetch is unconditional, so the
+                # postings this cycle failed to screen come back.
+                return
+            if board_matched:
+                board_matches.append((i, board_matched))
+            result.polled[name] = fresh
             if res.new_state is not None:
                 new_states[name] = res.new_state
-        result.fetched_count = len(all_postings)
+                # Saved only after the board was screened: a hint saved for a
+                # board whose screening then failed would make its next fetch
+                # a 304, and its postings would wait until the board changed.
+                # Saved now rather than at the end of the cycle so a later
+                # notify failure doesn't lose it (state is independent of
+                # seen-jobs marking).
+                #
+                # NOT in a dry run. These are per-connector ETag / cursor
+                # hints: a dry run that advanced them would make the next REAL
+                # cycle send If-None-Match, receive 304, and fetch nothing —
+                # while the dry run marked nothing seen, so those postings
+                # would never be alerted at all. A preview must leave no trace.
+                if not dry_run:
+                    try:
+                        source_state.put(name, res.new_state)
+                    except Exception as exc:  # noqa: BLE001 — a lost hint costs one full refetch
+                        log.warning(
+                            "source_state_put_failed",
+                            extra={"source": name, "error_type": type(exc).__name__,
+                                   "error": str(exc)[:200]},
+                        )
+
+        # Per-vendor caps live per cycle: asyncio primitives bind to the
+        # cycle's event loop.
+        vendor_sems: dict[str, asyncio.Semaphore] = {}
+        deadline = (
+            pacer.now() + fetch_deadline_s
+            if pacer is not None and fetch_deadline_s is not None else None
+        )
+
+        async def _guarded(i: int, c: Connector) -> None:
+            vendor = vendor_of(c.name)
+            vsem = vendor_sems.setdefault(vendor, asyncio.Semaphore(PER_VENDOR_CONCURRENCY))
+            # Vendor slot first, then the pacer: only the few boards holding a
+            # vendor slot reserve pacer slots, so a throttle seen by one of
+            # them slows the vendor's remaining boards within this cycle.
+            async with vsem:
+                if pacer is not None and not await pacer.wait(vendor, deadline=deadline):
+                    # Not attempted this cycle: no outcome, no failure, no
+                    # poll-health entry; it is picked up next cycle.
+                    result.paced_out.append(c.name)
+                    return
+                async with sem:
+                    name, res = await _fetch_one(c, client, prior[c.name], browser=browser)
+                if pacer is not None:
+                    if is_throttle(vendor, res):
+                        pacer.on_throttle(vendor)
+                    elif isinstance(res, FetchResult):
+                        pacer.on_success(vendor)
+                # Screen the board in the same step its fetch returns: nothing
+                # can run in between, so its postings never wait in a queue
+                # behind other boards. Peak memory is the boards in flight (at
+                # most max_concurrency), the one being screened and the
+                # matches, however many boards there are.
+                # (Collecting results with as_completed doesn't give that
+                # bound: boards that answer faster than they're screened pile
+                # up in its done-queue.)
+                _absorb(i, name, res)
+
+        tasks = [asyncio.ensure_future(_guarded(i, c)) for i, c in enumerate(connectors)]
+        try:
+            await asyncio.gather(*tasks)
+        finally:
+            # Only has work to do if a board's task raised past _absorb's
+            # isolation (or the cycle was cancelled): don't leave fetches
+            # running against a client that is about to close.
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
         # Poll-health circuit breaker (never in dry-run, which must not mutate
         # state). Runs for ats and slow — both poll real connectors that can
@@ -250,83 +509,22 @@ async def run_once(
                 suppress_dead=(tier == "ats"),
             )
 
-        # Persist new state immediately so a later notify failure doesn't lose
-        # the cache hint (state is independent of seen-jobs marking).
-        #
-        # NOT in a dry run. These are per-connector ETag / cursor hints: a
-        # dry run that advanced them would make the next REAL cycle send
-        # If-None-Match, receive 304, and fetch nothing — while the dry run
-        # marked nothing seen, so those postings would never be alerted at
-        # all. A preview must leave no trace.
-        if not dry_run:
-            for name, st in new_states.items():
-                source_state.put(name, st)
-
-        # Normalize + dedup within invocation by job_id
-        seen_in_run: set[str] = set()
-        normalized = []
-        for raw in all_postings:
-            # Per-posting isolation. One malformed payload used to raise out of
-            # run_once and kill the entire tier cycle: an Oracle requisition with
-            # a null Title crashed every ats cycle for 12h (2026-08-02), and
-            # because the cycle died before record_cycle(), the outage was
-            # invisible to /pipeline and to the zero-yield alerts. Skipping the
-            # single bad posting keeps the other ~30k flowing.
-            try:
-                n = normalize(
-                    raw,
-                    stack_keywords=cfg.filters.stack_any_of,
-                    allowed_cities=cfg.filters.location.allowed_cities,
-                )
-            except Exception as exc:  # noqa: BLE001 — one bad posting is not a cycle failure
-                result.normalize_failures.append(
-                    {"source": raw.source, "error_type": type(exc).__name__}
-                )
-                log.warning(
-                    "normalize_failed",
-                    extra={"source": raw.source, "external_id": raw.external_id,
-                           "error_type": type(exc).__name__},
-                )
-                continue
-            if n.job_id in seen_in_run:
-                continue
-            seen_in_run.add(n.job_id)
-            normalized.append(n)
         if result.normalize_failures:
             log.error(
                 "normalize_failures_in_cycle",
                 extra={"count": len(result.normalize_failures)},
             )
+        log.info(
+            "diff_done",
+            extra={"new": result.new_count, "total": result.fetched_count,
+                   "paced_out": len(result.paced_out)},
+        )
 
-        # Diff against state
-        new_ids = set(store.diff_new([n.job_id for n in normalized]))
-        new_postings = [n for n in normalized if n.job_id in new_ids]
-        result.new_count = len(new_postings)
-        log.info("diff_done", extra={"new": result.new_count, "total": len(normalized)})
-
-        # Filter. calibrate and the wizard preview (ignore_seen) both bypass the
-        # new-since-last-seen diff: calibrate needs a usable score distribution
-        # from one run, and the preview must still show matches on an instance
-        # the poller has already polled (otherwise a preview run after the first
-        # real cycle shows nothing — exactly when the user most wants
-        # reassurance).
-        filter_source = normalized if (calibrate or ignore_seen) else new_postings
-        matched: list[tuple] = []  # (NormalizedPosting, Decision)
-        for n in filter_source:
-            decision = evaluate(n, cfg.filters)
-            if decision.allow:
-                matched.append((n, decision))
-            elif rejected_store is not None and not dry_run and not calibrate:
-                # Audit trail: record the first rejection of each posting with
-                # the gate that dropped it. Best-effort — an audit-store failure
-                # must never break the cycle.
-                try:
-                    rejected_store.record(n, rejected_by=decision.rejected_by or "unknown")
-                except Exception as exc:  # noqa: BLE001
-                    log.warning(
-                        "rejected_record_failed",
-                        extra={"job_id": n.job_id, "error": str(exc)},
-                    )
+        # Back to connector order (what gathering every fetch used to give), so
+        # scoring-cap ties, the calibration sample and notification order don't
+        # depend on which board happened to answer first.
+        board_matches.sort(key=lambda pair: pair[0])
+        matched: list[tuple] = [m for _, ms in board_matches for m in ms]
         # The calibration cap bounds the number of LLM scoring calls, so it must
         # apply to the MATCHED postings (post-filter). Capping the raw fetched
         # set first would usually yield zero matches — the keyword filter passes
@@ -343,7 +541,7 @@ async def run_once(
             "filter_done",
             extra={
                 "matched": result.matched_count,
-                "rejected": len(filter_source) - result.matched_count,
+                "rejected": tally.rejected,
             },
         )
 
@@ -357,8 +555,10 @@ async def run_once(
             # of filters.max_age_days first). Drop just those cache hints so
             # the next fetch is unconditional. The payload is connector-owned
             # bookkeeping (e.g. adzuna's metered call budget) and is kept.
-            if deferred and not dry_run:
-                for name in sorted({fetched_by.get(n.source, n.source) for n, _ in deferred}):
+            result.deferred_sources = sorted(
+                {fetched_by.get(n.source, n.source) for n, _ in deferred})
+            if not dry_run:
+                for name in result.deferred_sources:
                     st = new_states.get(name, prior.get(name, ConnectorState()))
                     source_state.put(name, ConnectorState(payload=st.payload))
 

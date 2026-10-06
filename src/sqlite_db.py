@@ -131,6 +131,22 @@ CREATE TABLE IF NOT EXISTS wizard_ui (
     value      TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS evaluated_postings (
+    job_id       TEXT PRIMARY KEY,
+    generation   INTEGER NOT NULL,
+    app_version  TEXT NOT NULL,
+    evaluated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS connector_schedule (
+    connector_name TEXT PRIMARY KEY,
+    interval_s     INTEGER NOT NULL,
+    next_due_ms    INTEGER NOT NULL,
+    last_new_ms    INTEGER
+);
+CREATE TABLE IF NOT EXISTS schedule_generation (
+    tier       TEXT PRIMARY KEY,
+    generation INTEGER NOT NULL
+);
 """
 
 
