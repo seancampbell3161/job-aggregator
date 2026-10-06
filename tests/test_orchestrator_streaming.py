@@ -408,7 +408,7 @@ async def test_a_failed_cache_hint_save_does_not_abort_the_cycle(store):
 
 # --- evaluation memory -------------------------------------------------------
 
-_MEM_STAMP = dict(generation=1)
+_MEM_STAMP = dict(generation=1, app_version="0.17.0")
 
 def _mem_cycle_kwargs(conn):
     return dict(
@@ -444,10 +444,10 @@ async def test_rejected_posting_is_not_renormalized_next_cycle(monkeypatch):
     calls = _spy_normalize(monkeypatch)
     conns = [_StubConnector("greenhouse:a", [_reject("greenhouse:a", "1")])]
     kw = _mem_cycle_kwargs(conn)
-    r1 = await run_once(connectors=conns, sinks=[], evaluated_store=ev, generation=1, **kw)
+    r1 = await run_once(connectors=conns, sinks=[], evaluated_store=ev, **_MEM_STAMP, **kw)
     assert calls == ["greenhouse:a:1"] and r1.polled["greenhouse:a"] == 1 and r1.new_count == 1
     calls.clear()
-    r2 = await run_once(connectors=conns, sinks=[], evaluated_store=ev, generation=1, **kw)
+    r2 = await run_once(connectors=conns, sinks=[], evaluated_store=ev, **_MEM_STAMP, **kw)
     assert calls == []
     # Skipped by the memory, so not fresh for the cadence, but still a
     # posting not in seen_jobs: new_count keeps its /pipeline meaning.
@@ -469,9 +469,9 @@ async def test_new_count_counts_memory_skipped_postings_once_per_cycle(monkeypat
             _match("greenhouse:a", "9")]),                       # 9 already seen
         _StubConnector("greenhouse:a-mirror", [_reject("greenhouse:a", "1")]),
     ]
-    r1 = await run_once(connectors=conns, sinks=[], evaluated_store=ev, generation=1, **kw)
+    r1 = await run_once(connectors=conns, sinks=[], evaluated_store=ev, **_MEM_STAMP, **kw)
     calls = _spy_normalize(monkeypatch)
-    r2 = await run_once(connectors=conns, sinks=[], evaluated_store=ev, generation=1, **kw)
+    r2 = await run_once(connectors=conns, sinks=[], evaluated_store=ev, **_MEM_STAMP, **kw)
     assert calls == []                                 # every unseen one memory-skipped
     assert r1.new_count == r2.new_count == 2
 
@@ -484,11 +484,47 @@ async def test_generation_change_reevaluates(monkeypatch):
     calls = _spy_normalize(monkeypatch)
     conns = [_StubConnector("greenhouse:a", [_reject("greenhouse:a", "1")])]
     kw = _mem_cycle_kwargs(conn)
-    await run_once(connectors=conns, sinks=[], evaluated_store=ev, generation=1, **kw)
+    await run_once(connectors=conns, sinks=[], evaluated_store=ev, **_MEM_STAMP, **kw)
     calls.clear()
-    r2 = await run_once(connectors=conns, sinks=[], evaluated_store=ev, generation=2, **kw)
+    r2 = await run_once(connectors=conns, sinks=[], evaluated_store=ev,
+                        generation=2, app_version="0.17.0", **kw)
     assert calls == ["greenhouse:a:1"]
     assert r2.polled["greenhouse:a"] == 0
+
+
+@pytest.mark.asyncio
+async def test_app_upgrade_reevaluates_but_is_not_fresh(monkeypatch):
+    """A release can change normalize/filter logic (e.g. fix a title regex),
+    so a posting rejected under the old version is judged again, once; it is
+    still not new to the board, so the board's cadence isn't reset."""
+    from src.state_sqlite import SqliteEvaluatedPostingsStore
+    conn = connect(":memory:")
+    ev = SqliteEvaluatedPostingsStore(conn)
+    calls = _spy_normalize(monkeypatch)
+    conns = [_StubConnector("greenhouse:a", [_reject("greenhouse:a", "1")])]
+    kw = _mem_cycle_kwargs(conn)
+    await run_once(connectors=conns, sinks=[], evaluated_store=ev,
+                   generation=1, app_version="0.17.0", **kw)
+    calls.clear()
+    r2 = await run_once(connectors=conns, sinks=[], evaluated_store=ev,
+                        generation=1, app_version="0.18.0", **kw)
+    assert calls == ["greenhouse:a:1"]
+    assert r2.polled["greenhouse:a"] == 0
+    assert ev.known(["greenhouse:a:1"]) == {"greenhouse:a:1": (1, "0.18.0")}
+    calls.clear()
+    await run_once(connectors=conns, sinks=[], evaluated_store=ev,
+                   generation=1, app_version="0.18.0", **kw)
+    assert calls == []                      # judged once under the new version
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stamp", [dict(generation=1), dict(app_version="0.17.0"), {}])
+async def test_memory_without_a_full_stamp_is_refused(stamp):
+    from src.state_sqlite import SqliteEvaluatedPostingsStore
+    conn = connect(":memory:")
+    with pytest.raises(ValueError, match="generation and app_version"):
+        await run_once(connectors=[], sinks=[], evaluated_store=SqliteEvaluatedPostingsStore(conn),
+                       **stamp, **_mem_cycle_kwargs(conn))
 
 
 @pytest.mark.asyncio
@@ -498,7 +534,7 @@ async def test_matches_are_not_recorded():
     ev = SqliteEvaluatedPostingsStore(conn)
     sink = _RecordingSink()
     conns = [_StubConnector("greenhouse:a", [_match("greenhouse:a", "1"), _reject("greenhouse:a", "2")])]
-    r = await run_once(connectors=conns, sinks=[sink], evaluated_store=ev, generation=1,
+    r = await run_once(connectors=conns, sinks=[sink], evaluated_store=ev, **_MEM_STAMP,
                        **_mem_cycle_kwargs(conn))
     assert r.notified_count == 1
     assert conn.execute("SELECT COUNT(*) FROM seen_jobs WHERE job_id='greenhouse:a:1'").fetchone()[0] == 1
@@ -512,11 +548,11 @@ async def test_ignore_seen_bypasses_memory_and_writes_nothing(monkeypatch):
     ev = SqliteEvaluatedPostingsStore(conn)
     conns = [_StubConnector("greenhouse:a", [_match("greenhouse:a", "1"), _reject("greenhouse:a", "2")])]
     kw = _mem_cycle_kwargs(conn)
-    await run_once(connectors=conns, sinks=[_RecordingSink()], evaluated_store=ev, generation=1, **kw)
+    await run_once(connectors=conns, sinks=[_RecordingSink()], evaluated_store=ev, **_MEM_STAMP, **kw)
     before = _evaluated_ids(conn)
     assert before == ["greenhouse:a:2"]
     calls = _spy_normalize(monkeypatch)
-    r = await run_once(connectors=conns, sinks=[], evaluated_store=ev, generation=1,
+    r = await run_once(connectors=conns, sinks=[], evaluated_store=ev, **_MEM_STAMP,
                        dry_run=True, ignore_seen=True, **kw)
     assert sorted(calls) == ["greenhouse:a:1", "greenhouse:a:2"]
     assert [p.apply_url for p in r.would_notify] == ["https://x/greenhouse:a/1"]
@@ -529,7 +565,7 @@ async def test_dry_run_writes_no_memory():
     conn = connect(":memory:")
     ev = SqliteEvaluatedPostingsStore(conn)
     conns = [_StubConnector("greenhouse:a", [_reject("greenhouse:a", "1")])]
-    await run_once(connectors=conns, sinks=[], evaluated_store=ev, generation=1,
+    await run_once(connectors=conns, sinks=[], evaluated_store=ev, **_MEM_STAMP,
                    dry_run=True, **_mem_cycle_kwargs(conn))
     assert _evaluated_ids(conn) == []
 

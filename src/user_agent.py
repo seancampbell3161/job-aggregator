@@ -12,16 +12,11 @@ site's terms of use. See docs/CONFIG.md.
 """
 from __future__ import annotations
 
-from importlib.metadata import PackageNotFoundError, version
+from src.version import APP_VERSION
 
 PROJECT_URL = "https://github.com/seancampbell3161/job-aggregator"
 
-try:
-    _VERSION = version("job-aggregator")
-except PackageNotFoundError:  # source checkout that was never pip-installed
-    _VERSION = "dev"
-
-DEFAULT_USER_AGENT = f"job-aggregator/{_VERSION} (+{PROJECT_URL})"
+DEFAULT_USER_AGENT = f"job-aggregator/{APP_VERSION} (+{PROJECT_URL})"
 
 _current = DEFAULT_USER_AGENT
 

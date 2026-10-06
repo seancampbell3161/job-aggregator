@@ -6,39 +6,46 @@ from src.state_sqlite import SqliteConnectorScheduleStore, SqliteEvaluatedPostin
 DAY = 86_400
 
 
+V1, V2 = "0.17.0", "0.18.0"
+
+
 def test_record_and_known_roundtrip():
     s = SqliteEvaluatedPostingsStore(connect(":memory:"))
-    assert s.record_many(["a", "b"], generation=3, now_s=1_000) == 2
-    assert s.known(["a", "b", "c"]) == {"a": 3, "b": 3}
+    assert s.record_many(["a", "b"], generation=3, app_version=V1, now_s=1_000) == 2
+    assert s.known(["a", "b", "c"]) == {"a": (3, V1), "b": (3, V1)}
 
 
-def test_record_replaces_generation():
+def test_record_replaces_generation_and_version():
     s = SqliteEvaluatedPostingsStore(connect(":memory:"))
-    s.record_many(["a"], generation=1, now_s=1_000)
-    s.record_many(["a"], generation=2, now_s=2_000)
-    assert s.known(["a"]) == {"a": 2}
+    s.record_many(["a"], generation=1, app_version=V1, now_s=1_000)
+    s.record_many(["a"], generation=2, app_version=V1, now_s=2_000)
+    assert s.known(["a"]) == {"a": (2, V1)}
+    s.record_many(["a"], generation=2, app_version=V2, now_s=3_000)
+    assert s.known(["a"]) == {"a": (2, V2)}
 
 
 def test_known_chunks_large_inputs():
     s = SqliteEvaluatedPostingsStore(connect(":memory:"))
     ids = [f"g:{i}" for i in range(1_234)]
-    s.record_many(ids, generation=1, now_s=1)
+    s.record_many(ids, generation=1, app_version=V1, now_s=1)
     assert len(s.known(ids)) == 1_234
 
 
-def test_prune_drops_old_and_other_generation_rows():
+def test_prune_drops_old_other_generation_and_other_version_rows():
     s = SqliteEvaluatedPostingsStore(connect(":memory:"))
     now = 100 * DAY
-    s.record_many(["old"], generation=5, now_s=now - 31 * DAY)
-    s.record_many(["stale_gen"], generation=4, now_s=now)
-    s.record_many(["keep"], generation=5, now_s=now - DAY)
-    assert s.prune(current_generation=5, max_age_days=30, now_s=now) == 2
-    assert s.known(["old", "stale_gen", "keep"]) == {"keep": 5}
+    s.record_many(["old"], generation=5, app_version=V2, now_s=now - 31 * DAY)
+    s.record_many(["stale_gen"], generation=4, app_version=V2, now_s=now)
+    s.record_many(["stale_ver"], generation=5, app_version=V1, now_s=now)
+    s.record_many(["keep"], generation=5, app_version=V2, now_s=now - DAY)
+    assert s.prune(current_generation=5, current_app_version=V2,
+                   max_age_days=30, now_s=now) == 3
+    assert s.known(["old", "stale_gen", "stale_ver", "keep"]) == {"keep": (5, V2)}
 
 
 def test_record_many_empty_is_noop():
     s = SqliteEvaluatedPostingsStore(connect(":memory:"))
-    assert s.record_many([], generation=1) == 0
+    assert s.record_many([], generation=1, app_version=V1) == 0
 
 
 def test_unknown_boards_are_due_and_quiet_boards_back_off():

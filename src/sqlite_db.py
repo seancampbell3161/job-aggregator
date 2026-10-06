@@ -134,6 +134,7 @@ CREATE TABLE IF NOT EXISTS wizard_ui (
 CREATE TABLE IF NOT EXISTS evaluated_postings (
     job_id       TEXT PRIMARY KEY,
     generation   INTEGER NOT NULL,
+    app_version  TEXT NOT NULL,
     evaluated_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS connector_schedule (

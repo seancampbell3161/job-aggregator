@@ -32,6 +32,20 @@ def test_prune_sweeps_rejected_postings():
     assert build_stores().rejected.list_rejected(since_iso="") == []
 
 
+def test_prune_keeps_only_evaluation_memory_of_this_generation_and_version():
+    from src.scheduler import _prune
+    from src.stores import build_stores
+    from src.version import APP_VERSION
+    service = seed_settings({})
+    gen = service.snapshot().generation
+    ev = build_stores().evaluated
+    ev.record_many(["keep"], generation=gen, app_version=APP_VERSION)
+    ev.record_many(["old_version"], generation=gen, app_version=APP_VERSION + "-old")
+    ev.record_many(["old_generation"], generation=gen - 1, app_version=APP_VERSION)
+    _prune(service)
+    assert set(build_stores().evaluated.known(["keep", "old_version", "old_generation"])) == {"keep"}
+
+
 def test_build_scheduler_registers_every_job_when_configured():
     from src.scheduler import build_scheduler
     sched = build_scheduler(make_service({}))

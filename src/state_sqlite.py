@@ -1192,47 +1192,55 @@ class SqliteRejectedPostingsStore:
 
 
 class SqliteEvaluatedPostingsStore:
-    """Job_ids the filters rejected under a settings generation. Lets a cycle
-    skip already-judged postings before normalization; a settings change
-    (new generation) re-judges everything once."""
+    """Job_ids the filters rejected, stamped with the settings generation and
+    the app version they were judged under. Lets a cycle skip already-judged
+    postings before normalization; a settings change (new generation) or an
+    app upgrade (new normalize/filter code) re-judges everything once."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
-    def known(self, ids) -> dict[str, int]:
+    def known(self, ids) -> dict[str, tuple[int, str]]:
+        """job_id -> (generation, app_version) of its row, for the ids that
+        have one under any stamp."""
         ids = list(dict.fromkeys(ids))
-        out: dict[str, int] = {}
+        out: dict[str, tuple[int, str]] = {}
         for i in range(0, len(ids), 500):
             chunk = ids[i:i + 500]
             ph = ",".join("?" * len(chunk))
             for row in self._conn.execute(
-                    f"SELECT job_id, generation FROM evaluated_postings WHERE job_id IN ({ph})",
-                    chunk):
-                out[row["job_id"]] = row["generation"]
+                    "SELECT job_id, generation, app_version FROM evaluated_postings"
+                    f" WHERE job_id IN ({ph})", chunk):
+                out[row["job_id"]] = (row["generation"], row["app_version"])
         return out
 
-    def record_many(self, ids, *, generation: int, now_s: int | None = None) -> int:
-        rows = [(j, generation, now_s if now_s is not None else _now_ts())
-                for j in dict.fromkeys(ids)]
+    def record_many(self, ids, *, generation: int, app_version: str,
+                    now_s: int | None = None) -> int:
+        ts = now_s if now_s is not None else _now_ts()
+        rows = [(j, generation, app_version, ts) for j in dict.fromkeys(ids)]
         if not rows:
             return 0
         self._conn.execute("BEGIN IMMEDIATE")
         try:
             self._conn.executemany(
-                "INSERT OR REPLACE INTO evaluated_postings (job_id, generation, evaluated_at)"
-                " VALUES (?, ?, ?)", rows)
+                "INSERT OR REPLACE INTO evaluated_postings"
+                " (job_id, generation, app_version, evaluated_at) VALUES (?, ?, ?, ?)",
+                rows)
             self._conn.execute("COMMIT")
         except BaseException:
             self._conn.execute("ROLLBACK")
             raise
         return len(rows)
 
-    def prune(self, *, current_generation: int, max_age_days: int = 30,
-              now_s: int | None = None) -> int:
+    def prune(self, *, current_generation: int, current_app_version: str,
+              max_age_days: int = 30, now_s: int | None = None) -> int:
+        """Delete rows past max_age_days and rows from any other settings
+        generation or app version (they can never be skipped again)."""
         cutoff = (now_s if now_s is not None else _now_ts()) - max_age_days * 86_400
         cur = self._conn.execute(
-            "DELETE FROM evaluated_postings WHERE evaluated_at < ? OR generation != ?",
-            (cutoff, current_generation))
+            "DELETE FROM evaluated_postings"
+            " WHERE evaluated_at < ? OR generation != ? OR app_version != ?",
+            (cutoff, current_generation, current_app_version))
         return cur.rowcount
 
 

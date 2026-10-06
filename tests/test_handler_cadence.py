@@ -28,12 +28,15 @@ async def test_ats_and_slow_get_evaluation_memory(monkeypatch, tier):
     stores = build_stores()
     assert isinstance(got["evaluated_store"], type(stores.evaluated))
     assert isinstance(got["generation"], int)
+    from src.version import APP_VERSION
+    assert got["app_version"] == APP_VERSION
 
 
 @pytest.mark.asyncio
 async def test_headless_tier_is_exempt_from_evaluation_memory(monkeypatch):
     got = await _captured_kwargs(monkeypatch, "headless")
     assert got["evaluated_store"] is None and got["generation"] is None
+    assert got["app_version"] is None
 
 
 @pytest.mark.asyncio
