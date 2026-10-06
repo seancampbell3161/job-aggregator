@@ -1,7 +1,8 @@
 """Live-check one candidate with the app's own connectors, so a packed board
 is exactly what a poll will see. Polite by construction: per-family and
 global concurrency limits, honest User-Agent, and 429/5xx/timeouts retried
-with backoff and finally reported as "deferred", never as dead."""
+with backoff and finally reported as "deferred", never as dead. A host that
+does not resolve or refuses the connection is dead at once."""
 from __future__ import annotations
 
 import asyncio
@@ -97,6 +98,12 @@ class Verifier:
                 raise _Retryable(_retry_after(exc.response)) from exc
             if code >= 500:
                 raise _Retryable() from exc
+            return CheckResult("dead")
+        except httpx.ConnectError:
+            # DNS failure or connection refused: a dead tenant host stays dead,
+            # and deferring it would count against the partial-build guard on
+            # every run. ConnectTimeout is a TimeoutException, not a
+            # ConnectError, so it still falls through to the retry below.
             return CheckResult("dead")
         except httpx.TransportError as exc:
             raise _Retryable() from exc

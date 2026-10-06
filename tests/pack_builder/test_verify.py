@@ -110,6 +110,26 @@ async def test_transport_error_and_5xx_are_retried(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_unreachable_host_is_dead_without_retry(monkeypatch):
+    """DNS failure / connection refused: a dead tenant host never resolves,
+    so it must not count toward the partial-build guard on every run."""
+    stub = _Stub("workday:gone:S", [httpx.ConnectError("[Errno 8] nodename nor servname")])
+    _patch(monkeypatch, stub)
+    r = await V.Verifier(None, sleep=_no_sleep).check(Candidate("ashby", {"slug": "gone"}))
+    assert r.status == "dead" and stub.calls == 1
+
+
+@pytest.mark.parametrize("exc", [httpx.ConnectTimeout("t"), httpx.ReadTimeout("t"),
+                                 httpx.ReadError("reset"), httpx.RemoteProtocolError("eof")])
+@pytest.mark.asyncio
+async def test_timeouts_and_other_transport_errors_are_retried_then_deferred(monkeypatch, exc):
+    stub = _Stub("ashby:slow", [exc] * V.MAX_ATTEMPTS)
+    _patch(monkeypatch, stub)
+    r = await V.Verifier(None, sleep=_no_sleep).check(Candidate("ashby", {"slug": "slow"}))
+    assert r.status == "deferred" and stub.calls == V.MAX_ATTEMPTS
+
+
+@pytest.mark.asyncio
 async def test_workable_throttled_probe_is_deferred(monkeypatch):
     class _Workable:
         name = "workable:acme"
