@@ -81,7 +81,13 @@ def candidate_from_url(url: str) -> Candidate | None:
         except ValueError:
             return None
         if hit:
-            return _checked(*hit)
+            family, identity = hit
+            if family == "jsonld" and identity.get("base_url"):
+                # The crawl holds http:// and https:// copies of a host; both
+                # are one board, and iCIMS serves https.
+                identity = {**identity,
+                            "base_url": "https://" + urlparse(identity["base_url"]).netloc}
+            return _checked(family, identity)
     return None
 
 

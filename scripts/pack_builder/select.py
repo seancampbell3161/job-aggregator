@@ -66,10 +66,37 @@ def fill(boards: Iterable[LiveBoard], limits: Limits, region: str) -> RegionPick
     return RegionPick(picked, total, binding)
 
 
+def _regional(result: CheckResult) -> int:
+    region = region_of(result)
+    if region == "us":
+        return result.us_postings
+    return result.eu_postings if region == "eu" else 0
+
+
+def dedup_by_connector(live: Iterable[LiveBoard]) -> list[LiveBoard]:
+    """One board per connector_name. Distinct candidates can share one: a
+    Workday tenant:site crawled under two data-centre regions (wd1 and wd503),
+    or two portals mapping to the same icims:{slug}. Packed together they would
+    share domain pack:{connector_name}, poll the same board twice and
+    double-count the budgets. Keep the one with the most regional postings,
+    then the most postings, then the lowest key."""
+    best: dict[str, LiveBoard] = {}
+    for b in live:
+        name = b.result.connector_name or b.key
+        cur = best.get(name)
+        if cur is None or _rank(b) < _rank(cur):
+            best[name] = b
+    return list(best.values())
+
+
+def _rank(b: LiveBoard) -> tuple:
+    return (-_regional(b.result), -b.result.postings, b.key)
+
+
 def select(live: Iterable[LiveBoard], *, us: Limits = US_LIMITS,
            eu: Limits = EU_LIMITS) -> dict[str, RegionPick]:
     by_region: dict[str, list[LiveBoard]] = {"us": [], "eu": []}
-    for b in live:
+    for b in dedup_by_connector(live):
         region = region_of(b.result)
         if region is not None:
             by_region[region].append(b)

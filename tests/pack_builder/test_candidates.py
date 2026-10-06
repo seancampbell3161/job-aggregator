@@ -56,6 +56,16 @@ def test_dedup_is_case_insensitive_and_keeps_first_seen():
     assert identity_key("greenhouse", {"slug": "Stripe"}) == identity_key("greenhouse", {"slug": "stripe"})
 
 
+def test_http_and_https_copies_of_an_icims_host_are_one_candidate():
+    http = candidate_from_url("http://careers-acme.icims.com/jobs/1/job")
+    https = candidate_from_url("https://careers-acme.icims.com/jobs/2/job")
+    assert http is not None and https is not None
+    assert http.identity["base_url"] == "https://careers-acme.icims.com"
+    assert [c.identity for c in dedup([http, https])] == [
+        {"family": "icims", "slug": "acme", "base_url": "https://careers-acme.icims.com"},
+    ]
+
+
 def test_lever_guesses_carry_the_company_name():
     out = lever_guesses([("Hugging Face", "https://huggingface.co")])
     slugs = {c.identity["slug"] for c in out}

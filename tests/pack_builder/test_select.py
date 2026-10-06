@@ -42,6 +42,33 @@ def test_select_splits_regions_and_drops_neither():
     assert [b.key for b in picks["eu"].boards] == ["e"]
 
 
+def _workday(key, region, postings, us=0, eu=0):
+    """A Workday tenant:site seen under a given data-centre region; the
+    connector name ignores the region, so two regions collide."""
+    ident = {"tenant": "acme", "region": region, "site": "S"}
+    return LiveBoard(key, "workday",
+                     CheckResult("live", postings, us, eu, "Acme", "workday:acme:S", ident))
+
+
+def test_select_keeps_one_board_per_connector_name_the_better_one():
+    picks = select([_workday("wd1", "wd1", 50, us=10), _workday("wd503", "wd503", 40, us=30)])
+    [kept] = picks["us"].boards
+    assert kept.key == "wd503"     # more regional postings wins over more total postings
+    assert picks["us"].postings == 40
+
+
+def test_select_dedup_ties_break_on_total_postings_then_key():
+    picks = select([_workday("b", "wd1", 20, us=5), _workday("c", "wd3", 30, us=5),
+                    _workday("a", "wd5", 30, us=5)])
+    assert [b.key for b in picks["us"].boards] == ["a"]
+
+
+def test_select_dedups_across_regions():
+    picks = select([_workday("us-copy", "wd1", 9, us=9), _workday("eu-copy", "wd3", 9, eu=4)])
+    assert [b.key for b in picks["us"].boards] == ["us-copy"]
+    assert picks["eu"].boards == []
+
+
 def test_combined_limits_fit_what_polling_handles_today():
     assert US_LIMITS.max_boards + EU_LIMITS.max_boards <= 5_000
     assert US_LIMITS.max_postings + EU_LIMITS.max_postings <= 120_000
