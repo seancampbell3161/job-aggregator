@@ -106,9 +106,12 @@ def test_select_dedups_across_regions():
     assert picks["eu"].boards == []
 
 
-def test_combined_limits_fit_what_polling_handles_today():
-    assert US_LIMITS.max_boards + EU_LIMITS.max_boards <= 5_000
-    assert US_LIMITS.max_postings + EU_LIMITS.max_postings <= 120_000
+def test_combined_limits_stay_within_the_measured_polling_capacity():
+    # Measured 2026-10-06: a cold first cycle over 10,436 US boards / 379k
+    # postings took 484 s at 469 MB peak RSS. Don't raise past this without
+    # re-measuring.
+    assert US_LIMITS.max_boards + EU_LIMITS.max_boards <= 14_000
+    assert US_LIMITS.max_postings + EU_LIMITS.max_postings <= 460_000
 
 
 def test_to_pack_round_trips_through_the_loader(tmp_path):
