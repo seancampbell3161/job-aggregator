@@ -449,7 +449,31 @@ async def test_rejected_posting_is_not_renormalized_next_cycle(monkeypatch):
     calls.clear()
     r2 = await run_once(connectors=conns, sinks=[], evaluated_store=ev, generation=1, **kw)
     assert calls == []
-    assert r2.polled["greenhouse:a"] == 0 and r2.new_count == 0
+    # Skipped by the memory, so not fresh for the cadence, but still a
+    # posting not in seen_jobs: new_count keeps its /pipeline meaning.
+    assert r2.polled["greenhouse:a"] == 0 and r2.new_count == 1
+
+
+@pytest.mark.asyncio
+async def test_new_count_counts_memory_skipped_postings_once_per_cycle(monkeypatch):
+    """new_count = distinct postings this cycle not in seen_jobs, deduped by
+    job_id across boards, whether or not the memory skips them."""
+    from src.state_sqlite import SqliteEvaluatedPostingsStore
+    conn = connect(":memory:")
+    ev = SqliteEvaluatedPostingsStore(conn)
+    kw = _mem_cycle_kwargs(conn)
+    kw["store"].mark_seen("greenhouse:a:9", notified=True)
+    conns = [
+        _StubConnector("greenhouse:a", [
+            _reject("greenhouse:a", "1"), _reject("greenhouse:a", "2"),
+            _match("greenhouse:a", "9")]),                       # 9 already seen
+        _StubConnector("greenhouse:a-mirror", [_reject("greenhouse:a", "1")]),
+    ]
+    r1 = await run_once(connectors=conns, sinks=[], evaluated_store=ev, generation=1, **kw)
+    calls = _spy_normalize(monkeypatch)
+    r2 = await run_once(connectors=conns, sinks=[], evaluated_store=ev, generation=1, **kw)
+    assert calls == []                                 # every unseen one memory-skipped
+    assert r1.new_count == r2.new_count == 2
 
 
 @pytest.mark.asyncio

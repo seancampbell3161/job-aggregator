@@ -115,7 +115,20 @@ def _screen_board(
     matched: list[tuple] = []  # (NormalizedPosting, Decision)
     rejected: list[tuple] = []  # (NormalizedPosting, rejected_by)
     for raw, job_id in zip(raws, ids):
-        if not bypass and (job_id not in unseen or job_id in already_rejected):
+        if not bypass and job_id not in unseen:
+            continue
+        # Dedupe within the cycle by job_id (normalize derives the same id
+        # from the same source:external_id): the same job can arrive from two
+        # connectors (a mirror, or hiringcafe re-listing an ATS board).
+        if job_id in seen_in_run:
+            continue
+        seen_in_run.add(job_id)
+        # new_count keeps its pre-memory meaning: distinct postings this cycle
+        # not in seen_jobs, counted before the memory skip below so a posting
+        # it skips still counts (it is counted without being normalized).
+        if job_id in unseen:
+            result.new_count += 1
+        if job_id in already_rejected:
             continue
         # Per-posting isolation. One malformed payload used to raise out of
         # run_once and kill the entire tier cycle: an Oracle requisition with
@@ -139,13 +152,6 @@ def _screen_board(
                        "error_type": type(exc).__name__},
             )
             continue
-        # Dedupe within the cycle by job_id: the same job can arrive from two
-        # connectors (a mirror, or hiringcafe re-listing an ATS board).
-        if n.job_id in seen_in_run:
-            continue
-        seen_in_run.add(n.job_id)
-        if n.job_id in unseen:
-            result.new_count += 1
         decision = evaluate(n, cfg.filters)
         if decision.allow:
             matched.append((n, decision))
@@ -314,10 +320,13 @@ async def run_once(
     calibrate and ignore_seen bypass the skip). Matches are never recorded.
     Pass neither to evaluate everything (the headless tier does).
 
-    result.new_count counts postings new to evaluation: unseen AND not already
-    rejected under the current generation, so a rejected posting is not
-    re-counted every cycle. result.polled[name] counts a board's unseen
-    postings never evaluated in any generation."""
+    result.new_count counts the distinct postings fetched this cycle (deduped
+    by job_id) that are not in seen_jobs, the meaning /pipeline and the
+    zero-yield ops alert rely on. It is counted from the raw ids, so a posting
+    the evaluation memory skips still counts although it is never normalized
+    (a posting whose normalization fails counts too). result.polled[name]
+    counts a board's unseen postings never evaluated in any generation; it
+    drives the adaptive cadence."""
     result = RunResult()
     t_start = time.monotonic()
     log.info(
