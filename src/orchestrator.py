@@ -368,10 +368,50 @@ async def run_once(
             # emits "hiringcafe:{family}:{slug}"); remember who fetched it.
             for raw in res.postings:
                 fetched_by[raw.source] = name
+            # calibrate and the wizard preview (ignore_seen) both bypass the
+            # new-since-last-seen diff: calibrate needs a usable score
+            # distribution from one run, and the preview must still show
+            # matches on an instance the poller has already polled (otherwise
+            # a preview run after the first real cycle shows nothing — exactly
+            # when the user most wants reassurance).
+            #
+            # Per-board isolation: a screening failure (e.g. "database is
+            # locked" while the hourly integrity check holds a read) is this
+            # board's failure, not the cycle's. Raising here would cancel the
+            # gather and lose every other board's matches, poll health, cadence
+            # and telemetry. The board is left out of `polled`, so its schedule
+            # is untouched and it stays due.
+            try:
+                board_matched, fresh = _screen_board(
+                    res.postings, cfg=cfg, store=store, seen_in_run=seen_in_run,
+                    result=result, tally=tally, bypass=(calibrate or ignore_seen),
+                    dry_run=dry_run, calibrate=calibrate,
+                    rejected_store=rejected_store, evaluated_store=evaluated_store,
+                    generation=generation,
+                )
+            except Exception as exc:  # noqa: BLE001 — one board is not the cycle
+                log.warning(
+                    "board_screen_failed",
+                    extra={"source": name, "error_type": type(exc).__name__,
+                           "error": str(exc)[:200]},
+                )
+                result.failed_sources.append(name)
+                result.fetch_failures.append(
+                    {"source": name, "error_type": type(exc).__name__}
+                )
+                # No ETag saved: the next fetch is unconditional, so the
+                # postings this cycle failed to screen come back.
+                return
+            if board_matched:
+                board_matches.append((i, board_matched))
+            result.polled[name] = fresh
             if res.new_state is not None:
                 new_states[name] = res.new_state
-                # Persist new state immediately so a later notify failure
-                # doesn't lose the cache hint (state is independent of
+                # Saved only after the board was screened: a hint saved for a
+                # board whose screening then failed would make its next fetch
+                # a 304, and its postings would wait until the board changed.
+                # Saved now rather than at the end of the cycle so a later
+                # notify failure doesn't lose it (state is independent of
                 # seen-jobs marking).
                 #
                 # NOT in a dry run. These are per-connector ETag / cursor
@@ -380,22 +420,14 @@ async def run_once(
                 # while the dry run marked nothing seen, so those postings
                 # would never be alerted at all. A preview must leave no trace.
                 if not dry_run:
-                    source_state.put(name, res.new_state)
-            # calibrate and the wizard preview (ignore_seen) both bypass the
-            # new-since-last-seen diff: calibrate needs a usable score
-            # distribution from one run, and the preview must still show
-            # matches on an instance the poller has already polled (otherwise
-            # a preview run after the first real cycle shows nothing — exactly
-            # when the user most wants reassurance).
-            board_matched, fresh = _screen_board(
-                res.postings, cfg=cfg, store=store, seen_in_run=seen_in_run,
-                result=result, tally=tally, bypass=(calibrate or ignore_seen),
-                dry_run=dry_run, calibrate=calibrate,
-                rejected_store=rejected_store, evaluated_store=evaluated_store, generation=generation,
-            )
-            if board_matched:
-                board_matches.append((i, board_matched))
-            result.polled[name] = fresh
+                    try:
+                        source_state.put(name, res.new_state)
+                    except Exception as exc:  # noqa: BLE001 — a lost hint costs one full refetch
+                        log.warning(
+                            "source_state_put_failed",
+                            extra={"source": name, "error_type": type(exc).__name__,
+                                   "error": str(exc)[:200]},
+                        )
 
         # Per-vendor caps live per cycle: asyncio primitives bind to the
         # cycle's event loop.
@@ -438,7 +470,8 @@ async def run_once(
         try:
             await asyncio.gather(*tasks)
         finally:
-            # Only has work to do if screening raised: don't leave fetches
+            # Only has work to do if a board's task raised past _absorb's
+            # isolation (or the cycle was cancelled): don't leave fetches
             # running against a client that is about to close.
             for task in tasks:
                 task.cancel()

@@ -285,39 +285,130 @@ async def test_deferred_sources_names_the_boards_the_scoring_cap_deferred(store)
 
 
 class _ExplodingSeenStore:
-    def __init__(self, inner):
-        self._inner = inner
+    """diff_new raises for one board's ids only (e.g. "database is locked")."""
+    def __init__(self, inner, bad_prefix):
+        self._inner, self._bad = inner, bad_prefix
     def diff_new(self, ids):
-        raise RuntimeError("seen store down")
+        if any(i.startswith(self._bad) for i in ids):
+            raise RuntimeError("database is locked")
+        return self._inner.diff_new(ids)
     def __getattr__(self, name):
         return getattr(self._inner, name)
 
 
+class _EtagConnector(_StubConnector):
+    async def fetch(self, client, state):
+        from src.models import ConnectorState
+        return FetchResult(postings=self._postings,
+                           new_state=ConnectorState(etag=f"etag-{self.name}"),
+                           not_modified=False)
+
+
+def _isolation_connectors():
+    return [
+        _EtagConnector("greenhouse:bad", [_match("greenhouse:bad", "1")]),
+        _EtagConnector("greenhouse:good", [_match("greenhouse:good", "1")]),
+        _ErrConnector("greenhouse:dead", 404),
+    ]
+
+
+def _capture_poll_health(monkeypatch):
+    import src.orchestrator as orch
+    seen_outcomes: list = []
+    real = orch.update_poll_health
+
+    def spy(health, outcomes, *a, **kw):
+        seen_outcomes.extend(outcomes)
+        return real(health, outcomes, *a, **kw)
+
+    monkeypatch.setattr(orch, "update_poll_health", spy)
+    return seen_outcomes
+
+
+def _assert_board_isolated(result, sink, src_state, outcomes):
+    assert [p.apply_url for p in sink.received] == ["https://x/greenhouse:good/1"]
+    assert result.notified_count == 1
+    assert sorted(result.failed_sources) == ["greenhouse:bad", "greenhouse:dead"]
+    assert {"source": "greenhouse:bad", "error_type": "RuntimeError"} in result.fetch_failures
+    # Left unscheduled (stays due) and refetched in full next time.
+    assert "greenhouse:bad" not in result.polled and "greenhouse:good" in result.polled
+    states = src_state.get_many(["greenhouse:bad", "greenhouse:good"])
+    assert states["greenhouse:bad"].etag is None
+    assert states["greenhouse:good"].etag == "etag-greenhouse:good"
+    # Poll health still ran, and the bad board's fetch is still booked "ok".
+    assert dict(outcomes)["greenhouse:bad"] == "ok"
+    assert dict(outcomes)["greenhouse:dead"] != "ok"
+
+
 @pytest.mark.asyncio
-async def test_a_screening_failure_raises_and_cancels_the_fetches_still_running(store):
+async def test_one_boards_seen_store_failure_does_not_abort_the_cycle(monkeypatch):
+    from src.state_sqlite import SqliteConnectorHealthStore
+    conn = connect(":memory:")
+    seen, src_state = SqliteSeenJobsStore(conn), SqliteSourceStateStore(conn)
+    outcomes = _capture_poll_health(monkeypatch)
+    sink = _RecordingSink()
+    result = await run_once(
+        cfg=_cfg(), tier="ats", store=_ExplodingSeenStore(seen, "greenhouse:bad:"),
+        source_state=src_state, connectors=_isolation_connectors(), sinks=[sink],
+        client_factory=lambda: httpx.AsyncClient(),
+        health=SqliteConnectorHealthStore(conn),
+    )
+    _assert_board_isolated(result, sink, src_state, outcomes)
+
+
+@pytest.mark.asyncio
+async def test_one_boards_memory_failure_does_not_abort_the_cycle(monkeypatch):
+    from src.state_sqlite import SqliteConnectorHealthStore, SqliteEvaluatedPostingsStore
+    conn = connect(":memory:")
+    seen, src_state = SqliteSeenJobsStore(conn), SqliteSourceStateStore(conn)
+    real_ev = SqliteEvaluatedPostingsStore(conn)
+
+    class _ExplodingMemory:
+        def known(self, ids):
+            if any(i.startswith("greenhouse:bad:") for i in ids):
+                raise RuntimeError("database is locked")
+            return real_ev.known(ids)
+        def __getattr__(self, name):
+            return getattr(real_ev, name)
+
+    outcomes = _capture_poll_health(monkeypatch)
+    sink = _RecordingSink()
+    result = await run_once(
+        cfg=_cfg(), tier="ats", store=seen, source_state=src_state,
+        connectors=_isolation_connectors(), sinks=[sink],
+        client_factory=lambda: httpx.AsyncClient(),
+        health=SqliteConnectorHealthStore(conn),
+        evaluated_store=_ExplodingMemory(), **_MEM_STAMP,
+    )
+    _assert_board_isolated(result, sink, src_state, outcomes)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_cache_hint_save_does_not_abort_the_cycle(store):
     seen, src_state = store
-    cancelled = asyncio.Event()
 
-    class _Hanging:
-        tier = "ats"
-        name = "greenhouse:slow"
-        async def fetch(self, client, state):
-            try:
-                await asyncio.sleep(30)
-            except asyncio.CancelledError:
-                cancelled.set()
-                raise
+    class _BrokenState:
+        def get_many(self, names):
+            return src_state.get_many(names)
+        def put(self, name, state):
+            raise RuntimeError("database is locked")
 
-    with pytest.raises(RuntimeError, match="seen store down"):
-        await asyncio.wait_for(run_once(
-            cfg=_cfg(), tier="ats", store=_ExplodingSeenStore(seen), source_state=src_state,
-            connectors=[_Hanging(), _StubConnector("greenhouse:fast", [_match("greenhouse:fast", "1")])],
-            sinks=[], client_factory=lambda: httpx.AsyncClient(),
-        ), timeout=5)
-    assert cancelled.is_set()
+    sink = _RecordingSink()
+    result = await run_once(
+        cfg=_cfg(), tier="ats", store=seen, source_state=_BrokenState(),
+        connectors=[_EtagConnector("greenhouse:a", [_match("greenhouse:a", "1")]),
+                    _EtagConnector("greenhouse:b", [_match("greenhouse:b", "1")])],
+        sinks=[sink], client_factory=lambda: httpx.AsyncClient(),
+    )
+    assert sorted(p.apply_url for p in sink.received) == [
+        "https://x/greenhouse:a/1", "https://x/greenhouse:b/1"]
+    assert result.failed_sources == [] and result.fetch_failures == []
+    assert set(result.polled) == {"greenhouse:a", "greenhouse:b"}
 
 
 # --- evaluation memory -------------------------------------------------------
+
+_MEM_STAMP = dict(generation=1)
 
 def _mem_cycle_kwargs(conn):
     return dict(
