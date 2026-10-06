@@ -61,10 +61,11 @@ ATS_INTERVAL_S = 600  # default schedules.ats_minutes == 10
 
 
 async def _cycle(monkeypatch, *, at_s, tier="ats", polled=None, deferred=(), paced_out=(),
-                 dry_run=False, calibrate=False):
+                 connectors=(), dry_run=False, calibrate=False):
     """One handler cycle at wall time ``at_s``; returns the `suppressed` set that
     build_connectors received."""
     import time as _time
+    from types import SimpleNamespace
     from src.handler import _run
     from src.orchestrator import RunResult
 
@@ -72,7 +73,7 @@ async def _cycle(monkeypatch, *, at_s, tier="ats", polled=None, deferred=(), pac
 
     def fake_build(cfg, tier, *, discovered=None, boards=None, suppressed=frozenset(), sightings=None):
         seen["suppressed"] = set(suppressed)
-        return []
+        return [SimpleNamespace(name=n) for n in connectors]
 
     async def fake_run_once(**kw):
         return RunResult(polled=dict(polled or {}), deferred_sources=list(deferred),
@@ -175,3 +176,19 @@ async def test_schedule_failure_never_fails_the_cycle(monkeypatch):
     monkeypatch.setattr(SqliteConnectorScheduleStore, "not_due", boom)
     monkeypatch.setattr(SqliteConnectorScheduleStore, "record_polls", boom)
     await _cycle(monkeypatch, at_s=T0, polled={"a": 0})  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_generation_change_cycle_forces_unpolled_boards_due(monkeypatch):
+    seed_settings({})
+    # Build a long (quiet) schedule for the board under the current generation.
+    for i in range(3):
+        await _cycle(monkeypatch, at_s=T0 + i * 3600, polled={"greenhouse:a": 0},
+                     connectors=["greenhouse:a"])
+    assert "greenhouse:a" in await _cycle(monkeypatch, at_s=T0 + 2 * 3600 + 60)
+    seed_settings({"relevance": {"score_low": 5}})  # new generation
+    t = T0 + 2 * 3600 + 120
+    # the board is attempted this cycle but not polled (failed / paced out)
+    await _cycle(monkeypatch, at_s=t, polled={}, connectors=["greenhouse:a"])
+    sup = await _cycle(monkeypatch, at_s=t + ATS_INTERVAL_S)
+    assert "greenhouse:a" not in sup

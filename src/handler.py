@@ -379,10 +379,12 @@ async def _run(
     use_cadence = tier in ("ats", "slow") and not dry_run and not calibrate
     now_ms = int(time.time() * 1000)
     not_due: set[str] = set()
+    gen_changed = use_cadence  # until the stored generation is seen to match
     if use_cadence:
         try:
             # A settings edit (new generation) makes every board due this cycle.
             if stores.schedule.generation(tier) == snap.generation:
+                gen_changed = False
                 not_due = stores.schedule.not_due(now_ms)
         except Exception:  # noqa: BLE001 — degrade to polling everything
             log.warning("schedule_unavailable", extra={"tier": tier})
@@ -438,9 +440,15 @@ async def _run(
         # Only successfully fetched boards are in result.polled: failed fetches
         # keep their schedule rows and paced-out boards stay due.
         try:
+            force_due = set(result.deferred_sources)
+            if gen_changed:
+                # The settings changed this cycle: a board that was attempted
+                # but not polled (failed / paced out) must not stay on its old,
+                # possibly hour-long schedule once the new generation is recorded.
+                force_due |= {c.name for c in connectors if c.name not in result.polled}
             stores.schedule.record_polls(
                 result.polled, base_interval_s=interval_s, now_ms=now_ms,
-                force_due=result.deferred_sources,
+                force_due=force_due,
             )
             stores.schedule.set_generation(tier, snap.generation)
             log.info("cadence_done", extra={
