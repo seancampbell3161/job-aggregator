@@ -13,6 +13,7 @@ import bisect
 import gzip
 import json
 import logging
+import zlib
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 
@@ -94,27 +95,31 @@ def urls_from_block(text: str, prefix: str) -> Iterator[str]:
 
 
 async def _get(client: httpx.AsyncClient, url: str, *, headers: dict | None = None,
-               sleep=asyncio.sleep) -> httpx.Response:
+               expect: tuple[int, ...] = (200,), sleep=asyncio.sleep) -> httpx.Response:
     last = "no attempt"
     for attempt in range(_ATTEMPTS):
         try:
             resp = await client.get(url, headers={**ua_headers(), **(headers or {})},
                                     timeout=120.0, follow_redirects=True)
-            if resp.status_code in (200, 206):
+            if resp.status_code in expect:
                 return resp
             last = f"HTTP {resp.status_code}"
             if resp.status_code < 500 and resp.status_code != 429:
                 break  # a 4xx won't fix itself
         except httpx.HTTPError as exc:
             last = type(exc).__name__
-        await sleep(3.0 * (attempt + 1))
+        if attempt < _ATTEMPTS - 1:
+            await sleep(3.0 * (attempt + 1))
     raise CrawlFetchError(f"{url}: {last}")
 
 
 async def list_crawls(client: httpx.AsyncClient, n: int, *, sleep=asyncio.sleep) -> list[str]:
     """The newest n crawl ids, e.g. ["CC-MAIN-2026-39", ...]."""
     resp = await _get(client, COLLINFO_URL, sleep=sleep)
-    return [c["id"] for c in resp.json()][:n]
+    try:
+        return [c["id"] for c in resp.json()][:n]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise CrawlFetchError(f"{COLLINFO_URL}: unexpected response") from exc
 
 
 async def crawl_urls(client: httpx.AsyncClient, crawl_id: str,
@@ -139,9 +144,9 @@ async def crawl_urls(client: httpx.AsyncClient, crawl_id: str,
             try:
                 resp = await _get(
                     client, f"{DATA_BASE}/{crawl_id}/indexes/{b.file}",
-                    headers={"Range": f"bytes={b.offset}-{b.offset + b.length - 1}"}, sleep=sleep)
+                    headers={"Range": f"bytes={b.offset}-{b.offset + b.length - 1}"}, expect=(206,), sleep=sleep)
                 text = gzip.decompress(resp.content).decode("utf-8", "replace")
-            except (CrawlFetchError, OSError, EOFError) as exc:  # BadGzipFile is an OSError
+            except (CrawlFetchError, OSError, EOFError, zlib.error) as exc:  # BadGzipFile is an OSError
                 failed += 1
                 log.warning("cc_block_failed",
                             extra={"crawl": crawl_id, "file": b.file, "error": str(exc)})

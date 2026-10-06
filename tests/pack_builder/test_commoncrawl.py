@@ -98,7 +98,44 @@ async def test_crawl_urls_counts_undecodable_block_as_failed():
     idx = "com,ashbyhq,jobs)/acme 2026\tcdx-00001.gz\t0\t10\t1"
     with respx.mock:
         respx.get(f"{DATA_BASE}/CC-1/indexes/cluster.idx").respond(200, text=idx)
-        respx.get(f"{DATA_BASE}/CC-1/indexes/cdx-00001.gz").respond(200, text="<html>oops</html>")
+        respx.get(f"{DATA_BASE}/CC-1/indexes/cdx-00001.gz").respond(206, text="<html>oops</html>")
         async with httpx.AsyncClient() as client:
             urls, failed = await crawl_urls(client, "CC-1", ("com,ashbyhq,jobs)/",), sleep=_no_sleep)
     assert urls == [] and failed == 1
+
+
+@pytest.mark.asyncio
+async def test_crawl_urls_rejects_200_response_to_range_request():
+    """A Range request that returns 200 (server ignoring Range) fails the block."""
+    idx = "com,ashbyhq,jobs)/acme 2026\tcdx-00001.gz\t0\t10\t1"
+    block = _block(['com,ashbyhq,jobs)/acme 2026 {"url": "https://jobs.ashbyhq.com/acme"}'])
+    with respx.mock:
+        respx.get(f"{DATA_BASE}/CC-1/indexes/cluster.idx").respond(200, text=idx)
+        respx.get(f"{DATA_BASE}/CC-1/indexes/cdx-00001.gz").respond(200, content=block)
+        async with httpx.AsyncClient() as client:
+            urls, failed = await crawl_urls(client, "CC-1", ("com,ashbyhq,jobs)/",), sleep=_no_sleep)
+    assert urls == [] and failed == 1
+
+
+@pytest.mark.asyncio
+async def test_crawl_urls_counts_corrupt_gzip_as_failed():
+    """A gzip block with valid header but corrupt deflate body raises zlib.error and counts as failed."""
+    idx = "com,ashbyhq,jobs)/acme 2026\tcdx-00001.gz\t0\t10\t1"
+    # Create a gzip header followed by garbage that will trigger zlib.error during decompression
+    corrupt_gzip = gzip.compress(b"x" * 100)[:20] + b"\x00garbage"
+    with respx.mock:
+        respx.get(f"{DATA_BASE}/CC-1/indexes/cluster.idx").respond(200, text=idx)
+        respx.get(f"{DATA_BASE}/CC-1/indexes/cdx-00001.gz").respond(206, content=corrupt_gzip)
+        async with httpx.AsyncClient() as client:
+            urls, failed = await crawl_urls(client, "CC-1", ("com,ashbyhq,jobs)/",), sleep=_no_sleep)
+    assert urls == [] and failed == 1
+
+
+@pytest.mark.asyncio
+async def test_list_crawls_handles_malformed_collinfo():
+    """If collinfo.json is not the expected format, raise CrawlFetchError."""
+    with respx.mock:
+        respx.get(COLLINFO_URL).respond(200, text="<html>error page</html>")
+        async with httpx.AsyncClient() as client:
+            with pytest.raises(CrawlFetchError):
+                await list_crawls(client, 1, sleep=_no_sleep)
