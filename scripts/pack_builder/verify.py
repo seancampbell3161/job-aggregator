@@ -21,6 +21,10 @@ from src.connectors.workable import WorkableConnector
 from src.discovery import ProbeThrottled
 from src.fingerprint import verify_identity
 from src.models import ConnectorState
+from src.pacing import (
+    GAP_DECAY, GAP_SNAP, MAX_GAP, MIN_THROTTLED_GAP, THROTTLE_400_FAMILIES,
+    VendorPacer,
+)
 from src.user_agent import headers as ua_headers
 
 log = logging.getLogger(__name__)
@@ -36,17 +40,13 @@ MAX_RETRY_AFTER = 60.0
 # (2026-10-06): a 300-board Oracle run saw 127 fetches fail with 400, all of
 # which were live minutes later (the next run saw none). Workday's connector
 # documents the same 400s from datacenter IPs. Retry after a long pause.
-THROTTLE_400_FAMILIES = frozenset({"oraclecloud", "workday"})
 THROTTLE_400_BACKOFF = 30.0
 # Adaptive pacing. Evidence (2026-10-06 real build): fixed concurrency plus
 # backoff left workable 5,071 of ~5,230 checks deferred (HTTP 429), oraclecloud
 # 1,611 deferred (HTTP 400) and recruitee 386 deferred (429); every other
 # family saw none. Each vendor tolerates a different rate, so each family's
 # gap between request starts grows on throttle and decays on success.
-MIN_THROTTLED_GAP = 0.5
-MAX_GAP = 10.0
-GAP_DECAY = 0.9
-GAP_SNAP = 0.05
+# (Min/max/decay/snap constants imported from src.pacing.)
 # Families whose URL identity is incomplete or unvalidated until a live
 # check: verify_identity resolves it (and mutates it, for eightfold).
 _RESOLVE_FIRST = frozenset({"eightfold", "taleo", "jsonld"})
@@ -69,35 +69,6 @@ class _Retryable(Exception):
         # True only for a vendor's throttle signal (429, ProbeThrottled, the
         # Oracle/Workday 400): 5xx and transport errors are not.
         self.throttle = throttle
-
-
-class _Pacer:
-    """Per-family AIMD request pacing: the gap between request starts doubles
-    on a throttle signal and decays on a definite answer. Slots are reserved
-    before sleeping, so concurrent waiters queue instead of bunching."""
-
-    def __init__(self, clock=time.monotonic, sleep=asyncio.sleep) -> None:
-        self._clock = clock
-        self._sleep = sleep
-        self._gap: dict[str, float] = {}
-        self._next: dict[str, float] = {}
-
-    def gap(self, family: str) -> float:
-        return self._gap.get(family, 0.0)
-
-    async def wait(self, family: str) -> None:
-        now = self._clock()
-        start = max(now, self._next.get(family, 0.0))
-        self._next[family] = start + self.gap(family)
-        if start > now:
-            await self._sleep(start - now)
-
-    def on_throttle(self, family: str) -> None:
-        self._gap[family] = min(max(self.gap(family) * 2, MIN_THROTTLED_GAP), MAX_GAP)
-
-    def on_success(self, family: str) -> None:
-        gap = self.gap(family) * GAP_DECAY
-        self._gap[family] = 0.0 if gap < GAP_SNAP else gap
 
 
 def _retry_after(resp: httpx.Response) -> float | None:
@@ -123,7 +94,7 @@ class Verifier:
         self._family_limits = FAMILY_LIMITS if family_limits is None else family_limits
         self._sems: dict[str, asyncio.Semaphore] = {}
         self._sleep = sleep
-        self._pacer = _Pacer(clock=clock, sleep=pacer_sleep or sleep)
+        self._pacer = VendorPacer(clock=clock, sleep=pacer_sleep or sleep)
 
     def _sem(self, family: str) -> asyncio.Semaphore:
         if family not in self._sems:

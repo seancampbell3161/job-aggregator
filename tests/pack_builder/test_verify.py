@@ -8,6 +8,7 @@ from scripts.pack_builder import verify as V
 from scripts.pack_builder.candidates import Candidate
 from src.discovery import ProbeThrottled
 from src.models import FetchResult, RawPosting
+from src.pacing import VendorPacer
 
 
 def _post(loc, company=None):
@@ -383,14 +384,14 @@ class _Clock:
 @pytest.mark.asyncio
 async def test_pacer_gap_starts_at_zero_and_never_sleeps():
     c = _Clock()
-    p = V._Pacer(clock=c.now, sleep=c.sleep)
+    p = VendorPacer(clock=c.now, sleep=c.sleep)
     for _ in range(5):
         await p.wait("ashby")
     assert c.slept == []
 
 
 def test_pacer_throttle_doubles_from_floor_to_cap():
-    p = V._Pacer(clock=lambda: 0.0, sleep=None)
+    p = VendorPacer(clock=lambda: 0.0, sleep=None)
     gaps = []
     for _ in range(7):
         p.on_throttle("workable")
@@ -400,7 +401,7 @@ def test_pacer_throttle_doubles_from_floor_to_cap():
 
 
 def test_pacer_success_decays_then_snaps_to_zero():
-    p = V._Pacer(clock=lambda: 0.0, sleep=None)
+    p = VendorPacer(clock=lambda: 0.0, sleep=None)
     p.on_throttle("workable")
     p.on_success("workable")
     assert p.gap("workable") == pytest.approx(0.45)
@@ -412,7 +413,7 @@ def test_pacer_success_decays_then_snaps_to_zero():
 @pytest.mark.asyncio
 async def test_pacer_concurrent_waiters_are_spaced_by_the_gap():
     c = _Clock()
-    p = V._Pacer(clock=c.now, sleep=c.sleep)
+    p = VendorPacer(clock=c.now, sleep=c.sleep)
     p.on_throttle("workable")
     p.on_throttle("workable")  # gap 1.0
     starts = []
