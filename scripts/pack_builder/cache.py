@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -24,6 +24,15 @@ class CheckResult:
     company: str | None = None
     connector_name: str | None = None
     identity: dict | None = None   # as verified (eightfold resolves domain/flavor)
+
+
+_FIELDS = frozenset(f.name for f in fields(CheckResult))
+
+
+def _load(data: str) -> CheckResult:
+    """A cached row, ignoring fields an older or newer builder wrote that
+    this CheckResult doesn't have."""
+    return CheckResult(**{k: v for k, v in json.loads(data).items() if k in _FIELDS})
 
 
 class BuildCache:
@@ -45,7 +54,7 @@ class BuildCache:
                                  (key,)).fetchone()
         if row is None:
             return None
-        return CheckResult(**json.loads(row[0])), datetime.fromisoformat(row[1])
+        return _load(row[0]), datetime.fromisoformat(row[1])
 
     def needs_check(self, key: str, *, max_age_days: int,
                     now: datetime | None = None) -> bool:
@@ -61,7 +70,7 @@ class BuildCache:
         out: dict[str, tuple[str, CheckResult]] = {}
         for key, family, data in self._conn.execute("SELECT key, family, data FROM checks"):
             if key in wanted:
-                out[key] = (family, CheckResult(**json.loads(data)))
+                out[key] = (family, _load(data))
         return out
 
     def close(self) -> None:

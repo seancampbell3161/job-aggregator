@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta, timezone
 
 from scripts.pack_builder.cache import BuildCache, CheckResult
@@ -31,6 +32,20 @@ def test_results_survive_reopen(tmp_path):
     # No close(): simulates Ctrl-C. Each put must already be committed.
     again = BuildCache(tmp_path / "c.db")
     assert again.get("k")[0] == LIVE
+
+
+def test_rows_from_another_cache_schema_still_load(tmp_path):
+    """A row written by an older or newer builder may carry fields this
+    CheckResult doesn't have (or lack ones it added); unknown ones are ignored."""
+    cache = BuildCache(tmp_path / "c.db")
+    cache._conn.execute(
+        "INSERT INTO checks VALUES (?, ?, ?, ?)",
+        ("k", "greenhouse",
+         json.dumps({"status": "live", "postings": 4, "company": "Acme", "future_field": 1}),
+         NOW.isoformat()))
+    expected = CheckResult("live", postings=4, company="Acme")
+    assert cache.get("k") == (expected, NOW)
+    assert cache.results(["k"]) == {"k": ("greenhouse", expected)}
 
 
 def test_results_returns_only_requested_keys(tmp_path):

@@ -8,6 +8,7 @@ from src.starter_pack import load_pack, write_pack
 
 URLS = ["https://jobs.ashbyhq.com/acme", "https://boards.greenhouse.io/beta",
         "https://acme.wd1.myworkdayjobs.com/External"]
+CRAWL = "CC-MAIN-2026-39"
 
 
 class FakeVerifier:
@@ -38,7 +39,7 @@ def env(monkeypatch, tmp_path):
     crawl_calls = []
 
     async def fake_list(client, n, **kw):
-        return ["CC-1"]
+        return [CRAWL]
 
     async def fake_crawl(client, crawl_id, prefixes=None, **kw):
         crawl_calls.append(crawl_id)
@@ -80,7 +81,7 @@ def test_crawl_candidates_are_cached(env):
     _, args, crawl_calls, _ = env
     B.main(args)
     B.main(args)
-    assert crawl_calls == ["CC-1"]
+    assert crawl_calls == [CRAWL]
 
 
 def test_crawl_with_failed_blocks_is_not_cached(env, monkeypatch):
@@ -93,7 +94,7 @@ def test_crawl_with_failed_blocks_is_not_cached(env, monkeypatch):
     monkeypatch.setattr(B, "crawl_urls", flaky)
     B.main(args)
     B.main(args)
-    assert crawl_calls == ["CC-1", "CC-1"]
+    assert crawl_calls == [CRAWL, CRAWL]
 
 
 def test_partial_build_is_refused_and_pack_untouched(env):
@@ -153,9 +154,10 @@ def test_supplement_failure_exits_2_and_writes_nothing(env, monkeypatch):
 def test_corrupt_crawl_cache_is_a_cache_miss(env):
     _, args, crawl_calls, tmp = env
     assert B.main(args) == 0
-    (tmp / "cache" / "crawls" / "CC-1.json").write_text("not json")
+    [cached] = (tmp / "cache" / "crawls").glob(f"{CRAWL}.*.json")
+    cached.write_text("not json")
     assert B.main(args) == 0
-    assert crawl_calls == ["CC-1", "CC-1"]
+    assert crawl_calls == [CRAWL, CRAWL]
 
 
 def test_no_lever_skips_the_supplement(env, monkeypatch):
@@ -178,3 +180,78 @@ def test_lever_supplement_candidates_reach_the_verifier(env, monkeypatch):
     FakeVerifier.script["lever:acme-lever"] = _live("lever:acme-lever")
     assert B.main(args) == 0
     assert "lever:acme-lever" in {s.connector_name for s in load_pack(out).slugs}
+
+
+def test_changing_the_surt_prefixes_misses_the_crawl_cache(env, monkeypatch):
+    _, args, crawl_calls, _ = env
+    B.main(args)
+    monkeypatch.setattr(B, "SURT_PREFIXES", B.SURT_PREFIXES + ("com,newats,",))
+    B.main(args)
+    assert crawl_calls == [CRAWL, CRAWL]   # a new family must not reuse the old list
+
+
+def test_crawl_is_read_with_the_prefixes_its_cache_is_keyed_on(env, monkeypatch):
+    _, args, _, _ = env
+    seen = []
+
+    async def fake_crawl(client, crawl_id, prefixes=None, **kw):
+        seen.append(prefixes)
+        return list(URLS), 0
+
+    monkeypatch.setattr(B, "crawl_urls", fake_crawl)
+    monkeypatch.setattr(B, "SURT_PREFIXES", ("io,greenhouse,boards)/",))
+    B.main(args)
+    assert seen == [("io,greenhouse,boards)/",)]
+
+
+def test_invalid_remote_crawl_ids_are_skipped_with_a_warning(env, monkeypatch, capsys):
+    _, args, crawl_calls, tmp = env
+
+    async def fake_list(client, n, **kw):
+        return ["../../etc/passwd", CRAWL, "CC-MAIN-2026-39/x"]
+
+    monkeypatch.setattr(B, "list_crawls", fake_list)
+    assert B.main(args) == 0
+    assert crawl_calls == [CRAWL]
+    err = capsys.readouterr().err
+    assert "../../etc/passwd" in err and "CC-MAIN-2026-39/x" in err
+    assert [p.name.split(".")[0] for p in (tmp / "cache" / "crawls").iterdir()] == [CRAWL]
+
+
+def test_no_valid_remote_crawl_id_exits_2(env, monkeypatch, capsys):
+    out, args, crawl_calls, _ = env
+
+    async def fake_list(client, n, **kw):
+        return ["bogus"]
+
+    monkeypatch.setattr(B, "list_crawls", fake_list)
+    assert B.main(args) == 2
+    assert crawl_calls == [] and not out.exists()
+    assert "no valid Common Crawl id" in capsys.readouterr().err
+
+
+def test_explicit_invalid_crawl_id_is_a_usage_error(env):
+    _, args, crawl_calls, _ = env
+    with pytest.raises(SystemExit) as exc:
+        B.main(args + ["--crawl", "../escape"])
+    assert exc.value.code == 2 and crawl_calls == []
+
+
+def test_explicit_valid_crawl_id_is_used(env):
+    _, args, crawl_calls, _ = env
+    assert B.main(args + ["--crawl", "CC-MAIN-2025-51"]) == 0
+    assert crawl_calls == ["CC-MAIN-2025-51"]
+
+
+def test_failed_blocks_warn_on_stderr_without_report(env, monkeypatch, capsys):
+    _, args, _, _ = env
+    args = [a for i, a in enumerate(args)
+            if a != "--report" and (i == 0 or args[i - 1] != "--report")]
+
+    async def flaky(client, crawl_id, prefixes=None, **kw):
+        return list(URLS), 3
+
+    monkeypatch.setattr(B, "crawl_urls", flaky)
+    B.main(args)
+    err = capsys.readouterr().err
+    assert CRAWL in err and "3" in err and "block" in err
