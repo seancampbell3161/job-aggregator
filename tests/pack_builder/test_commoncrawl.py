@@ -119,10 +119,14 @@ async def test_crawl_urls_rejects_200_response_to_range_request():
 
 @pytest.mark.asyncio
 async def test_crawl_urls_counts_corrupt_gzip_as_failed():
-    """A gzip block with valid header but corrupt deflate body raises zlib.error and counts as failed."""
+    """A gzip block with valid header but corrupted deflate stream raises zlib.error and counts as failed."""
     idx = "com,ashbyhq,jobs)/acme 2026\tcdx-00001.gz\t0\t10\t1"
-    # Create a gzip header followed by garbage that will trigger zlib.error during decompression
-    corrupt_gzip = gzip.compress(b"x" * 100)[:20] + b"\x00garbage"
+    # Create a valid gzip block, then corrupt the deflate stream (not header).
+    # Flipping byte 10 triggers zlib.error (not BadGzipFile/OSError) during decompression.
+    valid_gzip = gzip.compress(b"test data for compression" * 10)
+    corrupt = bytearray(valid_gzip)
+    corrupt[10] = 0xFF
+    corrupt_gzip = bytes(corrupt)
     with respx.mock:
         respx.get(f"{DATA_BASE}/CC-1/indexes/cluster.idx").respond(200, text=idx)
         respx.get(f"{DATA_BASE}/CC-1/indexes/cdx-00001.gz").respond(206, content=corrupt_gzip)
