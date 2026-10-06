@@ -476,6 +476,58 @@ async def test_new_count_counts_memory_skipped_postings_once_per_cycle(monkeypat
     assert r1.new_count == r2.new_count == 2
 
 
+class _DelayedConnector(_StubConnector):
+    def __init__(self, name, postings, delay):
+        super().__init__(name, postings)
+        self._delay = delay
+    async def fetch(self, client, state):
+        await asyncio.sleep(self._delay)
+        return await super().fetch(client, state)
+
+
+def _break_normalize_when(monkeypatch, pred):
+    import src.orchestrator as orch
+    real = orch.normalize
+
+    def flaky(raw, **kw):
+        if pred(raw):
+            raise ValueError("malformed")
+        return real(raw, **kw)
+
+    monkeypatch.setattr(orch, "normalize", flaky)
+
+
+@pytest.mark.asyncio
+async def test_malformed_posting_never_counts_toward_new_count(monkeypatch):
+    """A posting that fails to normalize is never marked seen, so counting it
+    would hold new_count above 0 forever and silence the zero-yield alert."""
+    conn = connect(":memory:")
+    _break_normalize_when(monkeypatch, lambda r: r.external_id == "bad")
+    conns = [_StubConnector("greenhouse:a", [_match("greenhouse:a", "bad")])]
+    kw = _mem_cycle_kwargs(conn)
+    for _ in range(2):
+        r = await run_once(connectors=conns, sinks=[], **kw)
+        assert len(r.normalize_failures) == 1
+        assert r.new_count == 0
+
+
+@pytest.mark.asyncio
+async def test_malformed_first_copy_does_not_mask_wellformed_mirror(monkeypatch):
+    conn = connect(":memory:")
+    _break_normalize_when(monkeypatch, lambda r: r.apply_url.endswith("/bad-copy"))
+    bad = replace(_match("greenhouse:a", "1"), apply_url="https://x/bad-copy")
+    good = _match("greenhouse:a", "1")
+    conns = [
+        _StubConnector("greenhouse:a", [bad]),
+        _DelayedConnector("greenhouse:a-mirror", [good], delay=0.05),
+    ]
+    sink = _RecordingSink()
+    r = await run_once(connectors=conns, sinks=[sink], **_mem_cycle_kwargs(conn))
+    assert len(r.normalize_failures) == 1
+    assert r.new_count == 1
+    assert [p.apply_url for p in sink.received] == ["https://x/greenhouse:a/1"]
+
+
 @pytest.mark.asyncio
 async def test_generation_change_reevaluates(monkeypatch):
     from src.state_sqlite import SqliteEvaluatedPostingsStore
