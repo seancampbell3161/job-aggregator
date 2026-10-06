@@ -1,10 +1,14 @@
+import httpx
 import pytest
+import respx
 
+from scripts.pack_builder import candidates as cand_mod
 from scripts.pack_builder.candidates import (
     SOURCE_LEVER, Candidate, candidate_from_url, dedup, identity_key, lever_guesses,
-    yc_us_companies,
+    SOURCE_CC, supplement_companies, yc_us_companies,
 )
-from src.yc_oss import YcCompany
+from src.vc_portfolio import PortfolioCompany
+from src.yc_oss import _FEED_URL, YcCompany
 
 
 @pytest.mark.parametrize("url, family, identity", [
@@ -47,6 +51,8 @@ def test_dedup_is_case_insensitive_and_keeps_first_seen():
     b = Candidate("greenhouse", {"slug": "stripe"}, source=SOURCE_LEVER)
     out = dedup([a, b, Candidate("ashby", {"slug": "x"})])
     assert [c.identity for c in out] == [{"slug": "x"}, {"slug": "Stripe"}]  # sorted by key
+    gh = next(c for c in out if c.family == "greenhouse")
+    assert gh.source == SOURCE_CC  # first-seen wins, not the later lever-guess one
     assert identity_key("greenhouse", {"slug": "Stripe"}) == identity_key("greenhouse", {"slug": "stripe"})
 
 
@@ -67,3 +73,42 @@ def test_yc_us_companies_filters_status_team_size_and_region():
         YcCompany("Dead", "dead", "Inactive", 50, None, ("United States of America",)),
     ]
     assert yc_us_companies(cos, min_team_size=5) == [("Us Co", "https://us.co"), ("Ca Co", None)]
+
+
+@pytest.mark.parametrize("url, site", [
+    ("https://acme.wd5.myworkdayjobs.com/en-US/Careers/job/1", "Careers"),
+    ("https://acme.wd1.myworkdayjobs.com/jobs", "jobs"),
+])
+def test_workday_sites_named_like_reserved_words_are_kept(url, site):
+    c = candidate_from_url(url)
+    assert c is not None and c.family == "workday" and c.identity["site"] == site
+
+
+async def test_supplement_companies_merges_sources_and_swallows_vc_failure(monkeypatch):
+    async def a16z(client):
+        return [PortfolioCompany("Netris", ["netris"], "netris.io")]
+
+    async def sequoia(client):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(cand_mod, "a16z_portfolio", a16z)
+    monkeypatch.setattr(cand_mod, "sequoia_portfolio", sequoia)
+    feed = [
+        {"name": "Us Co", "slug": "us", "status": "Active", "team_size": 8,
+         "website": "https://us.co", "regions": ["United States of America"]},
+        {"name": "Eu Co", "slug": "eu", "status": "Active", "team_size": 50,
+         "website": "https://eu.co", "regions": ["Europe"]},
+    ]
+    with respx.mock:
+        respx.get(_FEED_URL).respond(200, json=feed)
+        async with httpx.AsyncClient() as client:
+            out = await supplement_companies(client)
+    assert out == [("Us Co", "https://us.co"), ("Netris", "https://netris.io")]
+
+
+async def test_supplement_companies_requires_the_yc_feed():
+    with respx.mock:
+        respx.get(_FEED_URL).respond(500)
+        async with httpx.AsyncClient() as client:
+            with pytest.raises(httpx.HTTPStatusError):
+                await supplement_companies(client)

@@ -57,7 +57,11 @@ def _checked(family: str, identity: dict) -> Candidate | None:
         v = identity.get(k)
         if v is None:
             continue
-        if not isinstance(v, str) or not _CLEAN.match(v) or v.lower() in _JUNK:
+        if not isinstance(v, str) or not _CLEAN.match(v):
+            return None
+        # Reserved words only disqualify a vendor-level slug; a Workday site
+        # may legitimately be called "Careers" or "jobs".
+        if k == "slug" and v.lower() in _JUNK:
             return None
     return Candidate(family, dict(identity))
 
