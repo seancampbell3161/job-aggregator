@@ -1229,3 +1229,98 @@ async def test_probe_xml_empty_feed_is_not_a_hit():
             )
             ok, count = await _probe_one_ats(client=client, ats_family="personio", slug="acme")
     assert ok is False and count == 0
+
+
+# ---------- throttled probes (starter-pack builder spec §5.3) ----------
+
+from src.discovery import ProbeThrottled, _probe_all_ats
+
+
+@pytest.mark.asyncio
+async def test_probe_one_ats_raises_throttled_on_429():
+    async with httpx.AsyncClient() as client:
+        with respx.mock:
+            respx.get("https://api.lever.co/v0/postings/busy").respond(429)
+            with pytest.raises(ProbeThrottled) as exc:
+                await _probe_one_ats(client=client, ats_family="lever", slug="busy")
+    assert exc.value.ats_family == "lever" and exc.value.slug == "busy"
+
+
+@pytest.mark.asyncio
+async def test_probe_all_ats_prefers_a_match_over_a_throttle():
+    async def probe(*, client, ats_family, slug):
+        if ats_family == "greenhouse":
+            raise ProbeThrottled(ats_family, slug)
+        return (True, 4) if ats_family == "ashby" else (False, 0)
+
+    with patch("src.discovery._probe_one_ats", side_effect=probe):
+        assert await _probe_all_ats(None, "acme") == ("ashby", 4)
+
+
+@pytest.mark.asyncio
+async def test_probe_all_ats_raises_when_only_throttled_and_misses():
+    async def probe(*, client, ats_family, slug):
+        if ats_family == "lever":
+            raise ProbeThrottled(ats_family, slug)
+        return (False, 0)
+
+    with patch("src.discovery._probe_one_ats", side_effect=probe):
+        with pytest.raises(ProbeThrottled):
+            await _probe_all_ats(None, "acme")
+
+
+@pytest.mark.asyncio
+async def test_chain_throttled_persists_nothing():
+    store = _slug_store()
+    with patch("src.discovery._probe_all_ats",
+               new=AsyncMock(side_effect=ProbeThrottled("*", "acme"))):
+        budget, outcome = await _run_candidate_chain(
+            client=None, name="Acme", website=None, alt_slug=None, store=store,
+            boards=None, active_set=set(), budget=100,
+        )
+    assert outcome == "throttled"
+    assert budget == 100 - _PROBES_PER_CANDIDATE
+    assert store.list_all() == []          # no no_match row written
+
+
+@pytest.mark.asyncio
+async def test_yc_candidate_throttled_is_not_recorded_as_no_match():
+    store = _slug_store()
+
+    class _OneYc:
+        async def fetch(self, client):
+            return [_yc("Acme")]
+
+    with patch("src.discovery._probe_all_ats",
+               new=AsyncMock(side_effect=ProbeThrottled("*", "acme"))):
+        await run_discovery(client=None, yc_oss=_OneYc(), active_set=set(),
+                            store=store, cfg=_cfg(yc_oss_enabled=True))
+    assert store.get("nomatch:acme") is None
+
+
+@pytest.mark.asyncio
+async def test_slug_candidate_throttled_stays_staged():
+    store = _slug_store()
+    store.upsert_candidate("greenhouse:newco", claimed_family="greenhouse")
+    with patch("src.discovery._probe_one_ats",
+               new=AsyncMock(side_effect=ProbeThrottled("greenhouse", "newco"))):
+        await run_discovery(client=None, yc_oss=_NoYc(), active_set=set(),
+                            store=store, cfg=_cfg())
+    assert store.get("greenhouse:newco").validation_status == "candidate"
+
+
+@pytest.mark.asyncio
+async def test_revalidation_throttled_is_not_a_failure(discovered_store):
+    old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    discovered_store._put({   # backdated ok row, as test_run_discovery_revalidates_stale_ok_rows does
+        "connector_name": "greenhouse:stale", "ats_family": "greenhouse", "slug": "stale",
+        "company_name": "Stale Co", "discovered_at": old, "last_validated_at": old,
+        "validation_status": "ok", "consecutive_failures": 0, "last_posting_count": 1,
+    })
+    with patch("src.discovery._probe_one_ats",
+               new=AsyncMock(side_effect=ProbeThrottled("greenhouse", "stale"))):
+        await run_discovery(client=None, yc_oss=_NoYc(), active_set=set(),
+                            store=discovered_store, cfg=_cfg(revalidate_reserve=5))
+    row = discovered_store.get("greenhouse:stale")
+    assert row.validation_status == "ok" and row.consecutive_failures == 0
+    assert row.last_validated_at == old   # untouched: no conclusion was reached

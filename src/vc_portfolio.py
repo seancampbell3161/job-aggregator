@@ -11,6 +11,7 @@ import asyncio
 import csv
 import html
 import json
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,9 +20,11 @@ from urllib.parse import urlparse
 
 import httpx
 
-from src.discovery import _SUPPORTED_ATS, _probe_one_ats
+from src.discovery import _SUPPORTED_ATS, ProbeThrottled, _probe_one_ats
 from src.fingerprint import FingerprintResult, Seed, connector_name, fingerprint_company
 from src.user_agent import headers as ua_headers
+
+log = logging.getLogger(__name__)
 
 
 # Suffixes stripped from company names before slug derivation. Lowercase.
@@ -240,7 +243,11 @@ async def _slug_probe(company: PortfolioCompany, client: httpx.AsyncClient) -> F
     """Stage 1: try each candidate slug against every startup ATS; first hit wins."""
     for slug in company.slug_candidates:
         for ats in _SUPPORTED_ATS:
-            ok, count = await _probe_one_ats(client=client, ats_family=ats, slug=slug)
+            try:
+                ok, count = await _probe_one_ats(client=client, ats_family=ats, slug=slug)
+            except ProbeThrottled:
+                log.warning("vc_probe_throttled", extra={"ats": ats, "slug": slug})
+                continue
             if ok:
                 return _slug_hit_to_result(company, ats, slug, count)
     return None
