@@ -32,6 +32,15 @@ _STATE_RE = re.compile(
     r",\s*(?:" + "|".join(_STATE_ABBRS) + r")\b"
     r"|\b(?:" + "|".join(re.escape(n) for n in _STATE_NAMES) + r")\b"
 )
+# Foreign tech hubs whose feeds write "City, XX" with XX colliding with a US
+# state code (CA = Canada, IL = Israel, CO = Colombia, WA = Western Australia).
+# A hub name vetoes the state-abbreviation match; extend as new leaks show up.
+_FOREIGN_HUBS = re.compile(
+    r"\b(?:Toronto|Vancouver|Montr[eé]al|Ottawa|Calgary|Edmonton|Waterloo|Kitchener"
+    r"|Winnipeg|Halifax|Qu[eé]bec|Mississauga|Tel Aviv|Jerusalem|Haifa|Herzliya"
+    r"|Petah Tikva|Ra'?anana|Bogot[aá]|Medell[ií]n|Perth)\b",
+    re.I,
+)
 _EUROPE = REGION_COUNTRIES["europe"]
 _EUROPE_REGIONS = frozenset({"region:europe", "region:eu"})
 
@@ -45,7 +54,9 @@ def classify(location: str | None) -> frozenset[str]:
     # A state match counts unless the string names a non-US, non-European
     # country ("Vancouver, BC, Canada"). European countries don't veto it, so
     # a multi-site "New York, NY or London, UK" counts for both regions.
-    if "us" in countries or (_STATE_RE.search(location) and not countries - {"us"} - _EUROPE):
+    state_us = (_STATE_RE.search(location) and not countries - {"us"} - _EUROPE
+                and not _FOREIGN_HUBS.search(location))
+    if "us" in countries or state_us:
         out.add("us")
     if countries & _EUROPE or tags & _EUROPE_REGIONS:
         out.add("eu")
