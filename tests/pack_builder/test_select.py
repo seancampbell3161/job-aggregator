@@ -33,41 +33,44 @@ def test_fill_stops_at_board_limit():
 
 
 def test_fill_ties_break_on_size_then_key():
-    # All boards have 50% US share (us=5), so tied on share; smaller boards come first.
-    boards = [_b("b", 10, us=5), _b("a", 10, us=5), _b("c", 20, us=5)]
-    # a and b both have 50% share and 10 postings; a < b alphabetically.
+    # All boards have 50% US share, so tied on share; smaller boards come first, then key.
+    boards = [_b("b", 10, us=5), _b("a", 10, us=5), _b("c", 20, us=10)]
+    # a, b, c all have 50% share (5/10, 5/10, 10/20); a and b tie on share and size (10),
+    # so a < b alphabetically; c is larger (20).
     assert [b.key for b in fill(boards, Limits(10, 1_000), "us").boards] == ["a", "b", "c"]
 
 
 def test_fill_ranks_higher_share_first():
-    # A 100%-US board ranks above a 50%-US board, even if the latter has more US postings.
-    boards = [_b("half", 40, us=20), _b("full", 10, us=10)]
+    # A 100%-US board ranks above a 50%-US board, even if the latter is smaller.
+    boards = [_b("half", 10, us=5), _b("full", 40, us=40)]
     pick = fill(boards, Limits(10, 1_000), "us")
-    # full: 100% share (10/10); half: 50% share (20/40).
+    # full: 100% share (40/40, larger); half: 50% share (5/10, smaller).
     assert [b.key for b in pick.boards] == ["full", "half"]
     assert pick.postings == 50
 
 
 def test_fill_skips_over_budget_boards_and_continues():
-    # If a board would exceed the postings budget, skip it but keep filling smaller ones.
-    # This verifies the skip-and-continue behavior still works.
-    boards = [_b("small1", 30, us=30), _b("huge", 80, us=80), _b("small2", 20, us=20)]
-    pick = fill(boards, Limits(10, 60), "us")
-    # All have 100% share; sorted by size: small2 (20), small1 (30), huge (80).
-    # small2 (20) fits; small1 (30) would make 50, fits; huge (80) would bust → skip.
-    assert [b.key for b in pick.boards] == ["small2", "small1"]
-    assert pick.postings == 50 and pick.binding == "postings"
+    # If a board would exceed the postings budget, skip it but continue filling.
+    # This verifies `continue` (not `break`) is used for over-budget boards.
+    boards = [_b("high", 50, us=50), _b("mid", 80, us=40), _b("low", 10, us=2)]
+    pick = fill(boards, Limits(10, 100), "us")
+    # high: 100% share (50/50); mid: 50% share (40/80); low: 20% share (2/10).
+    # high (50) fits; mid (80) would bust (50+80>100) → skip; low (10) fits.
+    assert [b.key for b in pick.boards] == ["high", "low"]
+    assert pick.postings == 60 and pick.binding == "postings"
 
 
 def test_fill_eu_region_uses_eu_share():
-    # The EU region should use EU share (eu_postings / postings) for ranking.
+    # The EU region should use EU share (eu_postings / postings), not US share.
     boards = [
-        _b("full_eu", 10, eu=10),  # 100% EU share
-        _b("half_eu", 40, eu=20),  # 50% EU share
+        _b("a", 10, us=9, eu=1),   # 10% EU share, 90% US share
+        _b("b", 10, us=1, eu=9),   # 90% EU share, 10% US share
     ]
-    pick = fill(boards, Limits(10, 1_000), "eu")
-    # full_eu: 100% share (10/10); half_eu: 50% share (20/40).
-    assert [b.key for b in pick.boards] == ["full_eu", "half_eu"]
+    # Under EU region: b ranks first (90% EU share); under US: a ranks first (90% US share).
+    pick_eu = fill(boards, Limits(10, 1_000), "eu")
+    assert [b.key for b in pick_eu.boards] == ["b", "a"]
+    pick_us = fill(boards, Limits(10, 1_000), "us")
+    assert [b.key for b in pick_us.boards] == ["a", "b"]
 
 
 def test_select_splits_regions_and_drops_neither():
