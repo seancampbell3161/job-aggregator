@@ -153,6 +153,65 @@ async def test_greenhouse_company_from_board_info(monkeypatch):
     assert r.company == "Acme Robotics"
 
 
+_ORC = {"tenant": "ebuu", "region": "ap1", "site": "CX"}
+_ORC_PAGE = "https://ebuu.fa.ap1.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX"
+
+
+def _orc_html(site_name):
+    # Trimmed from a real careers page head (2026-10-06).
+    return ('<html><head><meta charset="utf-8">'
+            f'<meta property="og:title" content="{site_name} Careers"/>'
+            f'<meta property="og:site_name" content="{site_name}"/>'
+            f'<title>{site_name}</title></head><body></body></html>')
+
+
+async def _check_oracle(monkeypatch, *routes):
+    _patch(monkeypatch, _Stub("oraclecloud:ebuu:CX", [[_post("Sydney, Australia")]]))
+    with respx.mock:
+        for url, response in routes:
+            if isinstance(response, httpx.Response):
+                respx.get(url).mock(return_value=response)
+            else:
+                respx.get(url).mock(side_effect=response)
+        async with httpx.AsyncClient() as client:
+            return await V.Verifier(client, sleep=_no_sleep).check(Candidate("oraclecloud", _ORC))
+
+
+@pytest.mark.asyncio
+async def test_oracle_company_from_careers_site_name(monkeypatch):
+    r = await _check_oracle(monkeypatch, (_ORC_PAGE, httpx.Response(200, text=_orc_html("AT&amp;T"))))
+    assert r.company == "AT&T"
+
+
+@pytest.mark.asyncio
+async def test_oracle_site_name_follows_the_default_site_redirect(monkeypatch):
+    r = await _check_oracle(
+        monkeypatch,
+        (_ORC_PAGE, httpx.Response(302, headers={"Location": _ORC_PAGE + "_1001"})),
+        (_ORC_PAGE + "_1001", httpx.Response(200, text=_orc_html("Westpac Group"))),
+    )
+    assert r.company == "Westpac Group"
+
+
+@pytest.mark.parametrize("site_name", ["All Jobs", "External Careers", "Careers 2", ""])
+@pytest.mark.asyncio
+async def test_oracle_generic_site_name_falls_back_to_tenant(monkeypatch, site_name):
+    """Multi-brand tenants name a site for its audience, not the company."""
+    r = await _check_oracle(monkeypatch, (_ORC_PAGE, httpx.Response(200, text=_orc_html(site_name))))
+    assert r.company == "Ebuu"
+
+
+@pytest.mark.parametrize("response", [
+    httpx.Response(500, text=_orc_html("Acme")),
+    httpx.Response(200, text="<html><head></head></html>"),
+    httpx.ConnectError("dns"),
+])
+@pytest.mark.asyncio
+async def test_oracle_site_name_failure_falls_back_to_tenant(monkeypatch, response):
+    r = await _check_oracle(monkeypatch, (_ORC_PAGE, response))
+    assert r.status == "live" and r.company == "Ebuu"
+
+
 @pytest.mark.asyncio
 async def test_company_falls_back_to_hint_then_humanized_slug(monkeypatch):
     _patch(monkeypatch, _Stub("lever:acme-corp", [[_post("Seattle, WA")], [_post("Seattle, WA")]]))

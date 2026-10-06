@@ -6,6 +6,7 @@ does not resolve or refuses the connection is dead at once."""
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import re
 
@@ -31,6 +32,14 @@ MAX_RETRY_AFTER = 60.0
 # Families whose URL identity is incomplete or unvalidated until a live
 # check: verify_identity resolves it (and mutates it, for eightfold).
 _RESOLVE_FIRST = frozenset({"eightfold", "taleo", "jsonld"})
+_OG_SITE_NAME = re.compile(r'<meta\s+property="og:site_name"\s+content="([^"]*)"', re.I)
+# A site name made only of these words names an audience, not a company.
+_GENERIC_SITE_WORDS = frozenset({
+    "all", "jobs", "job", "careers", "career", "external", "internal", "candidate",
+    "experience", "opportunities", "openings", "positions", "vacancies", "search",
+    "site", "portal", "recruiting", "employment", "current", "our", "the", "and", "at",
+    "join", "us", "work", "with", "cx", "en", "home", "page", "global", "english",
+})
 
 
 class _Retryable(Exception):
@@ -124,7 +133,11 @@ class Verifier:
         return CheckResult("live", len(posts), us, eu, company, conn.name, identity)
 
     async def _board_name(self, family: str, identity: dict) -> str | None:
-        if family != "greenhouse" or self._client is None:
+        if self._client is None:
+            return None
+        if family == "oraclecloud":
+            return await self._oracle_site_name(identity)
+        if family != "greenhouse":
             return None
         try:
             r = await self._client.get(
@@ -136,3 +149,25 @@ class Verifier:
         except (httpx.HTTPError, ValueError):
             pass
         return None
+
+    async def _oracle_site_name(self, identity: dict) -> str | None:
+        """The careers site's og:site_name. Oracle tenants are opaque codes
+        ("ebuu") and postings carry no company, but each careers page is
+        server-rendered with its site's display name ("Westpac Group"). The
+        tenant's default site 302s to its real one, so redirects are followed.
+        Generic site names ("All Jobs" on a multi-brand tenant) are refused."""
+        url = (f"https://{identity['tenant']}.fa.{identity['region']}.oraclecloud.com"
+               f"/hcmUI/CandidateExperience/en/sites/{identity['site']}")
+        try:
+            r = await self._client.get(url, headers=ua_headers(), timeout=20.0,
+                                       follow_redirects=True)
+        except httpx.HTTPError:
+            return None
+        if r.status_code != 200:
+            return None
+        m = _OG_SITE_NAME.search(r.text)
+        name = html.unescape(m.group(1)).strip() if m else ""
+        words = re.findall(r"[a-z]+", name.lower())
+        if not words or set(words) <= _GENERIC_SITE_WORDS:
+            return None
+        return name
