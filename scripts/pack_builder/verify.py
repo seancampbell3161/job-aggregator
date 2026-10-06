@@ -116,14 +116,14 @@ def humanize(family: str, identity: dict) -> str:
 class Verifier:
     def __init__(self, client: httpx.AsyncClient | None, *, global_limit: int = GLOBAL_LIMIT,
                  per_family: int = PER_FAMILY_LIMIT, family_limits: dict[str, int] | None = None,
-                 sleep=asyncio.sleep, clock=time.monotonic) -> None:
+                 sleep=asyncio.sleep, clock=time.monotonic, pacer_sleep=None) -> None:
         self._client = client
         self._global = asyncio.Semaphore(global_limit)
         self._per_family = per_family
         self._family_limits = FAMILY_LIMITS if family_limits is None else family_limits
         self._sems: dict[str, asyncio.Semaphore] = {}
         self._sleep = sleep
-        self._pacer = _Pacer(clock=clock, sleep=sleep)
+        self._pacer = _Pacer(clock=clock, sleep=pacer_sleep or sleep)
 
     def _sem(self, family: str) -> asyncio.Semaphore:
         if family not in self._sems:

@@ -278,9 +278,10 @@ async def test_oracle_400_is_a_throttle_retried_with_long_backoff(monkeypatch):
                                          [_post("Sydney, Australia")]])
     _patch(monkeypatch, stub)
     slept, sleep = await _sleeps()
-    r = await V.Verifier(None, sleep=sleep).check(Candidate("oraclecloud", _ORC))
+    r = await V.Verifier(None, sleep=sleep, clock=lambda: 0.0, pacer_sleep=_no_sleep).check(
+        Candidate("oraclecloud", _ORC))
     assert r.status == "live" and stub.calls == 3
-    assert [x for x in slept if x >= 1.0] == [30.0, 60.0]  # ignoring sub-second pacing
+    assert slept == [30.0, 60.0]
 
 
 @pytest.mark.asyncio
@@ -307,8 +308,9 @@ async def test_throttle_backoff_is_capped(monkeypatch):
     _patch(monkeypatch, _Stub("oraclecloud:ebuu:CX", [_status_error(400), _status_error(400),
                                                       [_post("Sydney, Australia")]]))
     slept, sleep = await _sleeps()
-    await V.Verifier(None, sleep=sleep).check(Candidate("oraclecloud", _ORC))
-    assert [x for x in slept if x >= 1.0] == [30.0, 40.0]  # ignoring sub-second pacing
+    await V.Verifier(None, sleep=sleep, clock=lambda: 0.0, pacer_sleep=_no_sleep).check(
+        Candidate("oraclecloud", _ORC))
+    assert slept == [30.0, 40.0]
 
 
 def test_vendor_families_are_limited_to_four_at_a_time():
@@ -441,14 +443,42 @@ async def test_429_slows_the_same_family_but_not_another(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_throttled_family_paces_its_next_check(monkeypatch):
+    backoff, pace = [], []
+
+    async def bsleep(s):
+        backoff.append(s)
+
+    async def psleep(s):
+        pace.append(s)
+    stub = _Stub("recruitee:a", [_status_error(429), [_post("Austin, TX")],
+                                 [_post("Austin, TX")]])
+    _patch(monkeypatch, stub)
+    v = V.Verifier(None, sleep=bsleep, clock=lambda: 0.0, pacer_sleep=psleep)
+    await v.check(Candidate("recruitee", {"slug": "a"}))
+    assert backoff == [5.0] and stub.calls == 2
+    # Attempt 1 reserved [0, 0] at gap 0; the 429 set gap 0.5; attempt 2 waited
+    # 0.0 (next_start 0), then success decayed the gap to 0.45.
+    pace.clear()
+    await v.check(Candidate("recruitee", {"slug": "a"}))
+    assert pace == [pytest.approx(0.5)]  # slot reserved by attempt 2 at gap 0.5
+    pace.clear()
+    _patch(monkeypatch, _Stub("lever:b", [[_post("Austin, TX")]]))
+    await v.check(Candidate("lever", {"slug": "b"}))
+    assert pace == []
+
+
+@pytest.mark.asyncio
+async def test_connect_error_changes_neither_throttle_nor_success(monkeypatch):
     c = _Clock()
-    _patch(monkeypatch, _Stub("recruitee:a", [_status_error(429), [_post("Austin, TX")],
-                                              [_post("Austin, TX")]]))
+    _patch(monkeypatch, _Stub("recruitee:a", [_status_error(429), [_post("Austin, TX")]]))
     v = V.Verifier(None, sleep=c.sleep, clock=c.now)
-    await v.check(Candidate("workable", {"slug": "a"}))
-    c.slept.clear()
-    await v.check(Candidate("recruitee", {"slug": "b"}))
-    assert c.slept and all(s <= V.MAX_GAP for s in c.slept)
+    await v.check(Candidate("recruitee", {"slug": "a"}))
+    before = v._pacer.gap("recruitee")
+    assert before > 0.0
+    _patch(monkeypatch, _Stub("recruitee:b", [httpx.ConnectError("dns")]))
+    r = await v.check(Candidate("recruitee", {"slug": "b"}))
+    assert r.status == "dead" and r.reason == "ConnectError"
+    assert v._pacer.gap("recruitee") == before
 
 
 @pytest.mark.asyncio
