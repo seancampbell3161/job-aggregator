@@ -74,5 +74,10 @@ class BuildCache:
                 out[key] = (family, _load(data))
         return out
 
+    def all_results(self) -> dict[str, tuple[str, CheckResult]]:
+        """Every cached row, whatever its age or status."""
+        return {key: (family, _load(data)) for key, family, data
+                in self._conn.execute("SELECT key, family, data FROM checks")}
+
     def close(self) -> None:
         self._conn.close()

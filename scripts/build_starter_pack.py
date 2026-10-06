@@ -4,7 +4,10 @@ plus a Lever supplement guessed from YC/a16z/Sequoia company names.
     uv run python scripts/build_starter_pack.py [--crawls 4] [--crawl CC-MAIN-2026-39 ...]
         [--cache-dir ~/.cache/job-aggregator/pack-build] [--max-age-days 7]
         [--out scripts/seeds/starter_pack.json] [--version YYYY-MM-DD]
-        [--report PATH] [--allow-partial] [--no-lever]
+        [--report PATH] [--allow-partial] [--no-lever] [--select-only]
+
+--select-only skips the crawl, supplement and verification and re-selects the
+pack from every result in the cache (no network access).
 
 Release tooling (RELEASING.md step 2); the app never runs it. A full build
 checks ~40k candidates and takes about an hour; re-runs reuse fresh results
@@ -151,7 +154,23 @@ async def build(args, client) -> int:
         results = cache.results(c.key for c in cands)
     finally:
         cache.close()
+    return _select_and_write(args, results, crawl_stats, dict(Counter(c.source for c in cands)),
+                             len(cands))
 
+
+def select_only(args) -> int:
+    """Re-select from every cached result: no crawl, supplement or verification."""
+    cache = BuildCache(args.cache_dir / "checks.db")
+    try:
+        results = cache.all_results()
+    finally:
+        cache.close()
+    return _select_and_write(args, results, "select-only", {"cached": len(results)},
+                             len(results))
+
+
+def _select_and_write(args, results: dict, crawl_stats, candidates: dict, total: int) -> int:
+    """Shared tail: report, partial and empty guards, then write the pack."""
     status: dict[str, Counter] = defaultdict(Counter)
     reasons: dict[str, Counter] = defaultdict(Counter)
     for family, r in results.values():
@@ -172,10 +191,10 @@ async def build(args, client) -> int:
     report = {
         "version": args.version,
         "crawls": crawl_stats,
-        "candidates": dict(Counter(c.source for c in cands)),
+        "candidates": candidates,
         "status": {f: dict(c) for f, c in sorted(status.items())},
         "reasons": {f: dict(c) for f, c in sorted(reasons.items())},
-        "deferred_ratio": round(deferred / len(cands), 4) if cands else 0.0,
+        "deferred_ratio": round(deferred / total, 4) if total else 0.0,
         "selected": {region: {"boards": len(p.boards), "postings": p.postings,
                               "binding": p.binding} for region, p in picks.items()},
         "previous": previous,
@@ -186,8 +205,8 @@ async def build(args, client) -> int:
     if previous is not None:
         print(f"previous pack: {previous['slugs']} slugs + {previous['boards']} boards")
 
-    if cands and deferred / len(cands) > PARTIAL_THRESHOLD and not args.allow_partial:
-        print(f"error: {deferred} of {len(cands)} checks deferred (> {PARTIAL_THRESHOLD:.0%}); "
+    if total and deferred / total > PARTIAL_THRESHOLD and not args.allow_partial:
+        print(f"error: {deferred} of {total} checks deferred (> {PARTIAL_THRESHOLD:.0%}); "
               "re-run later to retry them, or pass --allow-partial", file=sys.stderr)
         return 1
     if not pack["slugs"] and not pack["boards"]:
@@ -211,7 +230,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--report", type=Path)
     ap.add_argument("--allow-partial", action="store_true")
     ap.add_argument("--no-lever", action="store_true", help="skip the Lever name-guess supplement")
+    ap.add_argument("--select-only", action="store_true",
+                    help="re-select from every cached result; no network access")
     args = ap.parse_args(argv)
+    if args.select_only:
+        return select_only(args)
 
     async def run() -> int:
         # No follow_redirects: connectors must see exactly what the app's poll

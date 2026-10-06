@@ -50,7 +50,9 @@ sense to whoever wrote them. Budget for that edit; it's most of the work.
    `scripts/seeds/starter_pack.json` diff and paste the report's `selected`
    counts into the release PR, next to its `previous` field, which gives the
    old pack's slug and board counts. A big drop against the previous pack
-   needs an explanation before merging.
+   needs an explanation before merging. `--select-only` re-applies selection
+   to cached results without network access (e.g. after a long throttled
+   run, together with `--allow-partial`).
    Installs that have the pack on pick up new entries on their next check.
 
 3. **Prepend the new section to the changelog** — do NOT regenerate the whole

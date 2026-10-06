@@ -3,7 +3,7 @@ import json
 import pytest
 
 import scripts.build_starter_pack as B
-from scripts.pack_builder.cache import CheckResult
+from scripts.pack_builder.cache import BuildCache, CheckResult
 from src.starter_pack import load_pack, write_pack
 
 URLS = ["https://jobs.ashbyhq.com/acme", "https://boards.greenhouse.io/beta",
@@ -263,3 +263,55 @@ def test_failed_blocks_warn_on_stderr_without_report(env, monkeypatch, capsys):
     B.main(args)
     err = capsys.readouterr().err
     assert CRAWL in err and "3" in err and "block" in err
+
+
+@pytest.fixture
+def select_env(env, monkeypatch):
+    """A pre-populated cache and no network: crawl, supplement, listing and
+    verification all raise if touched."""
+    out, args, _, tmp = env
+
+    async def boom(*a, **kw):
+        raise AssertionError("select-only must not touch the network")
+
+    class BoomVerifier:
+        def __init__(self, *a, **kw):
+            raise AssertionError("select-only must not build a verifier")
+
+    for name in ("list_crawls", "crawl_urls", "supplement_companies"):
+        monkeypatch.setattr(B, name, boom)
+    monkeypatch.setattr(B, "Verifier", BoomVerifier)
+    monkeypatch.setattr(B.httpx, "AsyncClient", boom)
+    cache = BuildCache(tmp / "cache" / "checks.db")
+    cache.put("ashby:acme", "ashby", _live("ashby:acme"))
+    cache.put("greenhouse:beta", "greenhouse", _live("greenhouse:beta"))
+    cache.put("workday:acme", "workday", CheckResult("dead"))
+    cache.put("workable:slow", "workable", CheckResult("deferred", reason="HTTP 429"))
+    cache.close()
+    return out, args + ["--select-only"], tmp
+
+
+def test_select_only_writes_a_pack_from_cached_live_rows(select_env):
+    out, args, tmp = select_env
+    assert B.main(args + ["--allow-partial"]) == 0
+    assert {s.connector_name for s in load_pack(out).slugs} == {"ashby:acme", "greenhouse:beta"}
+
+
+def test_select_only_refuses_a_partial_cache_without_allow_partial(select_env):
+    out, args, _ = select_env
+    out.write_text("ORIGINAL")
+    assert B.main(args) == 1                 # 1 of 4 deferred = 25% > 5%
+    assert out.read_text() == "ORIGINAL"
+
+
+def test_select_only_report_reflects_cached_statuses(select_env):
+    out, args, tmp = select_env
+    assert B.main(args + ["--allow-partial"]) == 0
+    report = json.loads((tmp / "report.json").read_text())
+    assert report["status"]["ashby"] == {"live": 1}
+    assert report["status"]["workday"] == {"dead": 1}
+    assert report["status"]["workable"] == {"deferred": 1}
+    assert report["reasons"]["workable"] == {"HTTP 429": 1}
+    assert report["deferred_ratio"] == 0.25
+    assert report["crawls"] == "select-only"
+    assert report["candidates"] == {"cached": 4}

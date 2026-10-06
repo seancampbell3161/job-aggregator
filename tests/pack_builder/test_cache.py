@@ -63,3 +63,11 @@ def test_results_returns_only_requested_keys(tmp_path):
     cache.put("a", "greenhouse", LIVE, now=NOW)
     cache.put("b", "workday", CheckResult("dead"), now=NOW)
     assert cache.results(["a", "zzz"]) == {"a": ("greenhouse", LIVE)}
+
+
+def test_all_results_returns_every_row(tmp_path):
+    cache = BuildCache(tmp_path / "c.db")
+    dead = CheckResult("dead")
+    cache.put("a", "greenhouse", LIVE, now=NOW)
+    cache.put("b", "workday", dead, now=NOW)
+    assert cache.all_results() == {"a": ("greenhouse", LIVE), "b": ("workday", dead)}
