@@ -165,6 +165,9 @@ async def test_run_preview_calls_run_once_read_only(tmp_path, monkeypatch):
     assert captured["dry_run"] is True
     assert captured["ignore_seen"] is True
     assert list(captured["sinks"]) == []
+    from src.pacing import VendorPacer
+    assert isinstance(captured["pacer"], VendorPacer)
+    assert captured.get("fetch_deadline_s") is None
 
 
 @pytest.mark.asyncio

@@ -431,6 +431,7 @@ class _ErrConnector:
     def __init__(self, name, code):
         self.name, self._code = name, code
     async def fetch(self, client, state):
+        await asyncio.sleep(0)  # yield, so boards interleave like real network calls
         raise _status_error(self._code)
 
 
