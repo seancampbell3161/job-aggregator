@@ -1091,11 +1091,11 @@ class _RecordingRejected:
     def __init__(self, fail=False):
         self.records: list[tuple[str, str]] = []
         self.fail = fail
-    def record(self, posting, *, rejected_by):
+    def record_many(self, items):
         if self.fail:
             raise RuntimeError("audit db down")
-        self.records.append((posting.job_id, rejected_by))
-        return True
+        self.records.extend((posting.job_id, rejected_by) for posting, rejected_by in items)
+        return len(items)
 
 
 class _FakeScore:

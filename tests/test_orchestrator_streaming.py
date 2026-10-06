@@ -1,7 +1,10 @@
 """run_once processes each board as its fetch completes. These tests pin the
 cycle's outputs (so streaming changes cost, not results) and bound peak
 memory by board count."""
-from datetime import time
+import asyncio
+import tracemalloc
+from dataclasses import replace
+from datetime import datetime, time, timezone
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -176,3 +179,139 @@ async def test_cycle_outputs_are_unchanged():
         "greenhouse:gamma:8",
         "hiringcafe:lever:zeta:4",
     ]
+
+
+class _BigBoard:
+    """Builds its postings at fetch time, so the fixture holds nothing."""
+    tier = "ats"
+    def __init__(self, name, n=40, size=20_000):
+        self.name, self._n, self._size = name, n, size
+    async def fetch(self, client, state):
+        return FetchResult(postings=[
+            RawPosting(source=self.name, external_id=str(i), title="Office Manager",
+                       description="x" * self._size, apply_url=f"https://x/{i}", location="SF")
+            for i in range(self._n)])
+
+
+async def _peak(store, boards):
+    seen, src_state = store
+    tracemalloc.start()
+    await run_once(cfg=_cfg(), tier="ats", store=seen, source_state=src_state,
+                   connectors=[_BigBoard(f"greenhouse:b{i}") for i in range(boards)],
+                   sinks=[], client_factory=lambda: httpx.AsyncClient(), max_concurrency=4)
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    return peak
+
+
+@pytest.mark.asyncio
+async def test_peak_memory_does_not_grow_with_board_count(store):
+    small = await _peak(store, 10)
+    large = await _peak(store, 100)
+    assert large < small * 2.5     # gather-then-process would be ~10x
+
+
+class _SlowConnector(_StubConnector):
+    def __init__(self, name, postings, delay):
+        super().__init__(name, postings)
+        self._delay = delay
+    async def fetch(self, client, state):
+        await asyncio.sleep(self._delay)
+        return await super().fetch(client, state)
+
+
+@pytest.mark.asyncio
+async def test_matches_keep_connector_order_not_completion_order(store):
+    """Boards finish in reverse list order; alerts still go out in list order,
+    so scoring-cap ties, calibrate's sample and notification order don't
+    depend on which fetch happened to return first."""
+    seen, src_state = store
+    names = ["greenhouse:a", "greenhouse:b", "greenhouse:c"]
+    connectors = [
+        _SlowConnector(n, [_match(n, "1"), _match(n, "2")], delay=0.03 * (len(names) - i))
+        for i, n in enumerate(names)
+    ]
+    sink = _RecordingSink()
+    await run_once(
+        cfg=_cfg(), tier="ats", store=seen, source_state=src_state,
+        connectors=connectors, sinks=[sink],
+        client_factory=lambda: httpx.AsyncClient(),
+    )
+    assert [p.apply_url for p in sink.received] == [
+        f"https://x/{n}/{e}" for n in names for e in ("1", "2")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_polled_counts_postings_new_to_the_install_per_fetched_board(store):
+    seen, src_state = store
+    seen.mark_seen("ashby:seenco:1", notified=True)
+    result = await run_once(
+        cfg=_cfg(), tier="ats", store=seen, source_state=src_state,
+        connectors=[
+            _StubConnector("greenhouse:alpha", [
+                _match("greenhouse:alpha", "1"), _reject("greenhouse:alpha", "2")]),
+            _StubConnector("ashby:seenco", [
+                _match("ashby:seenco", "1"), _reject("ashby:seenco", "2")]),
+            _StubConnector("hiringcafe", [_reject("hiringcafe:lever:zeta", "4")]),
+            _StubConnector("lever:empty", []),
+            _FailingConnector("lever:broken"),
+        ],
+        sinks=[], client_factory=lambda: httpx.AsyncClient(),
+    )
+    assert result.polled == {
+        "greenhouse:alpha": 2, "ashby:seenco": 1, "hiringcafe": 1, "lever:empty": 0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_deferred_sources_names_the_boards_the_scoring_cap_deferred(store):
+    seen, src_state = store
+    cfg = _cfg()
+    cfg = cfg.model_copy(update={
+        "relevance": cfg.relevance.model_copy(update={"max_scored_per_cycle": 1})})
+    newest = replace(_match("greenhouse:new", "1"),
+                     posted_at=datetime(2026, 9, 20, tzinfo=timezone.utc))
+    older = replace(_match("hiringcafe:lever:old", "1"),
+                    posted_at=datetime(2026, 9, 1, tzinfo=timezone.utc))
+    result = await run_once(
+        cfg=cfg, tier="ats", store=seen, source_state=src_state,
+        connectors=[_StubConnector("hiringcafe", [older]),
+                    _StubConnector("greenhouse:new", [newest])],
+        sinks=[_RecordingSink()], client_factory=lambda: httpx.AsyncClient(),
+        relevance_scorer=_StubScorer(),
+    )
+    assert result.deferred_sources == ["hiringcafe"]   # the connector, not the posting source
+
+
+class _ExplodingSeenStore:
+    def __init__(self, inner):
+        self._inner = inner
+    def diff_new(self, ids):
+        raise RuntimeError("seen store down")
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+@pytest.mark.asyncio
+async def test_a_screening_failure_raises_and_cancels_the_fetches_still_running(store):
+    seen, src_state = store
+    cancelled = asyncio.Event()
+
+    class _Hanging:
+        tier = "ats"
+        name = "greenhouse:slow"
+        async def fetch(self, client, state):
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+    with pytest.raises(RuntimeError, match="seen store down"):
+        await asyncio.wait_for(run_once(
+            cfg=_cfg(), tier="ats", store=_ExplodingSeenStore(seen), source_state=src_state,
+            connectors=[_Hanging(), _StubConnector("greenhouse:fast", [_match("greenhouse:fast", "1")])],
+            sinks=[], client_factory=lambda: httpx.AsyncClient(),
+        ), timeout=5)
+    assert cancelled.is_set()

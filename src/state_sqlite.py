@@ -1077,8 +1077,15 @@ class SqliteRejectedPostingsStore:
             slot[2] += recent
         return {f: (v[0], len(v[1]), v[2]) for f, v in out.items()}  # type: ignore[arg-type]
 
-    def record(self, posting: NormalizedPosting, *, rejected_by: str) -> bool:
-        now = datetime.now(timezone.utc).isoformat()
+    _INSERT_SQL = (
+        "INSERT OR IGNORE INTO rejected_postings "
+        "(job_id, first_seen, rejected_by, title, company, location_text, "
+        " source, apply_url, posted_at, comp_min, comp_max, data) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+    )
+
+    @staticmethod
+    def _row(posting: NormalizedPosting, rejected_by: str, now: str) -> tuple:
         item: dict = {
             "job_id": posting.job_id,
             "first_seen": now,
@@ -1088,17 +1095,31 @@ class SqliteRejectedPostingsStore:
             "seniority": posting.seniority,
             **posting_display_fields(posting),
         }
-        cur = self._conn.execute(
-            "INSERT OR IGNORE INTO rejected_postings "
-            "(job_id, first_seen, rejected_by, title, company, location_text, "
-            " source, apply_url, posted_at, comp_min, comp_max, data) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (posting.job_id, now, rejected_by, posting.title, posting.company,
-             posting.location_text, posting.source, posting.apply_url,
-             posting.posted_at.isoformat() if posting.posted_at else None,
-             posting.comp_min, posting.comp_max, json.dumps(item)),
-        )
+        return (posting.job_id, now, rejected_by, posting.title, posting.company,
+                posting.location_text, posting.source, posting.apply_url,
+                posting.posted_at.isoformat() if posting.posted_at else None,
+                posting.comp_min, posting.comp_max, json.dumps(item))
+
+    def record(self, posting: NormalizedPosting, *, rejected_by: str) -> bool:
+        now = datetime.now(timezone.utc).isoformat()
+        cur = self._conn.execute(self._INSERT_SQL, self._row(posting, rejected_by, now))
         return cur.rowcount == 1
+
+    def record_many(self, items: list[tuple[NormalizedPosting, str]]) -> int:
+        """record() for a batch of (posting, rejected_by), in one transaction.
+        Returns how many were new (capture-once, like record())."""
+        if not items:
+            return 0
+        now = datetime.now(timezone.utc).isoformat()
+        rows = [self._row(posting, rejected_by, now) for posting, rejected_by in items]
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            cur = self._conn.executemany(self._INSERT_SQL, rows)
+            self._conn.execute("COMMIT")
+        except BaseException:
+            self._conn.execute("ROLLBACK")
+            raise
+        return cur.rowcount
 
     def list_rejected(
         self, *, since_iso: str, gate: str | None = None, query: str = "",
