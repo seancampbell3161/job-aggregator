@@ -126,13 +126,11 @@ def _screen_board(
         # connectors (a mirror, or hiringcafe re-listing an ATS board).
         if job_id in seen_in_run:
             continue
-        seen_in_run.add(job_id)
-        # new_count keeps its pre-memory meaning: distinct postings this cycle
-        # not in seen_jobs, counted before the memory skip below so a posting
-        # it skips still counts (it is counted without being normalized).
-        if job_id in unseen:
-            result.new_count += 1
         if job_id in already_rejected:
+            # Skipped by the evaluation memory, never normalized, but still a
+            # distinct fetched posting not in seen_jobs: counted once here.
+            seen_in_run.add(job_id)
+            result.new_count += 1
             continue
         # Per-posting isolation. One malformed payload used to raise out of
         # run_once and kill the entire tier cycle: an Oracle requisition with
@@ -156,6 +154,12 @@ def _screen_board(
                        "error_type": type(exc).__name__},
             )
             continue
+        # Only a posting that normalized dedupes and counts: a malformed copy
+        # must not mask a well-formed mirror copy, nor keep new_count above 0
+        # every cycle (which would silence the zero-yield alert).
+        seen_in_run.add(job_id)
+        if job_id in unseen:
+            result.new_count += 1
         decision = evaluate(n, cfg.filters)
         if decision.allow:
             matched.append((n, decision))
@@ -329,9 +333,9 @@ async def run_once(
 
     result.new_count counts the distinct postings fetched this cycle (deduped
     by job_id) that are not in seen_jobs, the meaning /pipeline and the
-    zero-yield ops alert rely on. It is counted from the raw ids, so a posting
-    the evaluation memory skips still counts although it is never normalized
-    (a posting whose normalization fails counts too). result.polled[name]
+    zero-yield ops alert rely on. A posting counts once it normalizes, or
+    when the evaluation memory skips it (never normalized); one whose
+    normalization fails does not count and does not mask a mirror copy. result.polled[name]
     counts a board's unseen postings never evaluated in any generation; it
     drives the adaptive cadence."""
     if evaluated_store is not None and (generation is None or app_version is None):

@@ -5,6 +5,109 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-10-06
+
+The coverage release. Before this release a new install polled no company
+boards at all until you added some. Now it can start with **10,436 verified
+company boards**, and **11,808** with EU seeds on. The poller was rebuilt so
+an ordinary always-on machine carries that load inside the 10-minute check,
+with memory to spare. It comes in three parts: #31 adds the starter pack, #32
+the builder that fills it, and #33 the poller rebuild.
+
+### Added
+
+- **A starter pack of verified company boards** (#31, #32).
+  - New installs get it pre-ticked in the wizard's "Where to look" step, and
+    `/setup/start` turns it on. The wizard preview shows the pack's largest
+    boards.
+  - Existing installs are unchanged until you choose **Add them** on the
+    Companies page.
+  - Pack boards are ordinary discovered boards: dead ones are dropped
+    automatically, and turning the pack off (`discovery.starter_pack`) hides
+    them without deleting anything.
+  - EU entries need `discovery.eu_seeds_enabled`.
+- **The pack is built from public data** (#32).
+  `scripts/build_starter_pack.py` reads Common Crawl's public URL index. It
+  checks every candidate with the app's own connectors and keeps the live
+  boards. It is release tooling and isn't in the image.
+- **Adaptive check cadence** (#33).
+  - A board whose last check found something new is checked every cycle.
+  - A quiet board is checked less and less often, up to about once an hour.
+  - Any new posting, any settings change, or matches held back by the scoring
+    cap bring a board back on the next check.
+  - See "Smart board polling" in GETTING_STARTED.
+- **Polite per-vendor pacing** (#33).
+  - When a job site signals throttling (HTTP 429, or a 400 from Workday or
+    Oracle Cloud), the poller spaces out its requests to that site.
+  - It sends at most 8 requests at a time per site.
+  - Boards it couldn't reach in time are checked on the next cycle. The
+    `cadence_done` log line counts them as `paced_out`.
+- **`relevance.max_scored_per_cycle`** (default 100) caps LLM scoring per
+  check, newest postings first (#32). Matches over the cap come back on the
+  next check, so a large first check drains over a few cycles instead of
+  blocking one for hours.
+
+### Changed
+
+- **The poll cycle needs far less memory** (#33). Each board's postings are
+  screened as soon as its fetch returns, and only the matches are kept.
+  Measured with the real network on the full US pack:
+
+  | | Boards | Wall time | Peak memory |
+  |---|---|---|---|
+  | 0.16 cycle, 4,000-board pack | 4,000 | 78–102 s | 1.47 GB |
+  | First check, everything new | 10,436 | 484 s | 469 MB |
+  | Next check | 444 due | 71 s | 84 MB |
+  | Every board due | 10,436 | 436 s | 344 MB |
+
+- **Rejected postings are remembered** (#33). A posting your filters rejected
+  is skipped on later checks instead of being processed again. A settings
+  change, or upgrading the app, re-checks everything once. The memory is kept
+  for 30 days.
+- **The poller no longer re-checks every board every cycle** (#33). Through
+  the adaptive cadence, most cycles now poll only the boards that are due.
+- **SmartRecruiters `jobs.smartrecruiters.com` URLs are recognised**, and YC
+  company regions are kept (#32).
+- **Wording:** "verified tech-company boards" is now "verified company boards"
+  (#32).
+
+### Fixed
+
+- **One board's failure no longer stops the check** (#33). A board whose
+  postings can't be processed (for example, the database is briefly locked) is
+  recorded as that board's failure, and every other board's matches still
+  arrive.
+- **The pipeline's "new" count ignores postings that fail to parse** (this
+  release). Before this fix, a permanently malformed posting could keep the
+  zero-yield alert from ever firing.
+- **Discovery tags survive revalidation** (#31). The `hiringcafe` and `vc:`
+  origins were being lost.
+- **A throttled discovery probe is no longer filed as "no match"** (#32). An
+  HTTP 429 now retries later.
+- **Reconciling a large pack is fast** (#32). It now runs in one transaction
+  per store; row by row, a 5,000-entry first reconcile took about 4 s.
+
+### Upgrading
+
+- **Existing installs:** nothing changes until you choose **Add them** on the
+  Companies page. The pack is 10,436 US boards, or 11,808 with
+  `discovery.eu_seeds_enabled`.
+- **New installs** poll the pack from the first check. The first few checks
+  are the heaviest. LLM scoring is capped at 100 matches per check
+  (`relevance.max_scored_per_cycle`), so matches over the cap arrive over the
+  next few checks.
+- **Expect quiet boards to be checked about hourly.** A board whose last check
+  found nothing new is checked less often. A new posting or any settings
+  change brings it back on the next check.
+- **Disk:** with the full pack, the database grows to a couple of GB, mostly
+  the Rejected postings audit trail (`audit.enabled`, kept for
+  `audit.retention_days`, default 90). Lower the retention or turn the audit
+  off if that matters.
+- **New tables** (`evaluated_postings`, `connector_schedule`,
+  `schedule_generation`) are created automatically on the next start.
+- Pull the new image, or run `docker compose up -d --build` from a checkout
+  (the code changed, so a checkout needs `--build`).
+
 ## [0.16.0] - 2026-09-24
 
 The UI release. Until now the app was built by and for the person who wrote
@@ -1680,6 +1783,7 @@ entries below are kept for the record. From 0.12.0 on, the usual
 compare/vP.R.E..vX.Y.Z links resume (see RELEASING.md).
 -->
 
+[0.17.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.16.0..v0.17.0
 [0.16.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.15.1..v0.16.0
 [0.15.1]: https://github.com/seancampbell3161/job-aggregator/compare/v0.15.0..v0.15.1
 [0.15.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.14.0..v0.15.0
