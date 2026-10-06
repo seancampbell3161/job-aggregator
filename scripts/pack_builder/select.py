@@ -1,10 +1,12 @@
-"""Choose which live boards go in the pack (spec §4, "corrected B").
+"""Choose which live boards go in the pack (spec §4, "regional share").
 
-Per region: walk boards by regional posting count (desc), adding each one that
-fits both the board limit and the postings-per-cycle budget. A board that
-would bust the budget is skipped, not a stop, so smaller boards keep filling
-what remains. The limits are what today's poll cycle handles. Step 3 of the
-max-coverage effort raises them."""
+Per region: walk boards by regional share (desc), then smaller boards first
+(asc), adding each one that fits both the board limit and the postings-per-cycle
+budget. A board that would bust the budget is skipped, not a stop, so smaller
+boards keep filling what remains. Regional share is the fraction of postings
+serving that region; polling spent on non-regional postings is waste for that
+region's users. Smaller boards first fits the most companies under today's
+polling capacity; step 3 of the max-coverage effort raises the limits."""
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -47,10 +49,19 @@ def region_of(result: CheckResult) -> str | None:
 
 
 def fill(boards: Iterable[LiveBoard], limits: Limits, region: str) -> RegionPick:
+    """Fill the regional quota by share, then smaller boards first.
+
+    Regional share is (region_postings / total_postings); for postings == 0,
+    treat share as 0 (though live boards always have >= 1).
+    """
     def regional(b: LiveBoard) -> int:
         return b.result.us_postings if region == "us" else b.result.eu_postings
 
-    ranked = sorted(boards, key=lambda b: (-regional(b), -b.result.postings, b.key))
+    def share(b: LiveBoard) -> float:
+        r = regional(b)
+        return r / b.result.postings if b.result.postings > 0 else 0
+
+    ranked = sorted(boards, key=lambda b: (-share(b), b.result.postings, b.key))
     picked: list[LiveBoard] = []
     total = 0
     skipped = False
