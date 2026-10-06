@@ -374,6 +374,19 @@ async def _run(
     except Exception:  # noqa: BLE001 — degrade to polling everything if the table is unreadable
         log.warning("suppressed_names_unavailable")
         suppressed = frozenset()
+    # Adaptive cadence (ats/slow only; dry runs and calibrate neither read nor
+    # write the schedule). Boards not yet due are skipped like suppressed ones.
+    use_cadence = tier in ("ats", "slow") and not dry_run and not calibrate
+    now_ms = int(time.time() * 1000)
+    not_due: set[str] = set()
+    if use_cadence:
+        try:
+            # A settings edit (new generation) makes every board due this cycle.
+            if stores.schedule.generation(tier) == snap.generation:
+                not_due = stores.schedule.not_due(now_ms)
+        except Exception:  # noqa: BLE001 — degrade to polling everything
+            log.warning("schedule_unavailable", extra={"tier": tier})
+        suppressed = set(suppressed) | not_due
     sightings = None
     if (
         tier == "slow"
@@ -421,6 +434,21 @@ async def _run(
         pacer=pacer,
         fetch_deadline_s=fetch_deadline_s,
     )
+    if use_cadence:
+        # Only successfully fetched boards are in result.polled: failed fetches
+        # keep their schedule rows and paced-out boards stay due.
+        try:
+            stores.schedule.record_polls(
+                result.polled, base_interval_s=interval_s, now_ms=now_ms,
+                force_due=result.deferred_sources,
+            )
+            stores.schedule.set_generation(tier, snap.generation)
+            log.info("cadence_done", extra={
+                "tier": tier, "polled": len(result.polled),
+                "not_due": len(not_due), "paced_out": len(result.paced_out),
+            })
+        except Exception:  # noqa: BLE001 — a schedule write must never fail the cycle
+            log.warning("schedule_write_failed", extra={"tier": tier})
     if sightings and not dry_run:
         try:
             from src.sightings import drain_sightings
