@@ -105,6 +105,8 @@ def _prune(service: ConfigService) -> None:
         stores = build_stores()
         removed = stores.seen.prune_expired()
         log.info("scheduled_prune_complete", extra={"removed": removed})
+        removed = stores.evaluated.prune(current_generation=snap.generation)
+        log.info("scheduled_evaluated_prune_complete", extra={"removed": removed})
         if cfg.audit.enabled:
             removed = stores.rejected.prune_older_than(cfg.audit.retention_days)
             log.info("scheduled_rejected_prune_complete", extra={"removed": removed})

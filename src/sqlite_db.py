@@ -131,6 +131,11 @@ CREATE TABLE IF NOT EXISTS wizard_ui (
     value      TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS evaluated_postings (
+    job_id       TEXT PRIMARY KEY,
+    generation   INTEGER NOT NULL,
+    evaluated_at INTEGER NOT NULL
+);
 """
 
 

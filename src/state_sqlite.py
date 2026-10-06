@@ -1169,6 +1169,51 @@ class SqliteRejectedPostingsStore:
         return cur.rowcount
 
 
+class SqliteEvaluatedPostingsStore:
+    """Job_ids the filters rejected under a settings generation. Lets a cycle
+    skip already-judged postings before normalization; a settings change
+    (new generation) re-judges everything once."""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def known(self, ids) -> dict[str, int]:
+        ids = list(dict.fromkeys(ids))
+        out: dict[str, int] = {}
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            ph = ",".join("?" * len(chunk))
+            for row in self._conn.execute(
+                    f"SELECT job_id, generation FROM evaluated_postings WHERE job_id IN ({ph})",
+                    chunk):
+                out[row["job_id"]] = row["generation"]
+        return out
+
+    def record_many(self, ids, *, generation: int, now_s: int | None = None) -> int:
+        rows = [(j, generation, now_s if now_s is not None else _now_ts())
+                for j in dict.fromkeys(ids)]
+        if not rows:
+            return 0
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            self._conn.executemany(
+                "INSERT OR REPLACE INTO evaluated_postings (job_id, generation, evaluated_at)"
+                " VALUES (?, ?, ?)", rows)
+            self._conn.execute("COMMIT")
+        except BaseException:
+            self._conn.execute("ROLLBACK")
+            raise
+        return len(rows)
+
+    def prune(self, *, current_generation: int, max_age_days: int = 30,
+              now_s: int | None = None) -> int:
+        cutoff = (now_s if now_s is not None else _now_ts()) - max_age_days * 86_400
+        cur = self._conn.execute(
+            "DELETE FROM evaluated_postings WHERE evaluated_at < ? OR generation != ?",
+            (cutoff, current_generation))
+        return cur.rowcount
+
+
 class SqliteCoachRunsStore:
     """Persisted /coach runs. Each row is one LLM run: the snapshot sent, the
     cards that came back, and an ok/error status. Runs are small and manual,
