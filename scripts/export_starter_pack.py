@@ -18,7 +18,6 @@ result is refused unless --allow-empty is passed."""
 from __future__ import annotations
 
 import argparse
-import json
 import sqlite3
 import sys
 import time

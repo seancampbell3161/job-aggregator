@@ -44,10 +44,13 @@ sense to whoever wrote them. Budget for that edit; it's most of the work.
    uv run python scripts/build_starter_pack.py --report /tmp/pack-report.json
    ```
 
-   It refuses to write if more than 5% of checks were throttled. Re-run
-   later to retry them. Review the `scripts/seeds/starter_pack.json` diff and
-   paste the report's `selected` and `previous` counts into the release PR.
-   A big drop against the previous pack needs an explanation before merging.
+   It refuses to write if more than 5% of checks were deferred (throttled,
+   timed out or erroring). Re-run later to retry them, or pass
+   `--allow-partial` to write the pack anyway. Review the
+   `scripts/seeds/starter_pack.json` diff and paste the report's `selected`
+   counts into the release PR, next to its `previous` field, which gives the
+   old pack's slug and board counts. A big drop against the previous pack
+   needs an explanation before merging.
    Installs that have the pack on pick up new entries on their next check.
 
 3. **Prepend the new section to the changelog** — do NOT regenerate the whole
