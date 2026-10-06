@@ -24,6 +24,7 @@ class CheckResult:
     company: str | None = None
     connector_name: str | None = None
     identity: dict | None = None   # as verified (eightfold resolves domain/flavor)
+    reason: str | None = None      # why a dead/deferred check failed; None when live
 
 
 _FIELDS = frozenset(f.name for f in fields(CheckResult))

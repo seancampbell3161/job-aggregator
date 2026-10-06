@@ -69,6 +69,14 @@ def test_happy_path_writes_a_loadable_pack_and_report(env):
     assert report["status"]["workday"]["dead"] == 1
 
 
+def test_report_counts_failure_reasons_per_family(env):
+    out, args, _, tmp = env
+    FakeVerifier.script["workday:acme"] = CheckResult("deferred", reason="HTTP 400")
+    assert B.main(args + ["--allow-partial"]) == 0
+    report = json.loads((tmp / "report.json").read_text())
+    assert report["reasons"] == {"workday": {"HTTP 400": 1}}
+
+
 def test_rerun_skips_fresh_cached_checks(env):
     out, args, _, _ = env
     B.main(args)

@@ -25,10 +25,18 @@ from src.user_agent import headers as ua_headers
 log = logging.getLogger(__name__)
 
 PER_FAMILY_LIMIT = 4
-FAMILY_LIMITS = {"workday": 8, "oraclecloud": 8}   # one host per tenant
+# Workday and Oracle Cloud tenants all sit on the vendor's shared regional
+# infrastructure, so per-host thinking does not apply: stay gentle with it.
+FAMILY_LIMITS = {"workday": 4, "oraclecloud": 4}
 GLOBAL_LIMIT = 32
 MAX_ATTEMPTS = 3
 MAX_RETRY_AFTER = 60.0
+# These vendors signal throttling with HTTP 400 rather than 429. Evidence
+# (2026-10-06): a 300-board Oracle run saw 127 fetches fail with 400, all of
+# which were live minutes later (the next run saw none). Workday's connector
+# documents the same 400s from datacenter IPs. Retry after a long pause.
+THROTTLE_400_FAMILIES = frozenset({"oraclecloud", "workday"})
+THROTTLE_400_BACKOFF = 30.0
 # Families whose URL identity is incomplete or unvalidated until a live
 # check: verify_identity resolves it (and mutates it, for eightfold).
 _RESOLVE_FIRST = frozenset({"eightfold", "taleo", "jsonld"})
@@ -43,8 +51,9 @@ _GENERIC_SITE_WORDS = frozenset({
 
 
 class _Retryable(Exception):
-    def __init__(self, retry_after: float | None = None) -> None:
-        super().__init__("retryable")
+    def __init__(self, reason: str, retry_after: float | None = None) -> None:
+        super().__init__(reason)
+        self.reason = reason
         self.retry_after = retry_after
 
 
@@ -79,49 +88,55 @@ class Verifier:
         return self._sems[family]
 
     async def check(self, cand: Candidate) -> CheckResult:
+        reason = None
         for attempt in range(MAX_ATTEMPTS):
             try:
                 async with self._global, self._sem(cand.family):
-                    return await self._check_once(cand)
+                    return await self._check_once(cand, attempt)
             except _Retryable as exc:
+                reason = exc.reason
                 if attempt + 1 < MAX_ATTEMPTS:
                     await self._sleep(min(exc.retry_after or 5.0 * (attempt + 1), MAX_RETRY_AFTER))
-        return CheckResult("deferred")
+        return CheckResult("deferred", reason=reason)
 
-    async def _check_once(self, cand: Candidate) -> CheckResult:
+    async def _check_once(self, cand: Candidate, attempt: int = 0) -> CheckResult:
         identity = dict(cand.identity)
         try:
             if cand.family in _RESOLVE_FIRST:
                 if await verify_identity(self._client, cand.family, identity) <= 0:
-                    return CheckResult("dead")
+                    return CheckResult("dead", reason="resolve:0")
             conn = (WorkableConnector(identity["slug"]) if cand.family == "workable"
                     else connector_from_identity(cand.family, identity, cand.company_hint))
             if conn is None:
-                return CheckResult("dead")
+                return CheckResult("dead", reason="unbuildable")
             res = await conn.fetch(self._client, ConnectorState())
         except ProbeThrottled as exc:
-            raise _Retryable() from exc
+            raise _Retryable("throttled") from exc
         except httpx.HTTPStatusError as exc:
             code = exc.response.status_code
             if code == 429:
-                raise _Retryable(_retry_after(exc.response)) from exc
+                raise _Retryable("throttled", _retry_after(exc.response)) from exc
             if code >= 500:
-                raise _Retryable() from exc
-            return CheckResult("dead")
+                raise _Retryable(f"HTTP {code}") from exc
+            if code == 400 and cand.family in THROTTLE_400_FAMILIES:
+                # No Retry-After arrives with these; back off 30s, 60s, ...
+                raise _Retryable(f"HTTP {code}", _retry_after(exc.response) or
+                                 THROTTLE_400_BACKOFF * (attempt + 1)) from exc
+            return CheckResult("dead", reason=f"HTTP {code}")
         except httpx.ConnectError:
             # DNS failure or connection refused: a dead tenant host stays dead,
             # and deferring it would count against the partial-build guard on
             # every run. ConnectTimeout is a TimeoutException, not a
             # ConnectError, so it still falls through to the retry below.
-            return CheckResult("dead")
+            return CheckResult("dead", reason="ConnectError")
         except httpx.TransportError as exc:
-            raise _Retryable() from exc
+            raise _Retryable(type(exc).__name__) from exc
         except Exception as exc:  # noqa: BLE001 — a parse error on one board must not stop the build
             log.debug("verify_error", extra={"key": cand.key, "error": repr(exc)})
-            return CheckResult("dead")
+            return CheckResult("dead", reason=type(exc).__name__)
         posts = res.postings
         if not posts:
-            return CheckResult("dead")
+            return CheckResult("dead", reason="empty")
         us = eu = 0
         for p in posts:
             regions = classify(p.location)

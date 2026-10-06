@@ -48,6 +48,16 @@ def test_rows_from_another_cache_schema_still_load(tmp_path):
     assert cache.results(["k"]) == {"k": ("greenhouse", expected)}
 
 
+def test_row_without_reason_loads_with_none(tmp_path):
+    cache = BuildCache(tmp_path / "c.db")
+    cache._conn.execute(
+        "INSERT INTO checks VALUES (?, ?, ?, ?)",
+        ("k", "workday", json.dumps({"status": "dead"}), NOW.isoformat()))
+    assert cache.get("k")[0].reason is None
+    cache.put("k2", "workday", CheckResult("dead", reason="HTTP 400"), now=NOW)
+    assert cache.get("k2")[0].reason == "HTTP 400"
+
+
 def test_results_returns_only_requested_keys(tmp_path):
     cache = BuildCache(tmp_path / "c.db")
     cache.put("a", "greenhouse", LIVE, now=NOW)

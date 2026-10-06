@@ -153,8 +153,11 @@ async def build(args, client) -> int:
         cache.close()
 
     status: dict[str, Counter] = defaultdict(Counter)
+    reasons: dict[str, Counter] = defaultdict(Counter)
     for family, r in results.values():
         status[family][r.status] += 1
+        if r.status != "live":
+            reasons[family][r.reason or "unknown"] += 1
     deferred = sum(s["deferred"] for s in status.values())
     picks = select(LiveBoard(k, fam, r) for k, (fam, r) in results.items() if r.status == "live")
     pack = to_pack(picks, args.version)
@@ -171,6 +174,7 @@ async def build(args, client) -> int:
         "crawls": crawl_stats,
         "candidates": dict(Counter(c.source for c in cands)),
         "status": {f: dict(c) for f, c in sorted(status.items())},
+        "reasons": {f: dict(c) for f, c in sorted(reasons.items())},
         "deferred_ratio": round(deferred / len(cands), 4) if cands else 0.0,
         "selected": {region: {"boards": len(p.boards), "postings": p.postings,
                               "binding": p.binding} for region, p in picks.items()},

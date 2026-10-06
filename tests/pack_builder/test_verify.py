@@ -260,3 +260,105 @@ async def test_per_family_concurrency_is_respected(monkeypatch):
 def test_humanize():
     assert V.humanize("lever", {"slug": "acme-corp"}) == "Acme Corp"
     assert V.humanize("workday", {"tenant": "big_co", "region": "wd1", "site": "X"}) == "Big Co"
+
+
+async def _sleeps():
+    slept = []
+
+    async def sleep(s):
+        slept.append(s)
+    return slept, sleep
+
+
+@pytest.mark.asyncio
+async def test_oracle_400_is_a_throttle_retried_with_long_backoff(monkeypatch):
+    """Oracle answers HTTP 400 when throttled (127 of 300 boards in one run,
+    all live minutes later), so it must not be classified dead."""
+    stub = _Stub("oraclecloud:ebuu:CX", [_status_error(400), _status_error(400),
+                                         [_post("Sydney, Australia")]])
+    _patch(monkeypatch, stub)
+    slept, sleep = await _sleeps()
+    r = await V.Verifier(None, sleep=sleep).check(Candidate("oraclecloud", _ORC))
+    assert r.status == "live" and stub.calls == 3
+    assert slept == [30.0, 60.0]
+
+
+@pytest.mark.asyncio
+async def test_workday_400_three_times_is_deferred(monkeypatch):
+    stub = _Stub("workday:acme:S", [_status_error(400)] * 3)
+    _patch(monkeypatch, stub)
+    r = await V.Verifier(None, sleep=_no_sleep).check(
+        Candidate("workday", {"tenant": "acme", "region": "wd1", "site": "S"}))
+    assert r.status == "deferred" and stub.calls == V.MAX_ATTEMPTS
+    assert r.reason == "HTTP 400"
+
+
+@pytest.mark.asyncio
+async def test_400_from_another_family_stays_dead(monkeypatch):
+    stub = _Stub("greenhouse:bad", [_status_error(400)])
+    _patch(monkeypatch, stub)
+    r = await V.Verifier(None, sleep=_no_sleep).check(Candidate("greenhouse", {"slug": "bad"}))
+    assert r.status == "dead" and stub.calls == 1 and r.reason == "HTTP 400"
+
+
+@pytest.mark.asyncio
+async def test_throttle_backoff_is_capped(monkeypatch):
+    monkeypatch.setattr(V, "MAX_RETRY_AFTER", 40.0)
+    _patch(monkeypatch, _Stub("oraclecloud:ebuu:CX", [_status_error(400), _status_error(400),
+                                                      [_post("Sydney, Australia")]]))
+    slept, sleep = await _sleeps()
+    await V.Verifier(None, sleep=sleep).check(Candidate("oraclecloud", _ORC))
+    assert slept == [30.0, 40.0]
+
+
+def test_vendor_families_are_limited_to_four_at_a_time():
+    assert V.FAMILY_LIMITS["oraclecloud"] == 4 and V.FAMILY_LIMITS["workday"] == 4
+
+
+@pytest.mark.parametrize("script, status, reason", [
+    ([_status_error(404)], "dead", "HTTP 404"),
+    ([[]], "dead", "empty"),
+    ([httpx.ConnectError("dns")], "dead", "ConnectError"),
+    ([ValueError("parse")], "dead", "ValueError"),
+    ([_status_error(429)] * 3, "deferred", "throttled"),
+    ([_status_error(503)] * 3, "deferred", "HTTP 503"),
+    ([httpx.ReadTimeout("t")] * 3, "deferred", "ReadTimeout"),
+])
+@pytest.mark.asyncio
+async def test_non_live_results_record_a_reason(monkeypatch, script, status, reason):
+    _patch(monkeypatch, _Stub("ashby:x", script))
+    r = await V.Verifier(None, sleep=_no_sleep).check(Candidate("ashby", {"slug": "x"}))
+    assert (r.status, r.reason) == (status, reason)
+
+
+@pytest.mark.asyncio
+async def test_live_result_has_no_reason(monkeypatch):
+    _patch(monkeypatch, _Stub("ashby:x", [[_post("Austin, TX")]]))
+    r = await V.Verifier(None, sleep=_no_sleep).check(Candidate("ashby", {"slug": "x"}))
+    assert r.reason is None
+
+
+@pytest.mark.asyncio
+async def test_throttled_probe_reason(monkeypatch):
+    class _Workable:
+        name = "workable:acme"
+        def __init__(self, slug): pass
+        async def fetch(self, client, state):
+            raise ProbeThrottled("workable", "acme")
+    monkeypatch.setattr(V, "WorkableConnector", _Workable)
+    r = await V.Verifier(None, sleep=_no_sleep).check(Candidate("workable", {"slug": "acme"}))
+    assert (r.status, r.reason) == ("deferred", "throttled")
+
+
+@pytest.mark.asyncio
+async def test_unbuildable_and_unresolved_reasons(monkeypatch):
+    monkeypatch.setattr(V, "connector_from_identity", lambda f, i, company=None: None)
+    r = await V.Verifier(None, sleep=_no_sleep).check(Candidate("ashby", {"slug": "x"}))
+    assert (r.status, r.reason) == ("dead", "unbuildable")
+
+    async def zero(client, family, identity):
+        return 0
+    monkeypatch.setattr(V, "verify_identity", zero)
+    r = await V.Verifier(None, sleep=_no_sleep).check(
+        Candidate("eightfold", {"slug": "x", "base": "https://x.eightfold.ai"}))
+    assert (r.status, r.reason) == ("dead", "resolve:0")
