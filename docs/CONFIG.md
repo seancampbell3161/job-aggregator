@@ -194,6 +194,7 @@ threshold calibration: GETTING_STARTED §2c and
 | `relevance.score_high` | `7` | Scores ≥ this get the instant phone push; below it (but above `score_low`) postings go to Discord/inbox only. |
 | `relevance.score_low` | `3` | Scores ≤ this are suppressed (still recorded — visible in `/audit`). Shipped: 4. Re-calibrate after any provider/model change. |
 | `relevance.timeout_seconds` | `10` | Per-posting scoring timeout (shipped: 20 for a large local model). |
+| `relevance.max_scored_per_cycle` | `100` | Most matched postings the LLM scores per check. Extra matches are left untouched and scored in later checks, newest first, so a large first check (a new install with the starter pack) drains over several cycles instead of blocking one. Has no effect when scoring is off. |
 
 ## gap_analysis
 

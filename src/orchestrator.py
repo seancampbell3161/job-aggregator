@@ -104,6 +104,22 @@ async def _fetch_one(
         return conn.name, exc
 
 
+def _cap_for_scoring(matched: list, cap: int) -> list:
+    """Newest-first slice of matched (posting, decision) pairs for this
+    cycle's LLM scoring; undated postings go last. The rest are deliberately
+    dropped from this cycle: nothing records them, so they re-match next cycle."""
+    if len(matched) <= cap:
+        return matched
+    ordered = sorted(
+        matched,
+        key=lambda pair: pair[0].posted_at.timestamp() if pair[0].posted_at else float("-inf"),
+        reverse=True,
+    )
+    log.info("scoring_capped",
+             extra={"matched": len(matched), "scored": cap, "deferred": len(matched) - cap})
+    return ordered[:cap]
+
+
 async def _enrich_matched(
     matched: list[tuple], by_name: dict, client: httpx.AsyncClient, browser=None
 ) -> list[tuple]:
@@ -323,6 +339,10 @@ async def run_once(
                 "rejected": len(filter_source) - result.matched_count,
             },
         )
+
+        # Enrichment and scoring both scale with this list, so cap first.
+        if relevance_scorer is not None and not calibrate:
+            matched = _cap_for_scoring(matched, cfg.relevance.max_scored_per_cycle)
 
         # Enrich filter-survivors with full detail (e.g. Workday's real JD)
         # before scoring, for connectors that support it. Bounded to survivors.

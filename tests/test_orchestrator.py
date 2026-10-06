@@ -1272,3 +1272,68 @@ async def test_run_once_null_title_posting_flows_through(store):
     assert result.normalize_failures == []   # normalize handled it
     assert result.new_count == 1
     assert result.matched_count == 0         # empty title fails the title filter
+
+
+def _capped_cfg(cap: int) -> AppConfig:
+    cfg = _cfg()
+    return cfg.model_copy(update={
+        "relevance": cfg.relevance.model_copy(update={"max_scored_per_cycle": cap})
+    })
+
+
+def _matching(ext_id: str, day: int | None) -> RawPosting:
+    return RawPosting(
+        source="greenhouse:stripe", external_id=ext_id,
+        title="Senior Backend Engineer", description="Python and Go.",
+        apply_url=f"https://x/{ext_id}", location="Remote",
+        comp_min=180_000, comp_max=240_000,
+        posted_at=datetime(2026, 9, day, tzinfo=timezone.utc) if day else None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_scoring_cap_scores_newest_first_and_defers_the_rest(store):
+    seen, src_state = store
+    postings = [_matching("old", 1), _matching("undated", None), _matching("new", 20)]
+    conn = _StubConnector("greenhouse:stripe", postings)
+    sink = _RecordingSink()
+    scorer = AsyncMock()
+    scorer.score = AsyncMock(return_value=Score(value=8, rationale="ok", is_fallback=False))
+
+    result = await run_once(
+        cfg=_capped_cfg(1), tier="ats", store=seen, source_state=src_state,
+        connectors=[conn], sinks=[sink], client_factory=lambda: httpx.AsyncClient(),
+        relevance_scorer=scorer,
+    )
+    assert result.matched_count == 3                  # every match is still counted
+    assert scorer.score.await_count == 1
+    assert [p.apply_url for p in sink.received] == ["https://x/new"]
+
+    # The deferred matches were written nowhere, so the next cycle picks them up.
+    await run_once(
+        cfg=_capped_cfg(1), tier="ats", store=seen, source_state=src_state,
+        connectors=[conn], sinks=[sink], client_factory=lambda: httpx.AsyncClient(),
+        relevance_scorer=scorer,
+    )
+    assert [p.apply_url for p in sink.received] == ["https://x/new", "https://x/old"]
+
+
+@pytest.mark.asyncio
+async def test_scoring_cap_does_not_apply_without_a_scorer(store):
+    seen, src_state = store
+    postings = [_matching(str(i), i + 1) for i in range(3)]
+    sink = _RecordingSink()
+    await run_once(
+        cfg=_capped_cfg(1), tier="ats", store=seen, source_state=src_state,
+        connectors=[_StubConnector("greenhouse:stripe", postings)], sinks=[sink],
+        client_factory=lambda: httpx.AsyncClient(), relevance_scorer=None,
+    )
+    assert len(sink.received) == 3
+
+
+def test_max_scored_per_cycle_defaults_to_100_and_rejects_zero():
+    from pydantic import ValidationError
+    from src.config import RelevanceConfig
+    assert RelevanceConfig().max_scored_per_cycle == 100
+    with pytest.raises(ValidationError):
+        RelevanceConfig(max_scored_per_cycle=0)
