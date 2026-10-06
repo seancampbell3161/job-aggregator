@@ -280,7 +280,7 @@ async def test_oracle_400_is_a_throttle_retried_with_long_backoff(monkeypatch):
     slept, sleep = await _sleeps()
     r = await V.Verifier(None, sleep=sleep).check(Candidate("oraclecloud", _ORC))
     assert r.status == "live" and stub.calls == 3
-    assert slept == [30.0, 60.0]
+    assert [x for x in slept if x >= 1.0] == [30.0, 60.0]  # ignoring sub-second pacing
 
 
 @pytest.mark.asyncio
@@ -308,7 +308,7 @@ async def test_throttle_backoff_is_capped(monkeypatch):
                                                       [_post("Sydney, Australia")]]))
     slept, sleep = await _sleeps()
     await V.Verifier(None, sleep=sleep).check(Candidate("oraclecloud", _ORC))
-    assert slept == [30.0, 40.0]
+    assert [x for x in slept if x >= 1.0] == [30.0, 40.0]  # ignoring sub-second pacing
 
 
 def test_vendor_families_are_limited_to_four_at_a_time():
@@ -362,3 +362,123 @@ async def test_unbuildable_and_unresolved_reasons(monkeypatch):
     r = await V.Verifier(None, sleep=_no_sleep).check(
         Candidate("eightfold", {"slug": "x", "base": "https://x.eightfold.ai"}))
     assert (r.status, r.reason) == ("dead", "resolve:0")
+
+
+class _Clock:
+    """A fake monotonic clock whose sleep advances it: no real time passes."""
+    def __init__(self):
+        self.t = 0.0
+        self.slept = []
+
+    def now(self):
+        return self.t
+
+    async def sleep(self, s):
+        self.slept.append(s)
+        self.t += s
+
+
+@pytest.mark.asyncio
+async def test_pacer_gap_starts_at_zero_and_never_sleeps():
+    c = _Clock()
+    p = V._Pacer(clock=c.now, sleep=c.sleep)
+    for _ in range(5):
+        await p.wait("ashby")
+    assert c.slept == []
+
+
+def test_pacer_throttle_doubles_from_floor_to_cap():
+    p = V._Pacer(clock=lambda: 0.0, sleep=None)
+    gaps = []
+    for _ in range(7):
+        p.on_throttle("workable")
+        gaps.append(p.gap("workable"))
+    assert gaps == [0.5, 1.0, 2.0, 4.0, 8.0, 10.0, 10.0]
+    assert p.gap("ashby") == 0.0
+
+
+def test_pacer_success_decays_then_snaps_to_zero():
+    p = V._Pacer(clock=lambda: 0.0, sleep=None)
+    p.on_throttle("workable")
+    p.on_success("workable")
+    assert p.gap("workable") == pytest.approx(0.45)
+    for _ in range(40):
+        p.on_success("workable")
+    assert p.gap("workable") == 0.0
+
+
+@pytest.mark.asyncio
+async def test_pacer_concurrent_waiters_are_spaced_by_the_gap():
+    c = _Clock()
+    p = V._Pacer(clock=c.now, sleep=c.sleep)
+    p.on_throttle("workable")
+    p.on_throttle("workable")  # gap 1.0
+    starts = []
+
+    async def go():
+        await p.wait("workable")
+        starts.append(c.now())
+
+    await asyncio.gather(*(go() for _ in range(5)))
+    starts.sort()
+    assert all(b - a >= 1.0 - 1e-9 for a, b in zip(starts, starts[1:]))
+    assert starts[-1] - starts[0] >= 4.0 - 1e-9
+
+
+@pytest.mark.asyncio
+async def test_429_slows_the_same_family_but_not_another(monkeypatch):
+    c = _Clock()
+    _patch(monkeypatch, _Stub("recruitee:a", [_status_error(429), [_post("Austin, TX")]]))
+    v = V.Verifier(None, sleep=c.sleep, clock=c.now)
+    await v.check(Candidate("recruitee", {"slug": "a"}))
+    assert v._pacer.gap("recruitee") > 0.0
+    assert v._pacer.gap("ashby") == 0.0
+    c.slept.clear()
+    _patch(monkeypatch, _Stub("lever:b", [[_post("Austin, TX")]]))
+    await v.check(Candidate("lever", {"slug": "b"}))
+    assert c.slept == []  # another family is not paced
+
+
+@pytest.mark.asyncio
+async def test_throttled_family_paces_its_next_check(monkeypatch):
+    c = _Clock()
+    _patch(monkeypatch, _Stub("recruitee:a", [_status_error(429), [_post("Austin, TX")],
+                                              [_post("Austin, TX")]]))
+    v = V.Verifier(None, sleep=c.sleep, clock=c.now)
+    await v.check(Candidate("workable", {"slug": "a"}))
+    c.slept.clear()
+    await v.check(Candidate("recruitee", {"slug": "b"}))
+    assert c.slept and all(s <= V.MAX_GAP for s in c.slept)
+
+
+@pytest.mark.asyncio
+async def test_oracle_400_and_probe_throttle_are_throttle_signals(monkeypatch):
+    c = _Clock()
+    _patch(monkeypatch, _Stub("oraclecloud:ebuu:CX", [_status_error(400), [_post("Sydney")]]))
+    v = V.Verifier(None, sleep=c.sleep, clock=c.now)
+    await v.check(Candidate("oraclecloud", _ORC))
+    assert v._pacer.gap("oraclecloud") > 0.0
+    script = [ProbeThrottled("workable", "a"), [_post("Austin, TX")]]
+
+    class _Workable:
+        name = "workable:a"
+        def __init__(self, slug): pass
+        async def fetch(self, client, state):
+            step = script.pop(0)
+            if isinstance(step, BaseException):
+                raise step
+            return FetchResult(postings=step)
+    monkeypatch.setattr(V, "WorkableConnector", _Workable)
+    await v.check(Candidate("workable", {"slug": "a"}))
+    assert v._pacer.gap("workable") > 0.0
+
+
+@pytest.mark.asyncio
+async def test_5xx_and_transport_errors_do_not_change_the_gap(monkeypatch):
+    c = _Clock()
+    _patch(monkeypatch, _Stub("lever:a", [_status_error(503), httpx.ReadTimeout("t"),
+                                          _status_error(502)]))
+    v = V.Verifier(None, sleep=c.sleep, clock=c.now)
+    r = await v.check(Candidate("lever", {"slug": "a"}))
+    assert r.status == "deferred"
+    assert v._pacer.gap("lever") == 0.0

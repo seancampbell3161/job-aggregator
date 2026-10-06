@@ -9,6 +9,7 @@ import asyncio
 import html
 import logging
 import re
+import time
 
 import httpx
 
@@ -37,6 +38,15 @@ MAX_RETRY_AFTER = 60.0
 # documents the same 400s from datacenter IPs. Retry after a long pause.
 THROTTLE_400_FAMILIES = frozenset({"oraclecloud", "workday"})
 THROTTLE_400_BACKOFF = 30.0
+# Adaptive pacing. Evidence (2026-10-06 real build): fixed concurrency plus
+# backoff left workable 5,071 of ~5,230 checks deferred (HTTP 429), oraclecloud
+# 1,611 deferred (HTTP 400) and recruitee 386 deferred (429); every other
+# family saw none. Each vendor tolerates a different rate, so each family's
+# gap between request starts grows on throttle and decays on success.
+MIN_THROTTLED_GAP = 0.5
+MAX_GAP = 10.0
+GAP_DECAY = 0.9
+GAP_SNAP = 0.05
 # Families whose URL identity is incomplete or unvalidated until a live
 # check: verify_identity resolves it (and mutates it, for eightfold).
 _RESOLVE_FIRST = frozenset({"eightfold", "taleo", "jsonld"})
@@ -51,10 +61,43 @@ _GENERIC_SITE_WORDS = frozenset({
 
 
 class _Retryable(Exception):
-    def __init__(self, reason: str, retry_after: float | None = None) -> None:
+    def __init__(self, reason: str, retry_after: float | None = None,
+                 throttle: bool = False) -> None:
         super().__init__(reason)
         self.reason = reason
         self.retry_after = retry_after
+        # True only for a vendor's throttle signal (429, ProbeThrottled, the
+        # Oracle/Workday 400): 5xx and transport errors are not.
+        self.throttle = throttle
+
+
+class _Pacer:
+    """Per-family AIMD request pacing: the gap between request starts doubles
+    on a throttle signal and decays on a definite answer. Slots are reserved
+    before sleeping, so concurrent waiters queue instead of bunching."""
+
+    def __init__(self, clock=time.monotonic, sleep=asyncio.sleep) -> None:
+        self._clock = clock
+        self._sleep = sleep
+        self._gap: dict[str, float] = {}
+        self._next: dict[str, float] = {}
+
+    def gap(self, family: str) -> float:
+        return self._gap.get(family, 0.0)
+
+    async def wait(self, family: str) -> None:
+        now = self._clock()
+        start = max(now, self._next.get(family, 0.0))
+        self._next[family] = start + self.gap(family)
+        if start > now:
+            await self._sleep(start - now)
+
+    def on_throttle(self, family: str) -> None:
+        self._gap[family] = min(max(self.gap(family) * 2, MIN_THROTTLED_GAP), MAX_GAP)
+
+    def on_success(self, family: str) -> None:
+        gap = self.gap(family) * GAP_DECAY
+        self._gap[family] = 0.0 if gap < GAP_SNAP else gap
 
 
 def _retry_after(resp: httpx.Response) -> float | None:
@@ -73,13 +116,14 @@ def humanize(family: str, identity: dict) -> str:
 class Verifier:
     def __init__(self, client: httpx.AsyncClient | None, *, global_limit: int = GLOBAL_LIMIT,
                  per_family: int = PER_FAMILY_LIMIT, family_limits: dict[str, int] | None = None,
-                 sleep=asyncio.sleep) -> None:
+                 sleep=asyncio.sleep, clock=time.monotonic) -> None:
         self._client = client
         self._global = asyncio.Semaphore(global_limit)
         self._per_family = per_family
         self._family_limits = FAMILY_LIMITS if family_limits is None else family_limits
         self._sems: dict[str, asyncio.Semaphore] = {}
         self._sleep = sleep
+        self._pacer = _Pacer(clock=clock, sleep=sleep)
 
     def _sem(self, family: str) -> asyncio.Semaphore:
         if family not in self._sems:
@@ -90,13 +134,22 @@ class Verifier:
     async def check(self, cand: Candidate) -> CheckResult:
         reason = None
         for attempt in range(MAX_ATTEMPTS):
+            # Pace first so a waiting task holds no concurrency slot.
+            await self._pacer.wait(cand.family)
             try:
                 async with self._global, self._sem(cand.family):
-                    return await self._check_once(cand, attempt)
+                    result = await self._check_once(cand, attempt)
             except _Retryable as exc:
+                if exc.throttle:
+                    self._pacer.on_throttle(cand.family)
                 reason = exc.reason
                 if attempt + 1 < MAX_ATTEMPTS:
                     await self._sleep(min(exc.retry_after or 5.0 * (attempt + 1), MAX_RETRY_AFTER))
+            else:
+                # A refused connection says nothing about the vendor's pace.
+                if result.reason != "ConnectError":
+                    self._pacer.on_success(cand.family)
+                return result
         return CheckResult("deferred", reason=reason)
 
     async def _check_once(self, cand: Candidate, attempt: int = 0) -> CheckResult:
@@ -111,17 +164,17 @@ class Verifier:
                 return CheckResult("dead", reason="unbuildable")
             res = await conn.fetch(self._client, ConnectorState())
         except ProbeThrottled as exc:
-            raise _Retryable("throttled") from exc
+            raise _Retryable("throttled", throttle=True) from exc
         except httpx.HTTPStatusError as exc:
             code = exc.response.status_code
             if code == 429:
-                raise _Retryable("throttled", _retry_after(exc.response)) from exc
+                raise _Retryable("throttled", _retry_after(exc.response), True) from exc
             if code >= 500:
                 raise _Retryable(f"HTTP {code}") from exc
             if code == 400 and cand.family in THROTTLE_400_FAMILIES:
                 # No Retry-After arrives with these; back off 30s, 60s, ...
                 raise _Retryable(f"HTTP {code}", _retry_after(exc.response) or
-                                 THROTTLE_400_BACKOFF * (attempt + 1)) from exc
+                                 THROTTLE_400_BACKOFF * (attempt + 1), True) from exc
             return CheckResult("dead", reason=f"HTTP {code}")
         except httpx.ConnectError:
             # DNS failure or connection refused: a dead tenant host stays dead,
