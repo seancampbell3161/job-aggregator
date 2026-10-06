@@ -402,6 +402,9 @@ async def _run(
         health=health,
         calibrate=calibrate,
         rejected_store=stores.rejected if cfg.audit.enabled else None,
+        # Evaluation memory: ats/slow only; the headless tier is exempt.
+        evaluated_store=stores.evaluated if tier in ("ats", "slow") else None,
+        generation=snap.generation if tier in ("ats", "slow") else None,
         browser_factory=browser_factory,
         max_concurrency=(3 if tier == "headless" else 40),
     )

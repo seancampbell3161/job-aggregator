@@ -315,3 +315,105 @@ async def test_a_screening_failure_raises_and_cancels_the_fetches_still_running(
             sinks=[], client_factory=lambda: httpx.AsyncClient(),
         ), timeout=5)
     assert cancelled.is_set()
+
+
+# --- evaluation memory -------------------------------------------------------
+
+def _mem_cycle_kwargs(conn):
+    return dict(
+        cfg=_cfg(), tier="ats", store=SqliteSeenJobsStore(conn),
+        source_state=SqliteSourceStateStore(conn),
+        client_factory=lambda: httpx.AsyncClient(),
+        rejected_store=SqliteRejectedPostingsStore(conn),
+    )
+
+
+def _spy_normalize(monkeypatch):
+    import src.orchestrator as orch
+    calls = []
+    real = orch.normalize
+
+    def spy(raw, **kw):
+        calls.append(f"{raw.source}:{raw.external_id}")
+        return real(raw, **kw)
+
+    monkeypatch.setattr(orch, "normalize", spy)
+    return calls
+
+
+def _evaluated_ids(conn):
+    return sorted(r["job_id"] for r in conn.execute("SELECT job_id FROM evaluated_postings"))
+
+
+@pytest.mark.asyncio
+async def test_rejected_posting_is_not_renormalized_next_cycle(monkeypatch):
+    from src.state_sqlite import SqliteEvaluatedPostingsStore
+    conn = connect(":memory:")
+    ev = SqliteEvaluatedPostingsStore(conn)
+    calls = _spy_normalize(monkeypatch)
+    conns = [_StubConnector("greenhouse:a", [_reject("greenhouse:a", "1")])]
+    kw = _mem_cycle_kwargs(conn)
+    r1 = await run_once(connectors=conns, sinks=[], evaluated_store=ev, generation=1, **kw)
+    assert calls == ["greenhouse:a:1"] and r1.polled["greenhouse:a"] == 1 and r1.new_count == 1
+    calls.clear()
+    r2 = await run_once(connectors=conns, sinks=[], evaluated_store=ev, generation=1, **kw)
+    assert calls == []
+    assert r2.polled["greenhouse:a"] == 0 and r2.new_count == 0
+
+
+@pytest.mark.asyncio
+async def test_generation_change_reevaluates(monkeypatch):
+    from src.state_sqlite import SqliteEvaluatedPostingsStore
+    conn = connect(":memory:")
+    ev = SqliteEvaluatedPostingsStore(conn)
+    calls = _spy_normalize(monkeypatch)
+    conns = [_StubConnector("greenhouse:a", [_reject("greenhouse:a", "1")])]
+    kw = _mem_cycle_kwargs(conn)
+    await run_once(connectors=conns, sinks=[], evaluated_store=ev, generation=1, **kw)
+    calls.clear()
+    r2 = await run_once(connectors=conns, sinks=[], evaluated_store=ev, generation=2, **kw)
+    assert calls == ["greenhouse:a:1"]
+    assert r2.polled["greenhouse:a"] == 0
+
+
+@pytest.mark.asyncio
+async def test_matches_are_not_recorded():
+    from src.state_sqlite import SqliteEvaluatedPostingsStore
+    conn = connect(":memory:")
+    ev = SqliteEvaluatedPostingsStore(conn)
+    sink = _RecordingSink()
+    conns = [_StubConnector("greenhouse:a", [_match("greenhouse:a", "1"), _reject("greenhouse:a", "2")])]
+    r = await run_once(connectors=conns, sinks=[sink], evaluated_store=ev, generation=1,
+                       **_mem_cycle_kwargs(conn))
+    assert r.notified_count == 1
+    assert conn.execute("SELECT COUNT(*) FROM seen_jobs WHERE job_id='greenhouse:a:1'").fetchone()[0] == 1
+    assert _evaluated_ids(conn) == ["greenhouse:a:2"]
+
+
+@pytest.mark.asyncio
+async def test_ignore_seen_bypasses_memory_and_writes_nothing(monkeypatch):
+    from src.state_sqlite import SqliteEvaluatedPostingsStore
+    conn = connect(":memory:")
+    ev = SqliteEvaluatedPostingsStore(conn)
+    conns = [_StubConnector("greenhouse:a", [_match("greenhouse:a", "1"), _reject("greenhouse:a", "2")])]
+    kw = _mem_cycle_kwargs(conn)
+    await run_once(connectors=conns, sinks=[_RecordingSink()], evaluated_store=ev, generation=1, **kw)
+    before = _evaluated_ids(conn)
+    assert before == ["greenhouse:a:2"]
+    calls = _spy_normalize(monkeypatch)
+    r = await run_once(connectors=conns, sinks=[], evaluated_store=ev, generation=1,
+                       dry_run=True, ignore_seen=True, **kw)
+    assert sorted(calls) == ["greenhouse:a:1", "greenhouse:a:2"]
+    assert [p.apply_url for p in r.would_notify] == ["https://x/greenhouse:a/1"]
+    assert _evaluated_ids(conn) == before
+
+
+@pytest.mark.asyncio
+async def test_dry_run_writes_no_memory():
+    from src.state_sqlite import SqliteEvaluatedPostingsStore
+    conn = connect(":memory:")
+    ev = SqliteEvaluatedPostingsStore(conn)
+    conns = [_StubConnector("greenhouse:a", [_reject("greenhouse:a", "1")])]
+    await run_once(connectors=conns, sinks=[], evaluated_store=ev, generation=1,
+                   dry_run=True, **_mem_cycle_kwargs(conn))
+    assert _evaluated_ids(conn) == []

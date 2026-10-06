@@ -95,14 +95,26 @@ def _screen_board(
     memory is bounded by its matches rather than by everything it fetched.
 
     bypass (calibrate / the wizard preview) screens every posting, seen or
-    not. evaluated_store / generation are accepted for the evaluation memory
-    but not used yet."""
+    not, and neither skips nor writes the evaluation memory.
+
+    Evaluation memory (evaluated_store + generation): an unseen posting
+    already rejected under the current settings generation is not normalized
+    again. Rejected ids are recorded after filtering (never matches, never in
+    a dry run or calibrate). `fresh` counts unseen postings with no memory row
+    in ANY generation, so a settings change doesn't make every board look
+    active; it is computed the same way on the bypass path."""
     ids = [f"{r.source}:{r.external_id}" for r in raws]
     unseen = set(store.diff_new(ids))
+    memory = evaluated_store is not None and generation is not None
+    known = evaluated_store.known(unseen) if memory and unseen else {}
+    fresh = len(unseen - known.keys())
+    already_rejected = (
+        {j for j, g in known.items() if g == generation} if memory and not bypass else set()
+    )
     matched: list[tuple] = []  # (NormalizedPosting, Decision)
     rejected: list[tuple] = []  # (NormalizedPosting, rejected_by)
     for raw, job_id in zip(raws, ids):
-        if not bypass and job_id not in unseen:
+        if not bypass and (job_id not in unseen or job_id in already_rejected):
             continue
         # Per-posting isolation. One malformed payload used to raise out of
         # run_once and kill the entire tier cycle: an Oracle requisition with
@@ -151,7 +163,18 @@ def _screen_board(
                 extra={"source": rejected[0][0].source, "count": len(rejected),
                        "error": str(exc)},
             )
-    return matched, len(unseen)
+    if rejected and memory and not bypass and not dry_run and not calibrate:
+        # Evaluation memory: best-effort too. Losing it only costs a
+        # re-normalization next cycle.
+        try:
+            evaluated_store.record_many([n.job_id for n, _ in rejected], generation=generation)
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "evaluated_record_failed",
+                extra={"source": rejected[0][0].source, "count": len(rejected),
+                       "error": str(exc)},
+            )
+    return matched, fresh
 
 
 async def _fetch_one(
@@ -282,6 +305,18 @@ async def run_once(
     pacer=None,
     fetch_deadline_s: float | None = None,
 ) -> RunResult:
+    """Run one poll cycle over `connectors`, screening each board as it arrives.
+
+    evaluated_store / generation enable the evaluation memory: unseen postings
+    already rejected under this settings generation are not normalized again,
+    and this cycle's rejections are recorded (not in dry_run / calibrate;
+    calibrate and ignore_seen bypass the skip). Matches are never recorded.
+    Pass neither to evaluate everything (the headless tier does).
+
+    result.new_count counts postings new to evaluation: unseen AND not already
+    rejected under the current generation, so a rejected posting is not
+    re-counted every cycle. result.polled[name] counts a board's unseen
+    postings never evaluated in any generation."""
     result = RunResult()
     t_start = time.monotonic()
     log.info(
@@ -355,7 +390,7 @@ async def run_once(
                 res.postings, cfg=cfg, store=store, seen_in_run=seen_in_run,
                 result=result, tally=tally, bypass=(calibrate or ignore_seen),
                 dry_run=dry_run, calibrate=calibrate,
-                rejected_store=rejected_store, evaluated_store=None, generation=None,
+                rejected_store=rejected_store, evaluated_store=evaluated_store, generation=generation,
             )
             if board_matched:
                 board_matches.append((i, board_matched))
