@@ -37,10 +37,17 @@ sense to whoever wrote them. Budget for that edit; it's most of the work.
    uv lock
    ```
 
-2. **Optionally refresh the starter pack.** Copy the production box's DB
-   (never run against the live file), then
-   `uv run python scripts/export_starter_pack.py --db /path/to/copy.db` and
-   review the `scripts/seeds/starter_pack.json` diff in the release PR.
+2. **Optionally refresh the starter pack.** Rebuild it from public data
+   (about an hour; re-runs reuse fresh results from the cache):
+
+   ```bash
+   uv run python scripts/build_starter_pack.py --report /tmp/pack-report.json
+   ```
+
+   It refuses to write if more than 5% of checks were throttled. Re-run
+   later to retry them. Review the `scripts/seeds/starter_pack.json` diff and
+   paste the report's `selected` and `previous` counts into the release PR.
+   A big drop against the previous pack needs an explanation before merging.
    Installs that have the pack on pick up new entries on their next check.
 
 3. **Prepend the new section to the changelog** — do NOT regenerate the whole
