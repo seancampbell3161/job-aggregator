@@ -144,11 +144,11 @@ COPY: dict[str, Copy] = {
     # --- Schedules -------------------------------------------------------------
     "schedules.ats_minutes": Copy(
         "Job boards — check every (minutes)",
-        "Company job boards such as Greenhouse, Lever and Ashby.",
+        "Company job boards such as Greenhouse, Lever and Ashby. Boards with nothing new are checked less often, up to about hourly.",
     ),
     "schedules.slow_minutes": Copy(
         "Aggregators — check every (minutes)",
-        "HN Who's Hiring, Remotive, RemoteOK and Adzuna.",
+        "HN Who's Hiring, Remotive, RemoteOK and Adzuna. Quiet sources are checked less often, up to about hourly.",
     ),
     "schedules.discovery_hours": Copy(
         "Finding new companies — every (hours)",

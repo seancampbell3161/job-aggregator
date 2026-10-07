@@ -2,7 +2,7 @@
 {% import "_ui.html" as ui %}
 {% block step %}
 {% if always_on %}
-<p class="muted">Also checked on every run:
+<p class="muted">Also checked automatically:
   {% for name in always_on %}<strong>{{ name }}</strong>{% if not loop.last %}, {% endif %}{% endfor %}.</p>
 {% endif %}
 
@@ -21,7 +21,7 @@
     <input type="checkbox" name="starter_pack" value="1" {% if pack_checked %}checked{% endif %}>
     Start with {{ pack_count }} verified company boards (recommended)
   </label>
-  <p class="muted">Greenhouse, Lever, Ashby, Workday and more — checked every run.
+  <p class="muted">Greenhouse, Lever, Ashby, Workday and more — checked automatically.
     Dead boards are dropped automatically.</p>
   {% endif %}
   <label class="check">
