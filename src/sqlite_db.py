@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS rejected_postings (
     comp_max      INTEGER,
     verdict       TEXT,
     verdict_at    TEXT,
-    data          TEXT NOT NULL
+    data          TEXT NOT NULL,
+    description_z BLOB
 );
 CREATE INDEX IF NOT EXISTS idx_rejected_first_seen ON rejected_postings (first_seen);
 CREATE TABLE IF NOT EXISTS coach_runs (
@@ -170,6 +171,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn, "connector_health", "backoff_until",
         "ALTER TABLE connector_health ADD COLUMN backoff_until INTEGER NOT NULL DEFAULT 0",
     )
+    _add_column_if_missing(
+        # NULLable: legacy rows keep their job text inside `data` and read as before.
+        conn, "rejected_postings", "description_z",
+        "ALTER TABLE rejected_postings ADD COLUMN description_z BLOB",
+    )
 
 
 def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
@@ -259,8 +265,11 @@ def connect(path: str | None = None) -> sqlite3.Connection:
     and never saw the poller's writes until it reconnected. Rollback-journal
     mode has no `-shm`: every transaction reads the main db file directly, so
     all committed writes are visible immediately in either direction. The cost
-    is brief reader/writer lock contention, which the tiny write volume (poller
-    a few times/min, rare user writes) makes negligible — busy_timeout covers it.
+    is reader/writer lock contention. Normal write volume (poller a few
+    times/min, rare user writes) makes that negligible, but the scheduler's
+    hourly full integrity_check holds a read lock for several seconds on a large
+    DB, and a commit cannot complete meanwhile. busy_timeout is 30 s so writers
+    wait that check out instead of failing with "database is locked".
 
     isolation_level=None gives autocommit; transactions are issued explicitly
     with BEGIN IMMEDIATE where atomicity matters."""
@@ -273,7 +282,7 @@ def connect(path: str | None = None) -> sqlite3.Connection:
     # Switching an existing WAL database here checkpoints and folds the `-wal`
     # back into the main file, then removes the `-wal`/`-shm` sidecars.
     conn.execute("PRAGMA journal_mode=DELETE")
-    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA busy_timeout=30000")
     for stmt in _SCHEMA.strip().split(";"):
         if stmt.strip():
             conn.execute(stmt)

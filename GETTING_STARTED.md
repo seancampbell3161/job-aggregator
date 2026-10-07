@@ -632,9 +632,9 @@ The local runtime records every filter-gate rejection; browse them at
 or confirm the rejection — those judgments feed future threshold tuning).
 Retention defaults to 90 days (`audit.retention_days`).
 
-This trail is most of the disk space the app uses (a couple of GB with the
-full starter pack). To shrink it, lower `audit.retention_days` or turn off
-`audit.enabled`.
+This trail is most of the disk space the app uses (about 1 GB after the
+first check of the full starter pack; job text is stored compressed). To
+shrink it, lower `audit.retention_days` or turn off `audit.enabled`.
 
 Pipeline-health push alerts are off until you configure a separate ops
 channel — `set-secret ops_ntfy_topic_url` / `set-secret ops_discord_webhook_url`
@@ -815,8 +815,8 @@ in the pack are included only with `discovery.eu_seeds_enabled`.
 **What it needs.** The full US pack is 10,436 boards (11,808 with
 `discovery.eu_seeds_enabled`). Measured with the full US pack, memory
 peaks around 470 MB on the first check, then runs at roughly 85–350 MB.
-The database grows to a couple of GB over time, mostly the `/audit` trail
-of rejected postings (see
+The database is about 1 GB after that first check and grows slowly with
+new postings, mostly the `/audit` trail of rejected postings (see
 [Rejected postings & ops alerts](#rejected-postings--ops-alerts-optional)).
 
 ### Automated board discovery (optional)
