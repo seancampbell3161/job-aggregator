@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.1] - 2026-10-07
+
+A follow-up to 0.17.0's bigger starter pack: a smaller database, no lock
+errors during the hourly health check, and wording that matches the new
+polling.
+
+### Changed
+
+- **The Rejected postings audit trail takes about a third less disk** (#36).
+  Each rejected posting's job text is now stored compressed. Rescue and
+  re-scoring from `/audit` see exactly the same text as before. Measured on
+  a fresh install's first check of the full 10,436-board pack, the database
+  was 1.08 GB, down from 1.7 GB.
+- **In-app wording matches adaptive polling** (#35). The Companies page and
+  the setup wizard say boards are "checked automatically" rather than "every
+  run", and Settings → Schedules explains that quiet boards are checked less
+  often, up to about hourly.
+- **Docs** (#35): the README describes the per-board skip, adaptive cadence,
+  per-site pacing and the new tables. GETTING_STARTED explains the rejection
+  memory and gives measured memory and disk figures for the full pack.
+
+### Fixed
+
+- **No more "database is locked" during the hourly integrity check** (#36).
+  On a large database the full check holds a read for several seconds;
+  writes now wait for it (up to 30 s) instead of failing. The check itself is
+  unchanged.
+
+### Upgrading
+
+- Nothing to do: pull the new image, or run `docker compose up -d --build`
+  from a checkout. A new column is added to the audit table automatically on
+  the next start.
+- Existing audit rows stay as they are and age out within
+  `audit.retention_days` (default 90). Your database file won't shrink on
+  its own — SQLite reuses the freed space, so it simply stops growing. To
+  reclaim the space at once, stop the stack and run
+  `sqlite3 data/job_aggregator.db VACUUM` (it needs free disk roughly the
+  size of the database while it runs).
+
 ## [0.17.0] - 2026-10-06
 
 The coverage release. Before this release a new install polled no company
@@ -1783,6 +1823,7 @@ entries below are kept for the record. From 0.12.0 on, the usual
 compare/vP.R.E..vX.Y.Z links resume (see RELEASING.md).
 -->
 
+[0.17.1]: https://github.com/seancampbell3161/job-aggregator/compare/v0.17.0..v0.17.1
 [0.17.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.16.0..v0.17.0
 [0.16.0]: https://github.com/seancampbell3161/job-aggregator/compare/v0.15.1..v0.16.0
 [0.15.1]: https://github.com/seancampbell3161/job-aggregator/compare/v0.15.0..v0.15.1
