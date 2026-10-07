@@ -77,12 +77,12 @@ def test_the_companies_step_says_what_is_always_being_polled(tmp_path, monkeypat
     polled" — but the step said only "The job boards to poll", which reads as
     though continuing past it leaves you with none. Name what is always on.
     (Task 5 reworded the paragraph from "Already polling..." to "Also
-    checked on every run..." to make room for the starter-pack/discovery
+    checked automatically..." to make room for the starter-pack/discovery
     checkboxes; the aggregator names it lists are unchanged.)"""
     r = _client(tmp_path, monkeypatch).get("/wizard/companies")
     assert r.status_code == 200
     body = r.text.lower()
-    assert "checked on every run" in body
+    assert "checked automatically" in body
     for feed in ("hacker news", "remotive", "remoteok"):
         assert feed in body, f"{feed} is polling by default but is not mentioned"
 

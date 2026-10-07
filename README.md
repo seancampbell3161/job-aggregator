@@ -51,7 +51,11 @@ schedule (ats / slow / headless / discovery / digest)
    └──────────────────────────────────────────────────────────────
         │
         ▼ raw postings
-   normalize ──► dedup against seen_jobs
+   per board, as each fetch returns:
+   skip postings already in seen_jobs or already rejected (current settings)
+        │
+        ▼
+   normalize ──► dedup (same job from two boards)
         │
         ▼ new postings
    filters (titles, seniority, location, comp, stack, age)
@@ -72,15 +76,15 @@ Five tiers run on independent schedules:
 
 | Tier | Default cadence | What it does |
 |---|---|---|
-| `ats` | every 10 min | Polls the httpx ATS families (Greenhouse … Taleo, iCIMS/JSON-LD). Cheap, low-latency. Fetches run with bounded concurrency (semaphore) so the connection pool can't be exhausted as connectors grow. |
-| `slow` | every 15 min | HN Who Is Hiring + aggregators. Rate-friendlier endpoints. |
+| `ats` | every 10 min | Polls the httpx ATS families (Greenhouse … Taleo, iCIMS/JSON-LD). Cheap, low-latency. Only boards that are due are checked: quiet boards back off to about hourly, and a board with a new posting is checked every cycle. Fetches run with bounded concurrency (semaphore), at most 8 in flight per job site (40 overall), and the poller spaces requests out when a site throttles. |
+| `slow` | every 15 min | HN Who Is Hiring + aggregators. Rate-friendlier endpoints. Uses the same due-only cadence as `ats`. |
 | `headless` | every ~45 min | JS-gated boards that need a real browser (Avature). Playwright/Chromium; opt-in via the `[headless]` extra. |
 | `discovery` | every 24 h | Drains aggregator-sighted (Adzuna) and VC-portfolio candidates first, then runs the conversion chain over yc-oss + `manual_companies` (slug variants → careers-page fingerprint) and fingerprints the enterprise seed list — all within one probe budget that reserves a slice for revalidating known-good boards. Fully-exhausted misses re-probe last, from leftover budget only. Promotes healthy boards into the active poll set. Re-fetches configured VC portfolios weekly (inert by default). No notifications. |
 | `digest` | weekly (Mon) | Posts a Discord summary of your most common résumé gaps over the last 30 days. No polling. Skipped unless `gap_analysis.enabled`. |
 
 ### State and secrets
 
-SQLite holds everything — including your settings (`settings_versions`, `documents`, `secrets`, `config_generation`) and `seen_jobs` (dedup; also stores each notified posting's relevance score, résumé gaps, and triage/board status + application history), `source_state` (per-connector ETag / cursor), `discovered_slugs` and `discovered_boards` (auto-discovered startup slugs and enterprise boards, with health), `connector_health` (a poll-health circuit breaker that auto-suppresses connectors which 404/410 repeatedly, re-probed daily), `rejected_postings` (the audit trail — what was filtered/suppressed and why), `pipeline_events` (per-cycle telemetry behind `/pipeline`), and `ops_alert_state` (cooldowns for the degraded / zero-yield / pipeline-stopped push alerts).
+SQLite holds everything — including your settings (`settings_versions`, `documents`, `secrets`, `config_generation`) and `seen_jobs` (dedup; also stores each notified posting's relevance score, résumé gaps, and triage/board status + application history), `source_state` (per-connector ETag / cursor), `discovered_slugs` and `discovered_boards` (auto-discovered startup slugs and enterprise boards, with health), `connector_health` (a poll-health circuit breaker that auto-suppresses connectors which 404/410 repeatedly, re-probed daily), `rejected_postings` (the audit trail — what was filtered/suppressed and why), `pipeline_events` (per-cycle telemetry behind `/pipeline`), `ops_alert_state` (cooldowns for the degraded / zero-yield / pipeline-stopped push alerts), `evaluated_postings` (postings the filters rejected, per settings and app version, kept 30 days so they aren't re-checked), `connector_schedule` (each board's check interval and next-due time), and `schedule_generation` (which settings each tier's schedule was built under).
 
 State lives in a single SQLite file at `./data/job_aggregator.db`.
 

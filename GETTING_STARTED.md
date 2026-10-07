@@ -632,6 +632,10 @@ The local runtime records every filter-gate rejection; browse them at
 or confirm the rejection — those judgments feed future threshold tuning).
 Retention defaults to 90 days (`audit.retention_days`).
 
+This trail is most of the disk space the app uses (a couple of GB with the
+full starter pack). To shrink it, lower `audit.retention_days` or turn off
+`audit.enabled`.
+
 Pipeline-health push alerts are off until you configure a separate ops
 channel — `set-secret ops_ntfy_topic_url` / `set-secret ops_discord_webhook_url`
 (applies live), or in `.env`:
@@ -782,9 +786,16 @@ you change any setting, every board is checked on the next cycle. When a
 job site throttles requests, the poller spaces them out; any board it
 couldn't fetch before the cycle deadline is checked next cycle.
 
+The poller also remembers postings the filters rejected, so it doesn't
+re-check them every cycle. A rejected posting isn't looked at again for 30
+days, unless you change a setting or upgrade the app (either re-checks
+everything once). So a posting that is edited after it was rejected keeps
+its rejection until then. Postings that match are never remembered this
+way. `/audit` still records each rejection once.
+
 ### Starter pack
 
-New installs begin with a **starter pack**: thousands of verified company
+New installs begin with a **starter pack**: about 10,000 verified company
 boards (Greenhouse, Ashby, Workday, Lever, Oracle Cloud and more) bundled in
 `scripts/seeds/starter_pack.json`. Each release rebuilds it from Common
 Crawl's public index of job-board pages, keeping only boards that are live
@@ -800,6 +811,13 @@ Upgrading from an earlier version changes nothing until you opt in: the
 Companies page offers the pack with one click. Turn it off any time with
 `discovery.starter_pack` (Settings → Advanced); nothing is deleted. EU boards
 in the pack are included only with `discovery.eu_seeds_enabled`.
+
+**What it needs.** The full US pack is 10,436 boards (11,808 with
+`discovery.eu_seeds_enabled`). Measured with the full US pack, memory
+peaks around 470 MB on the first check, then runs at roughly 85–350 MB.
+The database grows to a couple of GB over time, mostly the `/audit` trail
+of rejected postings (see
+[Rejected postings & ops alerts](#rejected-postings--ops-alerts-optional)).
 
 ### Automated board discovery (optional)
 

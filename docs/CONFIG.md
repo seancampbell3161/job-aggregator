@@ -144,8 +144,8 @@ Poll cadence per tier. Intervals are read by the scheduler daemon.
 
 | Flag | Default | What it does / when to touch it |
 |---|---|---|
-| `schedules.ats_minutes` | `10` | Fast-tier interval: direct ATS boards (shipped: 10). |
-| `schedules.slow_minutes` | `15` | Slow-tier interval: aggregators — HN, Remotive, RemoteOK, Adzuna (shipped: 15). |
+| `schedules.ats_minutes` | `10` | Fast-tier interval: direct ATS boards; boards with nothing new are checked less often, up to about hourly (shipped: 10). |
+| `schedules.slow_minutes` | `15` | Slow-tier interval: aggregators — HN, Remotive, RemoteOK, Adzuna; quiet sources are checked less often, up to about hourly (shipped: 15). |
 | `schedules.discovery_hours` | `24` | Discovery-tier interval (candidate validation sweeps). |
 | `schedules.headless_minutes` | `45` | Headless (Playwright/Avature) tier interval. |
 | `schedules.digest_cron` | `"0 13 * * 1"` | UTC cron for the weekly digest tier (gap-analysis skills digest — Mondays 13:00 UTC). |
@@ -171,7 +171,7 @@ candidate mining", and "VC portfolio auto-discovery".
 | `discovery.board_revalidate_after_days` | `14` | Healthy discovered boards re-checked this often. |
 | `discovery.board_quarantine_after_failures` | `5` | Consecutive failures before a discovered board is quarantined. |
 | `discovery.eu_seeds_enabled` | `false` | Opt-in: append `scripts/seeds/eu_companies.csv` (149 curated EU companies) to the board sweep — see [examples/eu-config.md](examples/eu-config.md). |
-| `discovery.starter_pack` | `false` | Poll the bundled starter pack — thousands of verified company boards (`scripts/seeds/starter_pack.json`, rebuilt from Common Crawl's public index each release), seeded as discovered boards so dead ones are dropped automatically. New installs turn it on in the setup wizard; existing installs from the banner on the Companies page. EU entries are included only with `discovery.eu_seeds_enabled`. Turning it off hides the rows; nothing is deleted. |
+| `discovery.starter_pack` | `false` | Poll the bundled starter pack — about 10,000 verified company boards (`scripts/seeds/starter_pack.json`, rebuilt from Common Crawl's public index each release), seeded as discovered boards so dead ones are dropped automatically. New installs turn it on in the setup wizard; existing installs from the banner on the Companies page. EU entries are included only with `discovery.eu_seeds_enabled`. Turning it off hides the rows; nothing is deleted. |
 | `discovery.hiringcafe_mining_enabled` | `true` | Convert aggregator sightings (Adzuna; hiring.cafe if its connector ever works again) of unknown boards into discovery candidates (needs `sources.adzuna.enabled`). |
 | `discovery.candidate_capture_cap` | `50` | Max sightings staged per slow cycle. |
 | `discovery.revalidate_reserve` | `100` | Slice of `max_validations_per_run` reserved for revalidation, so a busy discovery run can't starve rechecks. Keep `max_validations_per_run` comfortably above it. |
