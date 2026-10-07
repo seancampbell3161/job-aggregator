@@ -1,4 +1,7 @@
 # tests/test_state_sqlite_rejected.py
+import json
+import logging
+import sqlite3
 from datetime import datetime, timezone
 
 import pytest
@@ -133,3 +136,97 @@ def test_record_many_writes_all_or_nothing():
         s.record_many([(_posting("a:2"), "role"), (_posting("a:3"), "role")])
     assert s.list_rejected(since_iso="") == []
     assert not s._conn.in_transaction
+
+
+# --- compressed job text (description_z) ---
+
+_PROSE = (
+    "We are looking for an engineer to join our platform team. You will design, "
+    "build and operate backend services that power our customer-facing products. "
+    "Responsibilities include code review, mentoring teammates, and on-call. "
+    "Requirements: 3+ years of experience, strong communication, and a bias for "
+    "shipping. Benefits: health insurance, equity, flexible hours, remote-friendly. "
+) * 40
+
+
+def _long_posting(job_id="a:long", description=_PROSE):
+    p = _posting(job_id)
+    return NormalizedPosting(**{**p.__dict__, "description": description})
+
+
+def _raw(s, job_id):
+    return s._conn.execute(
+        "SELECT data, description_z FROM rejected_postings WHERE job_id = ?",
+        (job_id,)).fetchone()
+
+
+def test_description_roundtrips_via_get_list_and_record_many():
+    s = _store()
+    s.record(_long_posting("a:1"), rejected_by="role")
+    s.record_many([(_long_posting("a:2"), "role")])
+    expected = s.get("a:1")["description_snapshot"]
+    assert expected and len(expected) > 1000
+    assert s.get("a:2")["description_snapshot"] == expected
+    listed = {r["job_id"]: r for r in s.list_rejected(since_iso="")}
+    assert listed["a:1"]["description_snapshot"] == expected
+    assert listed["a:2"]["description_snapshot"] == expected
+
+
+def test_description_stored_compressed_not_in_data_json():
+    s = _store()
+    s.record(_long_posting("a:1"), rejected_by="role")
+    row = _raw(s, "a:1")
+    assert "description_snapshot" not in json.loads(row["data"])
+    blob = row["description_z"]
+    assert isinstance(blob, bytes)
+    assert len(blob) < 0.5 * len(s.get("a:1")["description_snapshot"].encode("utf-8"))
+
+
+def test_legacy_row_with_text_in_data_reads_unchanged():
+    s = _store()
+    item = {"job_id": "old:1", "first_seen": "2026-01-01T00:00:00+00:00",
+            "rejected_by": "role", "title": "T", "description_snapshot": "legacy text"}
+    s._conn.execute(
+        "INSERT INTO rejected_postings (job_id, first_seen, rejected_by, data) "
+        "VALUES (?,?,?,?)",
+        ("old:1", item["first_seen"], "role", json.dumps(item)))
+    assert s.get("old:1")["description_snapshot"] == "legacy text"
+    assert s.list_rejected(since_iso="")[0]["description_snapshot"] == "legacy text"
+
+
+def test_no_description_stores_null_and_omits_snapshot():
+    s = _store()
+    s.record(_long_posting("a:1", description=""), rejected_by="role")
+    assert _raw(s, "a:1")["description_z"] is None
+    assert "description_snapshot" not in s.get("a:1")
+    assert "description_snapshot" not in s.list_rejected(since_iso="")[0]
+
+
+def test_corrupt_blob_does_not_break_reads(caplog):
+    s = _store()
+    s.record(_long_posting("a:1"), rejected_by="role")
+    s._conn.execute("UPDATE rejected_postings SET description_z = ? WHERE job_id = ?",
+                    (b"not zlib data", "a:1"))
+    with caplog.at_level(logging.WARNING):
+        assert "description_snapshot" not in s.get("a:1")
+        assert "description_snapshot" not in s.list_rejected(since_iso="")[0]
+    corrupt = [r for r in caplog.records if r.message == "audit_description_corrupt"]
+    assert corrupt and all(r.job_id == "a:1" for r in corrupt)
+
+
+def test_connect_adds_description_z_to_old_schema(tmp_path):
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.execute(
+        "CREATE TABLE rejected_postings (job_id TEXT PRIMARY KEY, first_seen TEXT NOT NULL,"
+        " rejected_by TEXT NOT NULL, title TEXT, company TEXT, location_text TEXT,"
+        " source TEXT, apply_url TEXT, posted_at TEXT, comp_min INTEGER, comp_max INTEGER,"
+        " verdict TEXT, verdict_at TEXT, data TEXT NOT NULL)")
+    old.commit()
+    old.close()
+    conn = connect(path)
+    assert "description_z" in {r[1] for r in conn.execute("PRAGMA table_info(rejected_postings)")}
+    s = SqliteRejectedPostingsStore(conn)
+    s.record(_long_posting("a:1"), rejected_by="role")
+    assert s.get("a:1")["description_snapshot"].startswith("We are looking")
+

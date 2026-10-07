@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS rejected_postings (
     comp_max      INTEGER,
     verdict       TEXT,
     verdict_at    TEXT,
-    data          TEXT NOT NULL
+    data          TEXT NOT NULL,
+    description_z BLOB
 );
 CREATE INDEX IF NOT EXISTS idx_rejected_first_seen ON rejected_postings (first_seen);
 CREATE TABLE IF NOT EXISTS coach_runs (
@@ -169,6 +170,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _add_column_if_missing(
         conn, "connector_health", "backoff_until",
         "ALTER TABLE connector_health ADD COLUMN backoff_until INTEGER NOT NULL DEFAULT 0",
+    )
+    _add_column_if_missing(
+        # NULLable: legacy rows keep their job text inside `data` and read as before.
+        conn, "rejected_postings", "description_z",
+        "ALTER TABLE rejected_postings ADD COLUMN description_z BLOB",
     )
 
 

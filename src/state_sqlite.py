@@ -5,6 +5,7 @@ import json
 import logging
 import sqlite3
 import threading
+import zlib
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
@@ -1080,9 +1081,22 @@ class SqliteRejectedPostingsStore:
     _INSERT_SQL = (
         "INSERT OR IGNORE INTO rejected_postings "
         "(job_id, first_seen, rejected_by, title, company, location_text, "
-        " source, apply_url, posted_at, comp_min, comp_max, data) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+        " source, apply_url, posted_at, comp_min, comp_max, data, description_z) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
     )
+
+    @staticmethod
+    def _restore_description(item: dict, blob: bytes | None) -> None:
+        """Put the job text back into `item` from its compressed column. Legacy
+        rows (blob NULL) already carry it inside `data`. A corrupt blob must not
+        break a whole /audit page: log it and leave the text absent."""
+        if blob is None:
+            return
+        try:
+            item["description_snapshot"] = zlib.decompress(blob).decode("utf-8")
+        except (zlib.error, UnicodeDecodeError):
+            log.warning("audit_description_corrupt",
+                        extra={"job_id": item.get("job_id")})
 
     @staticmethod
     def _row(posting: NormalizedPosting, rejected_by: str, now: str) -> tuple:
@@ -1095,10 +1109,14 @@ class SqliteRejectedPostingsStore:
             "seniority": posting.seniority,
             **posting_display_fields(posting),
         }
+        # The job text is the bulk of each row: keep it out of the JSON blob and
+        # store it deflated (re-scoring on /audit rescue still needs it).
+        text = item.pop("description_snapshot", None)
+        description_z = zlib.compress(text.encode("utf-8")) if text else None
         return (posting.job_id, now, rejected_by, posting.title, posting.company,
                 posting.location_text, posting.source, posting.apply_url,
                 posting.posted_at.isoformat() if posting.posted_at else None,
-                posting.comp_min, posting.comp_max, json.dumps(item))
+                posting.comp_min, posting.comp_max, json.dumps(item), description_z)
 
     def record(self, posting: NormalizedPosting, *, rejected_by: str) -> bool:
         now = datetime.now(timezone.utc).isoformat()
@@ -1125,7 +1143,7 @@ class SqliteRejectedPostingsStore:
         self, *, since_iso: str, gate: str | None = None, query: str = "",
         include_judged: bool = True, limit: int = 500,
     ) -> list[dict]:
-        sql = ("SELECT data, rejected_by, verdict, verdict_at FROM rejected_postings "
+        sql = ("SELECT data, description_z, rejected_by, verdict, verdict_at FROM rejected_postings "
                "WHERE first_seen >= ?")
         params: list = [since_iso]
         if gate:
@@ -1142,6 +1160,7 @@ class SqliteRejectedPostingsStore:
         out: list[dict] = []
         for r in self._conn.execute(sql, params):
             item = json.loads(r["data"])
+            self._restore_description(item, r["description_z"])
             item["rejected_by"] = r["rejected_by"]
             item["verdict"] = r["verdict"]
             item["verdict_at"] = r["verdict_at"]
@@ -1158,13 +1177,14 @@ class SqliteRejectedPostingsStore:
 
     def get(self, job_id: str) -> dict | None:
         r = self._conn.execute(
-            "SELECT data, rejected_by, verdict, verdict_at FROM rejected_postings "
+            "SELECT data, description_z, rejected_by, verdict, verdict_at FROM rejected_postings "
             "WHERE job_id = ?",
             (job_id,),
         ).fetchone()
         if r is None:
             return None
         item = json.loads(r["data"])
+        self._restore_description(item, r["description_z"])
         item["rejected_by"] = r["rejected_by"]
         item["verdict"] = r["verdict"]
         item["verdict_at"] = r["verdict_at"]
